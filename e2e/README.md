@@ -51,6 +51,21 @@ e2e/
     12-strategy-backtest launch a REAL single-strategy run (SEPA, handful of tickers,
                          ~1yr) from the UI -> WS progress -> succeeded; detail shows
                          equity + trades and metric cards == GET /backtests/{id}
+    13-hyperopt-launch   launch a TINY NSGA-II study (pairs, small pop/gens, 1-2 folds)
+                         from /hyperopt -> WS progress -> succeeded; detail trials
+                         table + Pareto scatter populate; numbers == tms.hyperopt_*
+                         / GET /hyperopt/{id}/trials (DB/API-checked)
+    14-hyperopt-detail   /hyperopt/{ts} Pareto front (marked non-dominance ==
+                         (sharpe,calmar) front computed from the DB, spec §10) +
+                         per-fold drill-down (one fold row per recorded fold)
+    15-hyperopt-promote  promote a COMPLETE trial -> confirmation -> success; assert
+                         tms.active_params now points at the tuned param_set with a
+                         full audit row (promoted_by/source_study/source_trial,
+                         source_id=hyperopt:<ts>) AND /strategies/{id} renders the
+                         new active params
+    16-hyperopt-cancel   launch a larger study, cancel mid-run from the UI -> canceled
+                         (study row INTERRUPTED; race-tolerant, DB-checked)
+    17-hyperopt-console   zero severe console errors on /hyperopt + /hyperopt/{id}
 ```
 
 ### Strategies specs and build order
@@ -68,6 +83,29 @@ and never weaken. Every active-param value and metric card is compared to ground
 truth queried independently from postgres (tms.active_params -> param_sets) and
 the API — no fabricated values. The four canonical strategy ids come from
 `internal/params/loader.go` (sepa, pairs, sector_rotation, intraday_breakout).
+
+### Hyperopt specs and build order
+
+The Hyperopt studio ships after the P1 Data + P2 Backtests + P3 Strategies
+workspaces. Specs 13-17 are **permanent** and assert the documented contract
+(`docs/api.md` Hyperopt; conventional `data-testid`s: list root `hyperopt-page`
+with `hyperopt-study-row-<ts>`; launch `hyperopt-launch` / `open-hyperopt-dialog`
+-> `hyperopt-dialog` / `hyperopt-form` with `hyperopt-{strategy,start,end,
+population,generations,folds,tickers}` + `hyperopt-submit`; the shared
+`job-progress` panel drives the `hyperopt.run` job; detail root `hyperopt-detail`
+[data-study-ts] with `hyperopt-trials-table` / `hyperopt-trial-row-<n>`
+[data-sharpe/data-calmar/data-pareto], `pareto-scatter` [data-pareto-count],
+per-fold `trial-fold-<n>-<fold>` / `trial-fold-row-<n>`; promotion
+`hyperopt-promote-<n>` -> `hyperopt-promote-confirm` -> `hyperopt-promote-
+success`). While the section is still the `coming-soon` placeholder
+(`hyperopt-placeholder`) / a route is unbuilt / the stack has no tradable bars
+or persisted study, they **self-skip** cleanly so the gate stays green; once
+wired the assertions bind and never weaken. The Pareto front the UI marks is
+checked against the non-dominance (weak dominance + strict improvement, spec
+§10) computed independently in `lib/hyperopt.markPareto` from the DB objective
+points, and the promotion's effect is verified against tms.active_params JOIN
+tms.param_sets (audit columns promoted_by / source_study / source_trial /
+source_id) — no fabricated values.
 
 ### Backtests specs and build order
 

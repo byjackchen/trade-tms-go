@@ -189,6 +189,18 @@ func runWorker(ctx context.Context, env *runtimeEnv, healthAddr string, opts job
 		return err
 	}
 
+	// hyperopt.run: run a full NSGA-II walk-forward hyperparameter study over a
+	// shared read-only bar dataset, persisting trials to research.hyperopt_* and
+	// emitting the runs/hyperopt/<ts>/ artifact tree. The API
+	// (POST /api/v1/hyperopt) enqueues these.
+	hyperoptRun, err := handlers.NewHyperopt(pool, env.cfg.RunsDir, env.cfg.StrategyParamsDir, log)
+	if err != nil {
+		return err
+	}
+	if err := registry.Register(hyperoptRun); err != nil {
+		return err
+	}
+
 	worker, err := jobs.NewWorker(queue, registry, log, opts)
 	if err != nil {
 		return err

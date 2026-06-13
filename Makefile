@@ -46,7 +46,8 @@ PARITY_RUN_TS  := 2021-01-04_00-00-00
 
 .PHONY: all build test vet fmt-check itest compose-up compose-down docker-build clean \
 	e2e-install e2e itest-full e2e-seed \
-	parity parity-nautilus parity-go parity-compare parity-depthwalk
+	parity parity-nautilus parity-go parity-compare parity-depthwalk \
+	parity-backtest parity-backtest-bars parity-backtest-py
 
 all: fmt-check vet build test
 
@@ -176,3 +177,40 @@ parity-depthwalk:
 # if the engines diverge beyond tolerance.
 parity: parity-nautilus parity-go parity-compare
 	@echo "[parity] golden-parity gate passed"
+
+# ---------------------------------------------------------------------------
+# Integrated-backtest parity (the P3 gap-closer): proves the INTEGRATED real-
+# strategy path (engine loop + adapters + multi-strategy gate + equity sampler)
+# matches Python's scripts/multi_strategy_backtest over the SAME real fold and
+# bars — not just the pure signal.py layer. Pairs (KO/PEP, MA/V, XOM/CVX) under
+# the canonical multi-strategy gate.
+# ---------------------------------------------------------------------------
+
+# Pair legs + sector ETFs + SPY needed by the harness.
+PARITY_BT_TICKERS := KO PEP MA V XOM CVX SPY
+PARITY_BT_HARNESS := tmp/parity_pairs_harness.py
+
+# Export the bars the harness needs from tms.bars_daily into tmp/ CSVs (the
+# SAME bars the Go store reads). Requires the compose postgres up (55432).
+parity-backtest-bars:
+	@mkdir -p tmp
+	@for t in $(PARITY_BT_TICKERS); do \
+		PGPASSWORD=tms psql -h localhost -p 55432 -U tms -d tms -t -A -F',' \
+			-c "select to_char(ts,'YYYY-MM-DD'), open, high, low, close, volume from tms.bars_daily where ticker='$$t' order by ts" \
+			> tmp/bars_$$t.csv; \
+	done
+	@echo "[parity-backtest] exported bars for: $(PARITY_BT_TICKERS)"
+
+# Run the reference Python integrated harness (PairsRunner through a Nautilus
+# BacktestEngine + the canonical multi-strategy portfolio gate + equity sampler)
+# and print its metrics JSON. Use to (re)derive the numbers embedded in
+# internal/hyperopt/study/parity_backtest_test.go.
+parity-backtest-py: parity-backtest-bars
+	cd $(MS_REPO) && $(MS_PY) $(CURDIR)/$(PARITY_BT_HARNESS)
+
+# Run the Go integrated-backtest parity regression test against the compose
+# postgres, comparing the Go integrated pairs backtest to the embedded Python
+# expectations over the gate fold + a real fold.
+parity-backtest: compose-up parity-backtest-bars
+	$(ITEST_ENV) go test -tags parity_backtest -count=1 \
+		-run TestParityIntegratedBacktest -v ./internal/hyperopt/study/

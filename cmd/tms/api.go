@@ -16,6 +16,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 	"github.com/byjackchen/trade-tms-go/internal/db"
+	"github.com/byjackchen/trade-tms-go/internal/hyperopt/study"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
@@ -117,6 +118,8 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		Universe:    universe.NewStore(pool),
 		Runs:        runs.NewStore(pool),
 		Strategies:  api.NewStrategyReader(params.DBPayloadReader{Q: pool}, env.cfg.StrategyParamsDir),
+		Hyperopt:    study.NewStore(pool),
+		Promoter:    study.NewPromoter(pool),
 		Calendar:    cal,
 		PingPG:      pool.Ping,
 		PingRedis:   func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },

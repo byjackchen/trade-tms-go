@@ -51,7 +51,7 @@ func newRootCmd() *cobra.Command {
 		newJobsCmd(env),
 		newBacktestCmd(env),
 		newParityBacktestCmd(env),
-		newStubCmd(env, "hyperopt", "Run hyper-parameter optimization studies over the backtest engine"),
+		newHyperoptCmd(env),
 		newStubCmd(env, "live", "Run the live trading node (signal / paper / live modes)"),
 		newStubCmd(env, "eod", "Run the end-of-day workflow (data sync, signals, watchlist, reports)"),
 		newAPICmd(env),

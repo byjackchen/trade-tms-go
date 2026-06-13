@@ -52,13 +52,32 @@ func (a *Account) StartingBalance() domain.Money { return a.startingBalance }
 // RealizedPnL returns cumulative realized PnL across all positions.
 func (a *Account) RealizedPnL() domain.Money { return a.realized }
 
-// Cash returns the current base-currency balance = starting + realized.
+// Cash returns the current base-currency balance = starting + realized. This is
+// the Go equivalent of the Nautilus margin account's balance_total(USD): the
+// SETTLED cash balance, which moves only on realized PnL (and commissions) — it
+// does NOT mark open positions to market. Unrealized PnL lives in Equity()/
+// Unrealized(), never in the cash balance. The reference equity_provider and the
+// portfolio gate snapshot both read balance_total, so this — not Equity() — is
+// the parity source for sizing and gating.
 func (a *Account) Cash() (domain.Money, error) {
 	v, err := a.startingBalance.Add(a.realized)
 	if err != nil {
 		return 0, fmt.Errorf("account cash: %w", err)
 	}
 	return v, nil
+}
+
+// CashFloat returns Cash() as a float64 (= Nautilus balance_total), falling back
+// to the starting balance on the never-expected error path so a sizing closure
+// built over it degrades gracefully rather than panicking. This is the value the
+// strategy assemblers bind as the generators' EquityProvider — mirroring the
+// reference _live_equity() that reads account(VENUE).balance_total(USD).
+func (a *Account) CashFloat() float64 {
+	c, err := a.Cash()
+	if err != nil {
+		return a.startingBalance.Float64()
+	}
+	return c.Float64()
 }
 
 // LastPrice returns the last seen price for symbol and whether one exists.
@@ -229,12 +248,19 @@ func (a *Account) AllPositions() []domain.Position {
 }
 
 // Snapshot builds a domain.AccountSnapshot for the risk pipeline. Per the
-// reference glue (spec §2.9), Cash is set equal to NAV (= equity) and the
-// today P&L fields default to 0 (daily-loss-halt dormant in backtest). The
-// positions map carries signed quantities; last_close carries the last seen
-// price per symbol.
+// reference glue (runner/portfolio_glue.py:build_snapshot_from_nautilus), NAV is
+// the venue account's balance_total(USD) — the SETTLED cash balance (starting +
+// realized), NOT the mark-to-market equity. Nautilus's balance_total does not
+// fold unrealized PnL of open positions into the balance, so the allocator
+// budget (capital_pct * NAV) and the risk-constraint caps gate against cash, not
+// equity. Using Equity() here would inflate/deflate every strategy's budget by
+// the live unrealized PnL and admit/reject a DIFFERENT order set than Python,
+// breaking objective parity (FIXER round-3 finding 1). Cash is set equal to NAV
+// (the glue sets cash == nav) and the today P&L fields default to 0 (daily-loss-
+// halt dormant in backtest). The positions map carries signed quantities;
+// last_close carries the last seen price per symbol.
 func (a *Account) Snapshot() (domain.AccountSnapshot, error) {
-	equity, err := a.Equity()
+	nav, err := a.Cash()
 	if err != nil {
 		return domain.AccountSnapshot{}, err
 	}
@@ -249,5 +275,5 @@ func (a *Account) Snapshot() (domain.AccountSnapshot, error) {
 	for k, v := range a.lastPrice {
 		lastClose[k] = v
 	}
-	return domain.NewAccountSnapshot(equity, equity, 0, 0, positions, lastClose), nil
+	return domain.NewAccountSnapshot(nav, nav, 0, 0, positions, lastClose), nil
 }

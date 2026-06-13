@@ -287,11 +287,13 @@ func (s *stubRunsReader) Orders(_ context.Context, id int64) (json.RawMessage, e
 
 // testServer bundles a wired Server with its stubs for assertion access.
 type testServer struct {
-	srv  *Server
-	jobs *stubJobQueue
-	data *stubDataStore
-	uni  *stubUniverseReader
-	runs *stubRunsReader
+	srv      *Server
+	jobs     *stubJobQueue
+	data     *stubDataStore
+	uni      *stubUniverseReader
+	runs     *stubRunsReader
+	hyperopt *stubHyperoptReader
+	promoter *stubPromoter
 }
 
 // pingOK / pingErr are reusable PingFuncs.
@@ -310,6 +312,8 @@ func newTestServer(t *testing.T) *testServer {
 	ds := &stubDataStore{barDates: map[string][]calendar.Date{}, tickers: map[string]bool{}}
 	ur := &stubUniverseReader{}
 	rr := &stubRunsReader{}
+	hr := &stubHyperoptReader{}
+	pr := &stubPromoter{}
 
 	srv, err := NewServer(Deps{
 		Log:         zerolog.Nop(),
@@ -320,13 +324,15 @@ func newTestServer(t *testing.T) *testServer {
 		Universe:    ur,
 		Runs:        rr,
 		Strategies:  NewStrategyReader(nil, ""),
+		Hyperopt:    hr,
+		Promoter:    pr,
 		Calendar:    cal,
 		PingPG:      pingOK,
 		PingRedis:   pingOK,
 		Now:         func() time.Time { return fixedNow },
 	})
 	require.NoError(t, err)
-	return &testServer{srv: srv, jobs: jq, data: ds, uni: ur, runs: rr}
+	return &testServer{srv: srv, jobs: jq, data: ds, uni: ur, runs: rr, hyperopt: hr, promoter: pr}
 }
 
 // do issues a request against the wired router and returns the recorder.

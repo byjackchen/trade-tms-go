@@ -15,6 +15,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,6 +40,12 @@ const KindBacktestRun = "backtest.run"
 // many bars (plus a terminal frame), keeping the Redis channel quiet on long
 // runs while staying responsive on the UI.
 const progressEvery = 200
+
+// sepaWarmupCalendarDays is the out-of-band SEPA warmup window: 400 calendar
+// days before the run start (~270 trading days, above the 200-bar TrendTemplate
+// / SEPA threshold), matching multi_strategy_backtest.py's
+// `warmup_start = start_dt - timedelta(days=400)`.
+const sepaWarmupCalendarDays = 400
 
 // Backtest handles "backtest.run" jobs.
 //
@@ -369,6 +377,9 @@ func (h *Backtest) assembleRealStrategy(ctx context.Context, strategy string, cf
 		if err != nil {
 			return engine.Config{}, nil, err
 		}
+		if cfg.Warmup, err = h.buildWarmup(ctx, cfg, tickers); err != nil {
+			return engine.Config{}, nil, err
+		}
 	case "sector_rotation":
 		if in.Params.Sector, _, err = h.loader.SectorRotation(ctx); err != nil {
 			return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve sector params: %w", err)
@@ -400,6 +411,9 @@ func (h *Backtest) assembleRealStrategy(ctx context.Context, strategy string, cf
 		}
 		in.Context, err = h.buildContext(ctx, cfg, tickers)
 		if err != nil {
+			return engine.Config{}, nil, err
+		}
+		if cfg.Warmup, err = h.buildWarmup(ctx, cfg, tickers); err != nil {
 			return engine.Config{}, nil, err
 		}
 	}
@@ -458,6 +472,56 @@ func (h *Backtest) buildContext(ctx context.Context, cfg engine.Config, stocks [
 		})
 	}
 	return portfolio.NewContextProvider(spy, sf1, nil, stocks, "MRT", 0), nil
+}
+
+// buildWarmup loads the out-of-band SEPA warmup tail (the 400 calendar days
+// BEFORE the run window) for each SEPA stock and returns an engine.WarmupConfig.
+// This mirrors multi_strategy_backtest.py:404-435,645-653: the warmup bars are
+// pulled in the same pass as the run window but split off into warmup_by_ticker,
+// then injected via SEPAUniverseRunner.warmup_ticker BEFORE engine.run() — they
+// are NEVER replayed through the engine (no orders, no equity samples). Only
+// SEPA stocks get warmed (Pairs/Sector are not WarmupConsumers). Returns nil
+// when no stock has pre-window history (cold start), which is a no-op.
+func (h *Backtest) buildWarmup(ctx context.Context, cfg engine.Config, stocks []string) (*engine.WarmupConfig, error) {
+	if len(stocks) == 0 {
+		return nil, nil
+	}
+	warmupStart := cfg.Start.AddDays(-sepaWarmupCalendarDays)
+	// The bar strictly before the run window: load [warmupStart, Start] then
+	// drop any bar dated >= Start (run-window bars belong to the engine feed).
+	runStart := time.Date(cfg.Start.Year, cfg.Start.Month, cfg.Start.Day, 0, 0, 0, 0, time.UTC)
+	bars := make(map[string][]domain.Bar, len(stocks))
+	for _, t := range stocks {
+		rows, err := h.uni.GetBars(ctx, t, warmupStart, cfg.Start)
+		if err != nil {
+			return nil, fmt.Errorf("backtest.run: loading %s warmup: %w", t, err)
+		}
+		hist := make([]domain.Bar, 0, len(rows))
+		for _, r := range rows {
+			if !r.TS.UTC().Before(runStart) {
+				continue // run-window bar; the engine feed owns it
+			}
+			// Skip NaN rows (source NULL) exactly as the StoreFeed does — they
+			// cannot be a valid OHLC bar.
+			if math.IsNaN(r.Open) || math.IsNaN(r.High) || math.IsNaN(r.Low) ||
+				math.IsNaN(r.Close) || math.IsNaN(r.Volume) {
+				continue
+			}
+			bar, werr := engine.WrangleOHLCV(t, r)
+			if werr != nil {
+				return nil, fmt.Errorf("backtest.run: wrangling %s warmup bar: %w", t, werr)
+			}
+			hist = append(hist, bar)
+		}
+		sort.SliceStable(hist, func(i, j int) bool { return hist[i].TS.Before(hist[j].TS) })
+		if len(hist) > 0 {
+			bars[t] = hist
+		}
+	}
+	if len(bars) == 0 {
+		return nil, nil
+	}
+	return &engine.WarmupConfig{Bars: bars}, nil
 }
 
 // collectStrategySummaries gathers each real strategy's end-of-run state summary

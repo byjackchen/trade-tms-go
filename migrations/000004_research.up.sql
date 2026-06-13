@@ -13,7 +13,7 @@
 CREATE TABLE tms.runs (
     id                   BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     run_ts               TEXT        NOT NULL UNIQUE
-                                     CHECK (run_ts ~ '^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$'),
+                                     CHECK (run_ts ~ '^\d{4}-\d{2}-\d{2}_([01]\d|2[0-3])-[0-5]\d-[0-5]\d$'),
     kind                 TEXT        NOT NULL DEFAULT 'multi-strategy' CHECK (kind <> ''),
     status               TEXT        NOT NULL DEFAULT 'RUNNING'
                                      CHECK (status IN ('RUNNING', 'COMPLETE', 'INTERRUPTED', 'FAIL')),
@@ -123,7 +123,7 @@ CREATE INDEX trades_run_symbol_idx ON tms.trades (run_id, symbol);
 -- ---------------------------------------------------------------------------
 CREATE TABLE tms.hyperopt_studies (
     study_ts          TEXT        NOT NULL PRIMARY KEY
-                                  CHECK (study_ts ~ '^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$'),
+                                  CHECK (study_ts ~ '^\d{4}-\d{2}-\d{2}_([01]\d|2[0-3])-[0-5]\d-[0-5]\d$'),
     study_name        TEXT        NOT NULL UNIQUE CHECK (study_name <> ''),
     strategy          TEXT        NOT NULL CHECK (strategy IN ('sepa', 'sector_rotation', 'pairs', 'joint')),
     start_date        DATE        NOT NULL,

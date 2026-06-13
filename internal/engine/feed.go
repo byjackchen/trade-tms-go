@@ -80,6 +80,15 @@ func hasNaN(r universe.OHLCV) bool {
 		math.IsNaN(r.Close) || math.IsNaN(r.Volume)
 }
 
+// WrangleOHLCV converts one OHLCV row to a domain.Bar with the exact price
+// bridge (float -> shortest-repr decimal -> 1e-4 fixed point), volume truncated
+// toward zero. It is the single wrangling entry point shared by the StoreFeed
+// (run-window bars) and the out-of-band warmup loader (pre-window bars) so both
+// produce identically-bridged domain.Bars (spec §1).
+func WrangleOHLCV(symbol string, r universe.OHLCV) (domain.Bar, error) {
+	return wrangle(symbol, r)
+}
+
 // wrangle converts one OHLCV row to a domain.Bar with the exact price bridge
 // (float -> shortest-repr decimal -> 1e-4 fixed point). Volume truncates toward
 // zero (int(bar.volume), §1).

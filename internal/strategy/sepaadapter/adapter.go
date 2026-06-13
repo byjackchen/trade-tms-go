@@ -40,6 +40,7 @@ func New(id string, gen *sepa.Generator) *Strategy {
 var (
 	_ engine.Strategy        = (*Strategy)(nil)
 	_ engine.ContextConsumer = (*Strategy)(nil)
+	_ engine.WarmupConsumer  = (*Strategy)(nil)
 	_ engine.IntentEvaluator = (*Strategy)(nil)
 	_ engine.StateSummarizer = (*Strategy)(nil)
 	_ engine.StatePersister  = (*Strategy)(nil)
@@ -71,6 +72,24 @@ func (s *Strategy) InjectContext(ctx engine.StrategyContext) {
 			s.gen.SetEarningsBlackout(v)
 		}
 	}
+}
+
+// WarmupBars primes the underlying SEPA generator's kline history from the
+// pre-window bars for THIS adapter's symbol, mirroring
+// SEPAUniverseRunner.warmup_ticker -> SignalGenerator.warmup_from_history
+// (universe_runner.py:140-155, signal.py:378-392): pure state-priming, no signal
+// evaluation, no orders. Offered every warmup symbol by the engine; only the
+// matching symbol is consumed (one adapter drives one symbol). An empty history
+// is a no-op.
+func (s *Strategy) WarmupBars(sym string, history []domain.Bar) {
+	if sym != s.sym || len(history) == 0 {
+		return
+	}
+	bars := make([]sepa.Bar, len(history))
+	for i, b := range history {
+		bars[i] = toSepaBar(b)
+	}
+	s.gen.WarmupFromHistory(bars)
 }
 
 // OnBar feeds the bar to the generator and translates the emitted signals into

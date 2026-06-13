@@ -90,6 +90,30 @@ type ContextConsumer interface {
 	InjectContext(ctx StrategyContext)
 }
 
+// WarmupConsumer is a strategy that can PRIME its internal indicator/history
+// state from pre-window historical bars OUT OF BAND — i.e. before the engine's
+// event loop runs, WITHOUT submitting any orders and WITHOUT emitting any
+// equity samples. This is the faithful Go port of the Python warmup model
+// (multi_strategy_backtest.py:645-653 SEPAUniverseRunner.warmup_ticker): the
+// 400-calendar-day warmup tail is injected directly into the SignalGenerator's
+// history, NOT replayed through the engine/venue. The engine then replays ONLY
+// the [Start, End] run window.
+//
+// ONLY strategies whose Python counterpart receives this out-of-band warmup
+// implement it — SEPA (warmup_ticker) does; SectorRotation and Pairs do NOT
+// (their Python loaders pull run-window-only bars and build rolling state from
+// in-window on_bar calls). Preserving that asymmetry is REQUIRED for objective
+// parity: a Pairs lookback=60 SG is intentionally NOT warm at test_start.
+//
+// WarmupBars receives the historical bars for ONE symbol the strategy trades,
+// ascending by ts, all strictly before the run window. A strategy that trades
+// no instrument matching sym (or has no use for the history) is a no-op.
+type WarmupConsumer interface {
+	// WarmupBars primes the strategy's state for sym from history (ascending,
+	// pre-window). It MUST NOT submit orders or mutate the account.
+	WarmupBars(sym string, history []domain.Bar)
+}
+
 // StrategyContext is the per-bar context a ContextConsumer may read. Fields are
 // optional; a zero value means "not provided".
 type StrategyContext struct {

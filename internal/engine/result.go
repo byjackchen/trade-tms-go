@@ -76,11 +76,30 @@ type Config struct {
 	// SPYSymbol is the heartbeat instrument whose bars drive Context refresh
 	// (default "SPY"). Ignored when Context is nil.
 	SPYSymbol string
+	// Warmup, when non-nil, supplies OUT-OF-BAND pre-window history per symbol to
+	// prime WarmupConsumer strategies (SEPA) BEFORE the event loop runs. These
+	// bars are NEVER scheduled through the loop (no orders, no fills, no equity
+	// samples); the engine replays ONLY [Start, End]. This is the faithful port
+	// of Python's SEPAUniverseRunner.warmup_ticker (multi_strategy_backtest.py
+	// :645-653): SEPA SGs are pre-warmed from the 400d tail while Pairs/Sector are
+	// not (their generators do not implement WarmupConsumer). SPY regime warmup is
+	// handled separately by the ContextProvider's own full SPY history, NOT here.
+	// Default (nil) => no warmup priming (the P2 Nautilus parity path).
+	Warmup *WarmupConfig
 	// Progress, when non-nil, is called after each bar is dispatched with the
 	// number of bars processed so far and the total scheduled (for "% complete"
 	// reporting). It runs on the loop goroutine; keep it cheap and non-blocking.
 	// It MUST NOT mutate engine state. Optional.
 	Progress func(processed, total int)
+}
+
+// WarmupConfig carries the out-of-band pre-window history used to prime
+// WarmupConsumer strategies. Bars maps a symbol to its warmup history (ascending
+// by ts, all strictly before Config.Start). Only symbols a WarmupConsumer
+// strategy trades are consumed; extra entries are ignored. These bars are not
+// scheduled through the event loop.
+type WarmupConfig struct {
+	Bars map[string][]domain.Bar
 }
 
 // RealisticParams configures the realistic fill model.
@@ -146,4 +165,67 @@ type Result struct {
 
 	// FirstTS/LastTS bound the processed data (UTC).
 	FirstTS, LastTS time.Time
+}
+
+// OrderCounts are the order/position counters for a Result, scoped to a single
+// engine strategy id (or the whole portfolio when strategyID == ""). It is the
+// single source of truth for num_orders / num_filled_orders /
+// num_rejected_orders / num_positions across every metrics path (the P2/P3
+// backtest assembly AND the P4 hyperopt objective), so the same Result always
+// yields the same counters regardless of caller.
+type OrderCounts struct {
+	NumOrders         int
+	NumFilledOrders   int
+	NumRejectedOrders int
+	NumPositions      int
+}
+
+// Counts returns the order/position counters scoped to strategyID ("" =
+// portfolio: all strategies). Semantics mirror Nautilus exactly (the parity
+// target of multi_strategy_backtest.py):
+//
+//   - num_orders        — orders SUBMITTED to the executor.
+//   - num_filled_orders — orders that produced at least one fill (Nautilus
+//     o.is_closed; the engine settles fills asynchronously and never mutates the
+//     submitted order's Status to FILLED, so we derive "filled" from res.Fills,
+//     NOT from Order.Status which stays at submit-time).
+//   - num_rejected_orders — submitted orders left in a REJECTED status PLUS the
+//     signal orders the portfolio gate blocked pre-submit (RejectedOrders); the
+//     gate is the engine's equivalent of a Nautilus pre-trade REJECTED order.
+//   - num_positions     — final position snapshots (one per (strategy, symbol)
+//     that ever left flat).
+func (r *Result) Counts(strategyID string) OrderCounts {
+	var c OrderCounts
+	filledByOrder := make(map[string]bool, len(r.Fills))
+	for _, f := range r.Fills {
+		if strategyID != "" && f.StrategyID != strategyID {
+			continue
+		}
+		filledByOrder[f.ClientOrderID] = true
+	}
+	for _, o := range r.Orders {
+		if strategyID != "" && o.StrategyID != strategyID {
+			continue
+		}
+		c.NumOrders++
+		if filledByOrder[o.ClientOrderID] {
+			c.NumFilledOrders++
+		}
+		if o.Status == domain.OrderStatusRejected {
+			c.NumRejectedOrders++
+		}
+	}
+	for _, rej := range r.RejectedOrders {
+		if strategyID != "" && rej.StrategyID != strategyID {
+			continue
+		}
+		c.NumRejectedOrders++
+	}
+	for _, pos := range r.Positions {
+		if strategyID != "" && pos.StrategyID != strategyID {
+			continue
+		}
+		c.NumPositions++
+	}
+	return c
 }

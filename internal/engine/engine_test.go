@@ -135,6 +135,9 @@ func TestFlatClosesNetPosition(t *testing.T) {
 
 // TestAccountStatesCadence checks the account-state curve: one initial event
 // plus one per fill (settlement), with balances tracking cumulative realized.
+// The position is left NET +50 long after the two intents, so end-of-run
+// liquidation (on_stop close_all_positions parity) flattens it on the last bar
+// (2025-01-08 close 98), adding a 4th settling state: 50*(98-105)=-350 -> 99800.
 func TestAccountStatesCadence(t *testing.T) {
 	intents := []Intent{
 		{Date: ts(2025, 1, 2), Ticker: "AAPL", Side: domain.SideLong, Qty: 100},
@@ -142,11 +145,13 @@ func TestAccountStatesCadence(t *testing.T) {
 	}
 	res := runEngine(t, newAAPLConfig(intents), mkBars("AAPL", aaplRows))
 	// initial(100000) + fill0(open: realized 0 -> 100000) + fill1(close 50:
-	// 50*(108-105)=150 -> 100150).
-	require.Len(t, res.AccountStates, 3)
+	// 50*(108-105)=150 -> 100150) + liquidation(close remaining 50 @98:
+	// 50*(98-105)=-350 -> 99800).
+	require.Len(t, res.AccountStates, 4)
 	assert.Equal(t, domain.MustMoney("100000"), res.AccountStates[0].BalanceUSD)
 	assert.Equal(t, domain.MustMoney("100000"), res.AccountStates[1].BalanceUSD)
 	assert.Equal(t, domain.MustMoney("100150"), res.AccountStates[2].BalanceUSD)
+	assert.Equal(t, domain.MustMoney("99800"), res.AccountStates[3].BalanceUSD)
 }
 
 // TestEquityCurveMarkToMarket checks unrealized PnL appears in the equity curve

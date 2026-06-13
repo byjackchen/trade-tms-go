@@ -191,9 +191,69 @@ following is the contract hyperopt depends on.)
 - Strategy warmup: the backtest loads 400 calendar days of history before
   `start` for ticker warmup (`:404-411`) and ~500 days for SPY regime warmup
   (`:336-358`) — independent of the walk-forward buffer (see §3). [MUST-MATCH]
+  - **OUT-OF-BAND, ROLE-ASYMMETRIC (`internal/engine.WarmupConfig`)**: Python
+    feeds the Nautilus engine ONLY the run window `[start, end]`
+    (`run_df = engine_df[idx >= run_start]`); the 400d warmup tail goes into
+    `warmup_by_ticker` and is **never replayed through the engine**. It is
+    injected out-of-band into the SEPA SignalGenerators ONLY
+    (`SEPAUniverseRunner.warmup_ticker`, `multi_strategy_backtest.py:645-653`),
+    plus ~500d SPY into the RegimeActor's seed history
+    (`strategy_assembly.py:122-123`). **SectorRotation and Pairs get NO warmup**
+    — their loaders pull run-window-only bars and build rolling state from
+    in-window `on_bar` calls, so e.g. a Pairs `lookback=60` SG is intentionally
+    NOT warm at `test_start`. This asymmetry is FAITHFUL and [MUST-MATCH].
+    Go replicates it exactly: the engine event loop replays only `[Start, End]`;
+    `engine.WarmupConfig.Bars` primes only `WarmupConsumer` strategies (SEPA's
+    adapter), Pairs/Sector adapters are NOT `WarmupConsumer`s and receive
+    nothing, and the SPY regime warmup is carried by the `ContextProvider`'s own
+    full SPY history (look-ahead-safe, date-keyed — independent of the loop). No
+    orders or equity samples are emitted during priming. The hyperopt objective
+    feeds the engine via `Dataset.WindowFeed()` (run-window only) and supplies
+    SEPA warmup via `Dataset.WarmupSlices` (the pre-window `[start-400d, start)`
+    tail). This closes a latent P3 bug: previously the hyperopt path replayed the
+    400d warmup through the loop, warming Pairs/Sector and emitting ~430 equity
+    samples instead of ~30 over the test window.
 - Counters: `num_orders = len(all orders)`, `num_filled_orders` counts
   `is_closed`, `num_rejected_orders` counts status REJECTED, `num_positions =
   len(all positions)` (`:712-715`). [MUST-MATCH]
+  - **Go mapping (`internal/engine.Result.Counts`)**: the engine settles fills
+    asynchronously and never mutates a submitted order's `Status` to `FILLED`,
+    so `num_filled_orders` is derived from `res.Fills` (orders that produced ≥1
+    fill = Nautilus `is_closed`), NOT from `Order.Status == FILLED`.
+    `num_rejected_orders` unions submitted orders left in a `REJECTED` status
+    with the signal orders the portfolio gate blocked pre-submit
+    (`res.RejectedOrders` — the engine's equivalent of a Nautilus pre-trade
+    REJECTED order). This is the SINGLE source of truth shared by the P2/P3
+    backtest assembly and the P4 objective path. [MUST-MATCH]
+  - **`num_rejected_orders` is INFORMATIONAL, not a parity target.** The
+    optimizer objective vector is `(sharpe, calmar)` ONLY (`to_objectives()`,
+    §1.1); `num_rejected_orders` never enters the objective, the dominance
+    relation, or `current_best`. Its DENOMINATOR differs by design: Python counts
+    only Nautilus venue-level `OrderStatus.REJECTED`
+    (`multi_strategy_backtest.py:714`) — allocator/budget drops are SILENT
+    (`pairs/nautilus_runner.py:128-129` skips the submit without a venue order) —
+    whereas Go's `Result.Counts` counts the portfolio-gate (allocator-budget +
+    risk) drops in `res.RejectedOrders`. So Go's `num_rejected_orders` will
+    generally be LARGER than Python's for the same run. Because the objective is
+    `(sharpe, calmar)`, this divergence does NOT affect any optimizer decision or
+    Pareto front; the counter is retained purely for telemetry/UI. Do NOT treat
+    it as a [MUST-MATCH] number. (`num_orders`, `num_filled_orders`,
+    `num_positions` and the curve-derived metrics remain [MUST-MATCH].)
+- **Portfolio gate (objective parity, [MUST-MATCH])**: `run_backtest` ALWAYS
+  builds all three daily runners (SEPA + SectorRotation + Pairs) under
+  `_build_portfolio`'s MULTI-strategy gate — Allocator `SEPA 40 / Sector 30 /
+  Pairs 20` (10% cash) + RiskConstraints `single-name 50%, concentration 40%,
+  daily-loss 10%` (`strategy_assembly.py:_build_portfolio:230-257`) — EVEN when
+  a hyperopt trial overrides only one sub-strategy's params (the other two run
+  on their JSON defaults). The optimized strategy is therefore gated on its
+  canonical multi-strategy capital slice + caps, which admits/rejects a
+  DIFFERENT order set than a lone-strategy 100%-budget gate would. The Go P4
+  objective path replicates this exactly via
+  `strategyassembly.Input.MultiStrategyGate = true`; feeding a fixed param set
+  through identical folds then yields identical per-fold counters / curves /
+  objective vectors (locked decision 3). The default-`false` single-strategy
+  gate (100% budget, default caps) remains the standalone single-strategy
+  backtest path and is NOT used by the objective.
 
 ---
 

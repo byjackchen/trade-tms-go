@@ -16,7 +16,6 @@ import (
 
 	"github.com/byjackchen/trade-tms-go/internal/accounting"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
-	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	"github.com/byjackchen/trade-tms-go/internal/metrics"
 )
@@ -123,47 +122,19 @@ func Assemble(res *engine.Result, p AssembleParams) (Assembled, error) {
 }
 
 // countsFor returns the order/position counters scoped to strategyID ("" =
-// portfolio: all). num_filled counts orders that produced at least one fill;
-// rejected counts orders left in a rejected status (the scripted engine fills
-// every market order, so rejected is 0 there). num_positions counts opened
-// positions (a position per (strategy, symbol) that ever left flat).
+// portfolio: all), delegating to engine.Result.Counts — the single source of
+// truth shared with the P4 hyperopt objective path so identical Results always
+// produce identical counters. num_filled counts orders that produced at least
+// one fill; rejected counts submitted REJECTED orders plus gate-blocked signal
+// orders; num_positions counts opened positions.
 func countsFor(res *engine.Result, strategyID string) metrics.Counts {
-	var c metrics.Counts
-	filledByOrder := make(map[string]bool)
-	for _, f := range res.Fills {
-		if strategyID != "" && f.StrategyID != strategyID {
-			continue
-		}
-		filledByOrder[f.ClientOrderID] = true
+	c := res.Counts(strategyID)
+	return metrics.Counts{
+		NumOrders:         c.NumOrders,
+		NumFilledOrders:   c.NumFilledOrders,
+		NumRejectedOrders: c.NumRejectedOrders,
+		NumPositions:      c.NumPositions,
 	}
-	for _, o := range res.Orders {
-		if strategyID != "" && o.StrategyID != strategyID {
-			continue
-		}
-		c.NumOrders++
-		if filledByOrder[o.ClientOrderID] {
-			c.NumFilledOrders++
-		}
-		if o.Status == domain.OrderStatusRejected {
-			c.NumRejectedOrders++
-		}
-	}
-	// Gate-rejected signal orders never become domain.Orders (the portfolio gate
-	// blocks them pre-submit, mirroring a Nautilus REJECTED order). Count them
-	// here so num_rejected_orders is meaningful for the real-strategy path.
-	for _, r := range res.RejectedOrders {
-		if strategyID != "" && r.StrategyID != strategyID {
-			continue
-		}
-		c.NumRejectedOrders++
-	}
-	for _, pos := range res.Positions {
-		if strategyID != "" && pos.StrategyID != strategyID {
-			continue
-		}
-		c.NumPositions++
-	}
-	return c
 }
 
 // curveFloats converts a Money equity curve to []float64 for the metrics

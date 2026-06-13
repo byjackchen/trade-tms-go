@@ -12,6 +12,7 @@ import (
 
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
+	"github.com/byjackchen/trade-tms-go/internal/hyperopt/study"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
 )
@@ -55,6 +56,21 @@ type StrategyReader interface {
 	// ErrStrategyNotFound for an unknown id and surfaces a hard resolution
 	// error (e.g. malformed promoted params) as a non-nil error.
 	GetStrategy(ctx context.Context, id string) (*StrategyMeta, error)
+}
+
+// HyperoptReader reads persisted hyperopt studies/trials (satisfied by
+// *study.Store). It backs the GET /api/v1/hyperopt* endpoints (DB source of
+// truth). Get/Trials return study.ErrStudyNotFound for an unknown study_ts.
+type HyperoptReader interface {
+	List(ctx context.Context, strategy string, limit int) ([]study.StudyRow, error)
+	Get(ctx context.Context, studyTS string) (*study.StudyRow, error)
+	Trials(ctx context.Context, studyTS string) ([]study.TrialRow, error)
+}
+
+// HyperoptPromoter promotes a chosen trial's params to active_params with audit
+// (satisfied by *study.Promoter). It backs POST /api/v1/hyperopt/{id}/promote.
+type HyperoptPromoter interface {
+	Promote(ctx context.Context, in study.PromoteInput) ([]study.PromotedStrategy, error)
 }
 
 // ParamSchema is one parameter's wire schema: default value + optional search

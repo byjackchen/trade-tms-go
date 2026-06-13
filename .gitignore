@@ -36,3 +36,6 @@ go.work.sum
 
 # backtest run artifact output (DB is source of truth)
 /runs/
+
+# stray gate/e2e screenshots at repo root
+/*.png

@@ -419,3 +419,163 @@ export type JobEvent = {
 // Dataset vocabulary used by the refresh dialog (distinct from tickers.table_name).
 export const DATASETS = ["TICKERS", "SEP", "SFP", "SF1", "EVENTS"] as const;
 export type Dataset = (typeof DATASETS)[number];
+
+// ---- Hyperopt (NSGA-II walk-forward studies) ----
+
+/** Strategies a study can optimize (handlers_hyperopt.go validation). */
+export const HYPEROPT_STRATEGIES = [
+  "sepa",
+  "sector_rotation",
+  "pairs",
+  "joint",
+] as const;
+export type HyperoptStrategy = (typeof HYPEROPT_STRATEGIES)[number];
+
+/** Lifecycle status of a study (DB source of truth; mirrors progress.json). */
+export type StudyStatus = "RUNNING" | "COMPLETE" | "INTERRUPTED" | "FAIL";
+
+/** Per-trial completion state. */
+export type TrialState = "COMPLETE" | "RUNNING" | "FAIL" | "PRUNED" | string;
+
+export type WalkForwardConfig = {
+  enabled: boolean;
+  folds: number;
+  embargo_days: number;
+};
+
+/** Study config block (config.* in the API response). */
+export type StudyConfig = {
+  version: number;
+  study_name: string;
+  strategy: HyperoptStrategy | string;
+  start: string;
+  end: string;
+  directions: string[];
+  objectives: string[];
+  seed: number;
+  n_trials: number;
+  workers: number;
+  walk_forward: WalkForwardConfig;
+  created_at: string;
+  updated_at: string;
+};
+
+/** The best (trial, sharpe, calmar) tuple observed so far. */
+export type CurrentBest = {
+  trial: number;
+  sharpe: number;
+  calmar: number;
+};
+
+/** Study progress block (progress.* in the API response). */
+export type StudyProgress = {
+  status: StudyStatus;
+  completed_trials: number;
+  failed_trials: number;
+  running_trials: number;
+  total_trials: number;
+  workers: number;
+  started_at: string | null;
+  last_heartbeat_at: string | null;
+  coordinator_pid: number | null;
+  current_best: CurrentBest | null;
+  last_error: string | null;
+};
+
+/** One study, as returned by the list and detail endpoints. */
+export type StudyRow = {
+  ts: string;
+  config: StudyConfig;
+  progress: StudyProgress;
+};
+
+export type StudiesResponse = { studies: StudyRow[] };
+export type StudyResponse = { study: StudyRow };
+
+/** Per-fold metric breakdown for a trial (folds[] elements; open shape). */
+export type TrialFold = {
+  fold: number;
+  sharpe?: number;
+  calmar?: number;
+  final_balance_usd?: number;
+  max_drawdown_pct?: number;
+  total_pnl_usd?: number;
+  train_start?: string;
+  train_end?: string;
+  test_start?: string;
+  test_end?: string;
+  [k: string]: unknown;
+};
+
+/** Aggregate per-trial metrics (metrics.* — same vocabulary as backtests). */
+export type TrialMetrics = {
+  final_balance_usd?: number;
+  total_pnl_usd?: number;
+  sharpe?: number;
+  calmar?: number;
+  max_drawdown_pct?: number;
+  num_orders?: number;
+  num_filled_orders?: number;
+  num_rejected_orders?: number;
+  num_positions?: number;
+  [k: string]: unknown;
+};
+
+export type TrialRow = {
+  number: number;
+  optuna_number: number;
+  strategy: string;
+  params: Record<string, unknown> | null;
+  metrics: TrialMetrics | null;
+  folds: TrialFold[];
+  state: TrialState;
+  sharpe: number | null;
+  calmar: number | null;
+  started_at: string;
+  finished_at: string | null;
+  duration_sec: number | null;
+  run_dump_ts: string | null;
+  error: string | null;
+  pareto_front: boolean;
+};
+
+export type TrialsResponse = { trials: TrialRow[] };
+
+/** POST /api/v1/hyperopt body. */
+export type CreateStudyRequest = {
+  strategy: HyperoptStrategy;
+  start: string;
+  end: string;
+  population?: number;
+  generations?: number;
+  seed?: number;
+  workers?: number;
+  walk_forward?: boolean;
+  folds?: number;
+  embargo_days?: number;
+  tickers?: string[];
+  universe?: BacktestUniverseSpec;
+  starting_balance?: number;
+  study_ts?: string;
+  actor?: string;
+  dedupe_key?: string;
+  max_attempts?: number;
+};
+
+/** POST /api/v1/hyperopt/{id}/promote body. */
+export type PromoteRequest = {
+  trial_id: number;
+  actor?: string;
+};
+
+export type PromotedEntry = {
+  strategy: string;
+  param_set_id: number;
+  version: number;
+};
+
+export type PromoteResponse = {
+  study_ts: string;
+  trial_id: number;
+  promoted: PromotedEntry[];
+};

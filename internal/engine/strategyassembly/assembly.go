@@ -118,6 +118,21 @@ type Input struct {
 	Context *portfolio.ContextProvider
 	// SPYSymbol is the context heartbeat instrument (default "SPY").
 	SPYSymbol string
+	// MultiStrategyGate, when true, makes a SINGLE-strategy path (sepa /
+	// sector_rotation / pairs) install the canonical MULTI-strategy portfolio gate
+	// (SEPA 40 / Sector 30 / Pairs 20; single-name 50%, concentration 40%,
+	// daily-loss 10%) instead of the lone-strategy 100%/default-caps gate. The
+	// selected strategy then receives EXACTLY its canonical multi-strategy capital
+	// slice and risk caps.
+	//
+	// This is the parity contract for the P4 hyperopt objective: Python's
+	// scripts/multi_strategy_backtest.run_backtest ALWAYS builds all three runners
+	// under _build_portfolio's multi-strategy Allocator+RiskConstraints, even when
+	// a hyperopt trial only overrides one sub-strategy's params (the others run on
+	// their JSON defaults). The single-strategy 100%-budget gate would admit/reject
+	// a DIFFERENT order set, so objectives would diverge. Ignored by the "multi"
+	// and "orb" paths (multi already uses this gate; ORB is never in the multi set).
+	MultiStrategyGate bool
 }
 
 // Assembly is the constructed strategy set + gate + context, ready to plug into
@@ -291,8 +306,10 @@ func assembleSEPA(in Input, eq *LiveEquity, spy string, singleAlloc bool) (*Asse
 		return nil, err
 	}
 	// Single-strategy SEPA: the full risk budget (100%) plus default risk caps,
-	// so a lone strategy is never starved by the multi-strategy 40% slice.
-	pf, err := singleStrategyPortfolio(IDSEPA)
+	// so a lone strategy is never starved by the multi-strategy 40% slice — unless
+	// MultiStrategyGate is set (P4 objective parity), in which case it receives its
+	// canonical multi-strategy slice + caps.
+	pf, err := strategyGate(IDSEPA, in.MultiStrategyGate)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +327,7 @@ func assembleSector(in Input, eq *LiveEquity) (*Assembly, error) {
 	if err != nil {
 		return nil, err
 	}
-	pf, err := singleStrategyPortfolio(IDSector)
+	pf, err := strategyGate(IDSector, in.MultiStrategyGate)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +342,7 @@ func assemblePairs(in Input, eq *LiveEquity) (*Assembly, error) {
 	if err != nil {
 		return nil, err
 	}
-	pf, err := singleStrategyPortfolio(IDPairs)
+	pf, err := strategyGate(IDPairs, in.MultiStrategyGate)
 	if err != nil {
 		return nil, err
 	}
@@ -413,6 +430,22 @@ func multiStrategyPortfolio() (*portfolio.Portfolio, error) {
 		return nil, fmt.Errorf("strategyassembly: risk constraints: %w", err)
 	}
 	return portfolio.NewPortfolio(alloc, rc), nil
+}
+
+// strategyGate selects the portfolio gate for a single-strategy path: the
+// canonical multi-strategy gate (when multiGate is set — the P4 hyperopt
+// objective-parity contract, mirroring multi_strategy_backtest.run_backtest
+// which always builds all three runners under the multi-strategy
+// Allocator+RiskConstraints) or the lone-strategy 100%-budget gate otherwise
+// (the default single-strategy backtest path). When multiGate is set, the
+// strategy id MUST be one of the three daily multi-strategy ids so the allocator
+// registers a budget for it; ORB has no multi slice and always uses the
+// single-strategy gate.
+func strategyGate(id string, multiGate bool) (*portfolio.Portfolio, error) {
+	if multiGate && (id == IDSEPA || id == IDSector || id == IDPairs) {
+		return multiStrategyPortfolio()
+	}
+	return singleStrategyPortfolio(id)
 }
 
 // singleStrategyPortfolio builds a gate for a lone strategy: the whole budget

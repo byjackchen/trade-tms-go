@@ -593,6 +593,120 @@ when none. `404` for an unknown id.
 
 ---
 
+## Hyperopt
+
+NSGA-II walk-forward hyper-parameter studies over the deterministic backtest
+engine (hyperopt-metrics spec §6–§9). A study runs the self-written, seeded
+NSGA-II where each candidate's `(sharpe, calmar)` objective is the aggregate of
+per-fold backtest metrics over a shared read-only bar dataset (locked decision
+5). Trials persist to `research.hyperopt_studies` / `research.hyperopt_trials`
+(DB source of truth) plus a byte-compatible `runs/hyperopt/<study_ts>/` artifact
+tree (`study.json`, `progress.json`, `trials/trial_*.json`, `best_params/`).
+
+`{id}` is the study timestamp `study_ts` (UTC `%Y-%m-%d_%H-%M-%S`, the artifact
+directory name and table PK).
+
+### `POST /api/v1/hyperopt`
+
+Enqueue a `hyperopt.run` study job. Body:
+
+```json
+{
+  "strategy":     "sepa",            // sepa | sector_rotation | pairs | joint (required)
+  "start":        "2023-01-02",      // required (YYYY-MM-DD)
+  "end":          "2023-12-29",      // required
+  "population":   50,                // NSGA-II generation size; default 50
+  "generations":  5,                 // generations; default 5
+  "seed":         42,                // PRNG seed (deterministic); default 42
+  "workers":      0,                 // eval parallelism; default min(cores-2,16)
+  "walk_forward": true,              // default true
+  "folds":        5,                 // default 5
+  "embargo_days": 5,                 // default 5
+  "tickers":      ["AAPL","MSFT"],   // SEPA/joint stock universe (or "universe" window)
+  "universe":     {"start":"...","end":"...","table":"SF1"},
+  "starting_balance": 100000.0,      // USD; default 100000
+  "study_ts":     "2026-..._..-..-..", // optional idempotency key
+  "actor": "...", "dedupe_key": "...", "max_attempts": 1
+}
+```
+
+`sepa`/`joint` require a stock universe (`tickers` or `universe`). `202` with the
+created `{ "job": <job>, "deduped": <bool> }`. `400` for an unknown strategy /
+missing window / missing universe.
+
+### `GET /api/v1/hyperopt[?strategy=<s>&limit=<n>]`
+
+Lists studies newest-first (by `study_ts`), optionally filtered by strategy.
+
+```json
+{ "studies": [ {
+  "ts": "2026-06-13_12-00-00",
+  "config":   { "version":1, "study_name":"...", "strategy":"pairs", "start":"...", "end":"...",
+                "directions":["maximize","maximize"], "objectives":["sharpe","calmar"],
+                "seed":42, "n_trials":250, "workers":14,
+                "walk_forward":{"enabled":true,"folds":5,"embargo_days":5},
+                "created_at":"...","updated_at":"..." },
+  "progress": { "status":"COMPLETE", "completed_trials":250, "failed_trials":0,
+                "running_trials":0, "total_trials":250, "workers":14,
+                "started_at":"...", "last_heartbeat_at":"...", "coordinator_pid":1234,
+                "current_best":{"trial":22,"sharpe":1.8,"calmar":2.4}, "last_error":null }
+} ] }
+```
+
+### `GET /api/v1/hyperopt/{id}`
+
+Study detail: `{ "study": { "ts", "config", "progress" } }` (same shape as a list
+element). `400` for a malformed `study_ts`; `404` for an unknown study.
+
+### `GET /api/v1/hyperopt/{id}/trials`
+
+Every trial of the study (ascending number), each carrying a `pareto_front`
+boolean (non-dominated over `(sharpe, calmar)`, both maximized — weak dominance
+with strict improvement, hyperopt-metrics §10) and the per-fold metric breakdown:
+
+```json
+{ "trials": [ {
+  "number": 7, "optuna_number": 7, "strategy": "pairs",
+  "params":  { "lookback": 60, "entry_z": 2.1, "exit_z": 0.5, ... },
+  "metrics": { "final_balance_usd": ..., "sharpe": ..., "calmar": ..., ... },
+  "folds":   [ {"fold":0, "sharpe":..., "calmar":..., ...}, ... ],
+  "state":   "COMPLETE",
+  "sharpe":  1.8, "calmar": 2.4,
+  "started_at":"...", "finished_at":"...", "duration_sec":9.2,
+  "run_dump_ts": null, "error": null,
+  "pareto_front": true
+} ] }
+```
+
+`404` for an unknown study.
+
+### `POST /api/v1/hyperopt/{id}/promote`
+
+Promote a chosen trial's params to `tms.active_params` with full audit
+(`promoted_by` / `promoted_at` / `source_study` / `source_trial`), via an
+immutable tuned `tms.param_sets` row (the §8.2 metadata-rewritten baseline). For
+a `joint` study every sub-strategy (`sepa`, `sector_rotation`, `pairs`) is
+promoted. The effect is next-run-only (live processes read params at startup).
+Idempotent: re-promoting the same `(study, trial)` reuses the param_set. Body:
+
+```json
+{ "trial_id": 22, "actor": "alice" }
+```
+
+Response: `{ "study_ts": "...", "trial_id": 22, "promoted": [ {"strategy":"pairs","param_set_id":12,"version":1} ] }`.
+`404` for an unknown study; `422` when the trial is missing / not `COMPLETE` /
+has no tunable params (`validation` code); `400` for a missing `trial_id`.
+
+### CLI twin: `tms hyperopt`
+
+`tms hyperopt run --strategy pairs --start 2023-01-02 --end 2023-12-29
+[--population 50 --generations 5 --seed 42 --workers N --folds 5
+--tickers AAPL,MSFT --enqueue]` runs (or enqueues) a study; `tms hyperopt list
+[--strategy s]` lists studies; `tms hyperopt promote --study <ts> --trial <n>
+[--by <id>]` promotes a trial.
+
+---
+
 ## `GET /api/v1/ws` — WebSocket event stream
 
 A fan-out of live **job** and **dataset-sync** events, bridged from Redis

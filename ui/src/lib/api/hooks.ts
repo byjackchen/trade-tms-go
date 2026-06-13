@@ -26,6 +26,12 @@ import type {
   CreateBacktestRequest,
   StrategiesResponse,
   StrategyResponse,
+  StudiesResponse,
+  StudyResponse,
+  TrialsResponse,
+  CreateStudyRequest,
+  PromoteRequest,
+  PromoteResponse,
 } from "./types";
 
 export function useCoverage(): UseQueryResult<CoverageResponse, Error> {
@@ -226,6 +232,89 @@ export function useCancelJob() {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
+}
+
+// ---- Hyperopt ----
+
+export function useStudies(
+  strategy?: string,
+): UseQueryResult<StudiesResponse, Error> {
+  return useQuery({
+    queryKey: ["hyperopt", "studies", strategy ?? "all"],
+    queryFn: () =>
+      apiGet<StudiesResponse>("hyperopt", { strategy, limit: 200 }),
+    // While any study is still RUNNING the list self-refreshes so the table
+    // converges (trial counts, best-so-far, terminal status) without a reload.
+    refetchInterval: (query) => {
+      const rows = query.state.data?.studies ?? [];
+      return rows.some((s) => s.progress.status === "RUNNING") ? 4000 : false;
+    },
+  });
+}
+
+export function useStudy(
+  id: string | null,
+): UseQueryResult<StudyResponse, Error> {
+  return useQuery({
+    queryKey: ["hyperopt", "study", id],
+    queryFn: () => apiGet<StudyResponse>(`hyperopt/${id}`),
+    enabled: id != null && id !== "",
+    retry: (count, err) => {
+      // 404 (unknown study) / 400 (malformed ts) are terminal empty states.
+      const status = (err as { status?: number })?.status;
+      return status !== 404 && status !== 400 && count < 2;
+    },
+    // Poll while the study is still running so detail fills in on completion.
+    refetchInterval: (query) =>
+      query.state.data?.study.progress.status === "RUNNING" ? 4000 : false,
+  });
+}
+
+export function useStudyTrials(
+  id: string | null,
+  status?: StudyStatusForPoll,
+): UseQueryResult<TrialsResponse, Error> {
+  return useQuery({
+    queryKey: ["hyperopt", "trials", id],
+    queryFn: () => apiGet<TrialsResponse>(`hyperopt/${id}/trials`),
+    enabled: id != null && id !== "",
+    retry: (count, err) => {
+      const code = (err as { status?: number })?.status;
+      return code !== 404 && code !== 400 && count < 2;
+    },
+    // While the study is RUNNING new trials land continuously; refresh so the
+    // Pareto front / table / convergence chart grow live.
+    refetchInterval: status === "RUNNING" ? 5000 : false,
+  });
+}
+
+type StudyStatusForPoll = "RUNNING" | "COMPLETE" | "INTERRUPTED" | "FAIL" | undefined;
+
+export function useCreateStudy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateStudyRequest) =>
+      apiPost<EnqueueResponse>("hyperopt", body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["hyperopt", "studies"] });
+      void qc.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
+}
+
+export function usePromoteTrial(studyTS: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: PromoteRequest) =>
+      apiPost<PromoteResponse>(`hyperopt/${studyTS}/promote`, body),
+    onSuccess: () => {
+      // The promoted strategy's active_params changed: bust strategy caches so
+      // the audit (active_values / params_source) reflects immediately.
+      void qc.invalidateQueries({ queryKey: ["strategies"] });
+      void qc.invalidateQueries({ queryKey: ["strategy"] });
+      void qc.invalidateQueries({ queryKey: ["hyperopt", "trials", studyTS] });
     },
   });
 }

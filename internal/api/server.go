@@ -33,6 +33,8 @@ type Deps struct {
 	Universe    UniverseReader
 	Runs        RunsReader
 	Strategies  StrategyReader
+	Hyperopt    HyperoptReader
+	Promoter    HyperoptPromoter
 	Calendar    *calendar.Calendar
 	PingPG      PingFunc
 	PingRedis   PingFunc
@@ -50,6 +52,8 @@ type Server struct {
 	uni         UniverseReader
 	runs        RunsReader
 	strat       StrategyReader
+	hyperopt    HyperoptReader
+	promoter    HyperoptPromoter
 	cal         *calendar.Calendar
 	pingPG      PingFunc
 	pingRedis   PingFunc
@@ -89,6 +93,8 @@ func NewServer(d Deps) (*Server, error) {
 		uni:         d.Universe,
 		runs:        d.Runs,
 		strat:       d.Strategies,
+		hyperopt:    d.Hyperopt,
+		promoter:    d.Promoter,
 		cal:         d.Calendar,
 		pingPG:      d.PingPG,
 		pingRedis:   d.PingRedis,
@@ -151,6 +157,12 @@ func (s *Server) Routes() *chi.Mux {
 			r.Get("/backtests/{id}/equity", s.handleBacktestEquity)
 			r.Get("/backtests/{id}/trades", s.handleBacktestTrades)
 			r.Get("/backtests/{id}/orders", s.handleBacktestOrders)
+
+			r.Post("/hyperopt", s.handleHyperoptEnqueue)
+			r.Get("/hyperopt", s.handleHyperoptList)
+			r.Get("/hyperopt/{id}", s.handleHyperoptGet)
+			r.Get("/hyperopt/{id}/trials", s.handleHyperoptTrials)
+			r.Post("/hyperopt/{id}/promote", s.handleHyperoptPromote)
 		})
 	})
 	return r

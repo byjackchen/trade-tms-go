@@ -45,7 +45,7 @@ type Route = {
 const ROUTES: Route[] = [
   { path: "/data", ready: ["data-page"] },
   { path: "/backtests", ready: ["backtests-placeholder", "backtests-page"] },
-  { path: "/hyperopt", ready: ["hyperopt-placeholder"] },
+  { path: "/hyperopt", ready: ["hyperopt-placeholder", "hyperopt-page"] },
   { path: "/live", ready: ["live-placeholder"] },
   { path: "/ops", ready: ["ops-placeholder"] },
 ];

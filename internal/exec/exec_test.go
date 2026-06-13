@@ -122,12 +122,65 @@ func TestExecutorThisBarFlow(t *testing.T) {
 	ex := NewSimExecutor(NautilusCompatModel{}, sink, &fakeSeq{})
 	o := order("AAPL", domain.OrderSideBuy, 100)
 	require.NoError(t, ex.Submit(o))
+	// This-bar model: ProcessBar RECORDS the bar (no fill yet); the order is
+	// filled by the end-of-timestamp FlushThisBar against the order's own
+	// symbol's recorded bar. This two-phase flow lets a strategy submit an order
+	// for symbol X while symbol Y's bar dispatches and still fill X at THIS
+	// timestamp's close (cross-symbol same-ts fill, Nautilus parity).
 	n, err := ex.ProcessBar(bar("AAPL", "100", "110", "95", "105"))
+	require.NoError(t, err)
+	assert.Equal(t, 0, n, "ProcessBar records (no fill) in the this-bar model")
+	assert.Len(t, sink.fills, 0)
+	assert.Equal(t, 1, ex.PendingCount(), "order awaits the end-of-ts flush")
+
+	n, err = ex.FlushThisBar()
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
 	require.Len(t, sink.fills, 1)
 	assert.Equal(t, domain.MustPrice("105"), sink.fills[0].Price)
 	assert.Equal(t, 0, ex.PendingCount())
+}
+
+// TestExecutorThisBarCrossSymbol proves a market order submitted for symbol X
+// while symbol Y's bar is the one driving ProcessBar still fills at X's close
+// for THIS timestamp (both bars recorded before the flush). This is the
+// multi-leg (Pairs) case that the per-symbol ProcessBar fill model got wrong
+// (X would have filled one bar late).
+func TestExecutorThisBarCrossSymbol(t *testing.T) {
+	sink := &fakeSink{}
+	ex := NewSimExecutor(NautilusCompatModel{}, sink, &fakeSeq{})
+	// Both legs' bars at the same timestamp are recorded (registration order),
+	// then both leg orders are submitted (e.g. during the 2nd leg's dispatch).
+	if _, err := ex.ProcessBar(bar("KO", "53", "54", "52", "53.15")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ex.ProcessBar(bar("PEP", "142", "143", "141", "142.54")); err != nil {
+		t.Fatal(err)
+	}
+	require.NoError(t, ex.Submit(order("KO", domain.OrderSideSell, 282)))
+	require.NoError(t, ex.Submit(order("PEP", domain.OrderSideBuy, 105)))
+	n, err := ex.FlushThisBar()
+	require.NoError(t, err)
+	assert.Equal(t, 2, n, "both orders filled at this ts")
+	assert.Equal(t, 0, ex.PendingCount())
+	// Each order fills against ITS OWN symbol's bar this ts: every KO fill leg
+	// prices off KO's bar [52,54], every PEP leg off PEP's bar [141,143].
+	koFilled, pepFilled := false, false
+	for _, f := range sink.fills {
+		switch f.Symbol {
+		case "KO":
+			koFilled = true
+			assert.True(t, f.Price.Cmp(domain.MustPrice("52")) >= 0 && f.Price.Cmp(domain.MustPrice("54")) <= 0,
+				"KO fill %s within KO bar range", f.Price)
+		case "PEP":
+			pepFilled = true
+			assert.True(t, f.Price.Cmp(domain.MustPrice("141")) >= 0 && f.Price.Cmp(domain.MustPrice("143")) <= 0,
+				"PEP fill %s within PEP bar range", f.Price)
+		default:
+			t.Fatalf("unexpected fill symbol %s", f.Symbol)
+		}
+	}
+	assert.True(t, koFilled && pepFilled, "both legs filled this ts")
 }
 
 func TestExecutorNextBarFlow(t *testing.T) {

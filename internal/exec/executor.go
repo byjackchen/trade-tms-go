@@ -42,20 +42,35 @@ type SimExecutor struct {
 	// ProcessBar of the submission bar).
 	pending map[string][]domain.Order
 
-	// submittedThisBar holds orders submitted during the current bar's strategy
-	// callback, for this-bar models, awaiting ProcessBar of the same bar.
-	submittedThisBar map[string][]domain.Order
+	// submittedThisBar holds orders submitted during the CURRENT TIMESTAMP's
+	// strategy callbacks, for this-bar models, in submission order, awaiting the
+	// end-of-timestamp flush (FlushThisBar). Cross-symbol orders are supported:
+	// an order for symbol X submitted while symbol Y's bar is dispatching fills
+	// at X's close for THIS timestamp (X's bar was already observed earlier in
+	// the same timestamp, registration order), mirroring Nautilus's matching
+	// engine, which fills a market order at the instrument's latest bar close at
+	// the submission timestamp — not one bar later. (A multi-leg strategy like
+	// Pairs submits both legs while the 2nd leg's bar is dispatching; both legs
+	// must fill at THIS timestamp's closes.)
+	submittedThisBar []domain.Order
+
+	// barsThisTS records each symbol's bar observed at the current timestamp, so
+	// a flushed this-bar order fills against its own symbol's close at this ts.
+	// Cleared when the timestamp advances.
+	barsThisTS map[string]domain.Bar
+	curTS      int64
+	curTSSet   bool
 }
 
 // NewSimExecutor wires an executor to a fill model, a fill sink and a
 // deterministic sequence source.
 func NewSimExecutor(model FillModel, sink FillSink, seq SeqSource) *SimExecutor {
 	return &SimExecutor{
-		model:            model,
-		sink:             sink,
-		seq:              seq,
-		pending:          make(map[string][]domain.Order),
-		submittedThisBar: make(map[string][]domain.Order),
+		model:      model,
+		sink:       sink,
+		seq:        seq,
+		pending:    make(map[string][]domain.Order),
+		barsThisTS: make(map[string]domain.Bar),
 	}
 }
 
@@ -82,7 +97,9 @@ func (e *SimExecutor) Submit(order domain.Order) error {
 	}
 	switch e.model.Timing() {
 	case FillThisBar:
-		e.submittedThisBar[order.Symbol] = append(e.submittedThisBar[order.Symbol], order)
+		// Accumulate in submission order; filled at the end-of-timestamp flush
+		// (FlushThisBar) against each order's own symbol's bar at this ts.
+		e.submittedThisBar = append(e.submittedThisBar, order)
 	case FillNextBar:
 		e.pending[order.Symbol] = append(e.pending[order.Symbol], order)
 	default:
@@ -94,33 +111,100 @@ func (e *SimExecutor) Submit(order domain.Order) error {
 // ProcessBar simulates execution for one bar. Call order within a bar's
 // dispatch matters and is fixed by the engine:
 //
-//   - this-bar model: the engine calls the strategy on_bar (which Submits),
-//     THEN calls ProcessBar(bar); orders submitted on this bar fill against
-//     this bar's close.
+//   - this-bar model: the engine records each bar (ProcessBar) as it dispatches,
+//     then — AFTER all bars at a timestamp have dispatched and all strategy
+//     on_bar callbacks have run — calls FlushThisBar(ts) once, filling every
+//     order submitted during that timestamp against ITS OWN symbol's close at
+//     that timestamp. This supports cross-symbol same-timestamp fills (a Pairs
+//     leg submitted while the other leg's bar dispatches fills at THIS ts's
+//     close, not one bar later), matching Nautilus.
 //   - next-bar model: the engine calls ProcessBar(bar) FIRST (filling orders
 //     pending from prior bars against this bar's open), THEN the strategy
 //     on_bar (which Submits orders pending for the next bar).
 //
-// Fills are emitted via the sink in deterministic order (orders in submission
-// order for the symbol). Returns the number of fills emitted.
+// Fills are emitted via the sink in deterministic (submission) order. Returns
+// the number of fills emitted (always 0 for the this-bar model — fills are
+// emitted by FlushThisBar).
 func (e *SimExecutor) ProcessBar(bar domain.Bar) (int, error) {
-	var orders []domain.Order
 	switch e.model.Timing() {
 	case FillThisBar:
-		orders = e.submittedThisBar[bar.Symbol]
-		delete(e.submittedThisBar, bar.Symbol)
+		// Record this bar for the end-of-timestamp flush. When the timestamp
+		// advances, reset the per-ts bar map (the prior ts was already flushed
+		// by the engine before any new-ts bar dispatches).
+		ts := bar.TS.UnixNano()
+		if !e.curTSSet || ts != e.curTS {
+			e.barsThisTS = make(map[string]domain.Bar)
+			e.curTS = ts
+			e.curTSSet = true
+		}
+		e.barsThisTS[bar.Symbol] = bar
+		return 0, nil
 	case FillNextBar:
-		orders = e.pending[bar.Symbol]
+		orders := e.pending[bar.Symbol]
 		delete(e.pending, bar.Symbol)
+		count := 0
+		for _, order := range orders {
+			if err := e.fill(order, bar); err != nil {
+				return count, err
+			}
+			count++
+		}
+		return count, nil
 	}
+	return 0, nil
+}
+
+// FlushThisBar fills every order submitted during the current timestamp (this-bar
+// model) against its own symbol's bar at this timestamp, in submission order. The
+// engine calls it ONCE per timestamp, after all bars at that ts have dispatched
+// and all strategy on_bar callbacks have run, so the full set of same-ts bars
+// (across symbols) is available for cross-symbol fills. An order whose symbol had
+// no bar at this ts (should not happen for a strategy that only trades on its own
+// bars) is left pending and surfaces via PendingCount. No-op for the next-bar
+// model. Returns the number of fills emitted.
+func (e *SimExecutor) FlushThisBar() (int, error) {
+	if e.model.Timing() != FillThisBar || len(e.submittedThisBar) == 0 {
+		return 0, nil
+	}
+	orders := e.submittedThisBar
+	e.submittedThisBar = nil
 	count := 0
+	var unfilled []domain.Order
 	for _, order := range orders {
+		bar, ok := e.barsThisTS[order.Symbol]
+		if !ok {
+			// No bar for this symbol at this ts: cannot fill at this ts's close.
+			// Keep it for a later flush (defensive; not expected in practice).
+			unfilled = append(unfilled, order)
+			continue
+		}
 		if err := e.fill(order, bar); err != nil {
 			return count, err
 		}
 		count++
 	}
+	e.submittedThisBar = unfilled
 	return count, nil
+}
+
+// FillAtBar prices and emits fills for one order against a specific bar
+// immediately (bypassing the per-timestamp queue), in leg order. The engine uses
+// it for END-OF-RUN LIQUIDATION: after the last bar, Nautilus's on_stop
+// close_all_positions submits a flattening market order per open net position
+// that fills against the instrument's last bar — there is no future bar, so the
+// order cannot route through the normal this-bar/next-bar queue. Filling against
+// the symbol's LAST bar (real close + volume) reproduces the same depth-walk
+// (nautilus-compat) or slippage/commission (realistic) the in-loop path applies.
+// The order must be a validated MARKET order.
+func (e *SimExecutor) FillAtBar(order domain.Order, bar domain.Bar) error {
+	if err := order.Validate(); err != nil {
+		return fmt.Errorf("executor liquidation fill: %w", err)
+	}
+	if order.Type != domain.OrderTypeMarket {
+		return fmt.Errorf("%w: SimExecutor supports MARKET orders only, got %s",
+			domain.ErrInvalidArgument, order.Type)
+	}
+	return e.fill(order, bar)
 }
 
 // fill prices the order against bar (possibly across several price legs) and
@@ -187,8 +271,6 @@ func (e *SimExecutor) PendingCount() int {
 	for _, os := range e.pending {
 		n += len(os)
 	}
-	for _, os := range e.submittedThisBar {
-		n += len(os)
-	}
+	n += len(e.submittedThisBar)
 	return n
 }
