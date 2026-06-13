@@ -41,6 +41,60 @@ type RunsReader interface {
 	Orders(ctx context.Context, id int64) (json.RawMessage, error)
 }
 
+// StrategyReader resolves the active parameter document + schema for each of the
+// four production strategies (SEPA / SectorRotation / Pairs / ORB). It backs
+// GET /api/v1/strategies* and is satisfied by *strategyMetaReader (params.Loader
+// + embedded baseline schema). ErrStrategyNotFound is returned for an unknown id.
+type StrategyReader interface {
+	// ListStrategies returns metadata for every registered strategy, in a
+	// stable display order. Per-strategy resolution failures are folded into
+	// the returned StrategyMeta.Error (a single bad params doc must not blank
+	// the whole list).
+	ListStrategies(ctx context.Context) ([]StrategyMeta, error)
+	// GetStrategy resolves a single strategy by canonical id. It returns
+	// ErrStrategyNotFound for an unknown id and surfaces a hard resolution
+	// error (e.g. malformed promoted params) as a non-nil error.
+	GetStrategy(ctx context.Context, id string) (*StrategyMeta, error)
+}
+
+// ParamSchema is one parameter's wire schema: default value + optional search
+// bounds + type + description, in file order.
+type ParamSchema struct {
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	Default     any      `json:"default"`
+	SearchLow   *float64 `json:"search_low,omitempty"`
+	SearchHigh  *float64 `json:"search_high,omitempty"`
+	Description string   `json:"description,omitempty"`
+}
+
+// StrategyMeta is the resolved metadata + active params + schema for one
+// strategy (the GET /api/v1/strategies element and GET /api/v1/strategies/{id}
+// body).
+type StrategyMeta struct {
+	ID              string         `json:"id"`            // canonical loader id (sepa|sector_rotation|pairs|intraday_breakout)
+	BacktestID      string         `json:"backtest_id"`   // strategy token the backtest enqueue accepts (sepa|sector_rotation|pairs|orb)
+	Label           string         `json:"label"`         // short display label
+	Description     string         `json:"description"`   // display.description
+	CapitalPct      *float64       `json:"capital_pct"`   // allocation.capital_pct (nil = unallocated)
+	Active          bool           `json:"active"`        // allocation.active (default true)
+	ParamsSource    string         `json:"params_source"` // db|file|baseline
+	SchemaVersion   int            `json:"schema_version"`
+	ParametersCount int            `json:"parameters_count"`
+	Parameters      []ParamSchema  `json:"parameters"`
+	ActiveValues    map[string]any `json:"active_values"` // name -> resolved default value
+	// Error is set (and the doc is otherwise zero-valued beyond id/label) when a
+	// strategy's params failed to resolve; the list endpoint keeps the row.
+	Error string `json:"error,omitempty"`
+
+	// RawDoc is the full resolved parameter document (strategy, schema_version,
+	// display, allocation, metadata, parameters{name:{default,...}}, constraints)
+	// verbatim. It is NOT serialized inline; the detail handler emits it under a
+	// top-level "payload" key so ground-truth tooling can read the canonical
+	// document shape. Empty on the list path / on a resolution error.
+	RawDoc json.RawMessage `json:"-"`
+}
+
 // TableCoverage is one market-data table's aggregate coverage. Zero dates
 // mean "table has no date column values" (empty table).
 type TableCoverage struct {

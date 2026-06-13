@@ -17,11 +17,32 @@ import type {
   CreateBacktestRequest,
   FillProfile,
   BacktestIntent,
+  BacktestStrategy,
 } from "@/lib/api/types";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 type IntentSource = "explicit" | "universe";
+
+/** Human labels for the strategy selector (scripted + the four real strategies + multi). */
+const STRATEGY_OPTIONS: { value: BacktestStrategy; label: string }[] = [
+  { value: "scripted", label: "Scripted (manual intents)" },
+  { value: "sepa", label: "SEPA" },
+  { value: "sector_rotation", label: "Sector Rotation" },
+  { value: "pairs", label: "Pairs" },
+  { value: "orb", label: "ORB (intraday breakout)" },
+  { value: "multi", label: "Multi-strategy portfolio" },
+];
+
+/**
+ * Whether the strategy accepts an explicit equity universe (ticker list or
+ * point-in-time window). scripted requires one; SEPA/multi treat supplied
+ * tickers as the stock universe; sector_rotation/pairs/orb derive their own
+ * instruments from params, so the universe controls are hidden for them.
+ */
+function usesUniverse(strategy: BacktestStrategy): boolean {
+  return strategy === "scripted" || strategy === "sepa" || strategy === "multi";
+}
 
 /**
  * Parse the intents textarea. One intent per line:
@@ -68,11 +89,22 @@ const PRESET_INTENTS = `# date,ticker,side,qty
 export function NewBacktestDialog({
   open,
   onClose,
+  prefillStrategy,
 }: {
   open: boolean;
   onClose: () => void;
+  /**
+   * Pre-selects this strategy token (sepa|sector_rotation|pairs|orb|multi) as
+   * the initial form value. Mount the dialog on open (e.g. from a strategy
+   * detail page) so the prefill takes effect on each launch.
+   */
+  prefillStrategy?: BacktestStrategy;
 }) {
+  const [strategy, setStrategy] = useState<BacktestStrategy>(
+    prefillStrategy ?? "scripted",
+  );
   const [tickers, setTickers] = useState("AAPL");
+  const [orbSymbol, setOrbSymbol] = useState("SPY");
   const [intentSource, setIntentSource] = useState<IntentSource>("explicit");
   const [universeTable, setUniverseTable] = useState("SF1");
   const [start, setStart] = useState("2024-01-02");
@@ -149,48 +181,73 @@ export function NewBacktestDialog({
       end: end.trim(),
       starting_balance: bal,
       fill_profile: fillProfile,
-      strategy: "scripted",
+      strategy,
       kind: kind.trim() || "multi-strategy",
       actor: "ui",
     };
 
-    if (intentSource === "universe") {
-      body.universe = {
-        start: start.trim(),
-        end: end.trim(),
-        table: universeTable,
-      };
-    } else {
-      if (tickerList.length === 0) {
-        setLocalError("Enter at least one ticker, or use a universe window.");
+    if (strategy === "scripted") {
+      // Scripted runs need an explicit universe + (optionally) intents.
+      if (intentSource === "universe") {
+        body.universe = {
+          start: start.trim(),
+          end: end.trim(),
+          table: universeTable,
+        };
+      } else {
+        if (tickerList.length === 0) {
+          setLocalError("Enter at least one ticker, or use a universe window.");
+          return;
+        }
+        body.tickers = tickerList;
+        const { intents, error } = parseIntents(intentsText);
+        if (error) {
+          setLocalError(error);
+          return;
+        }
+        // Keep only intents whose ticker is in the selected list (a stale preset
+        // referencing a different symbol would be rejected by the engine).
+        const tickerSet = new Set(tickerList);
+        const usable = intents.filter((it) => tickerSet.has(it.ticker));
+        // If nothing usable remains (e.g. tickers were changed without editing
+        // the preset), synthesize a single LONG intent on the first ticker at
+        // the window start so a scripted run always has something to trade.
+        const effective =
+          usable.length > 0
+            ? usable
+            : [
+                {
+                  date: start.trim(),
+                  ticker: tickerList[0] as string,
+                  side: "LONG" as const,
+                  qty: 100,
+                },
+              ];
+        body.intents = effective;
+      }
+    } else if (strategy === "orb") {
+      // ORB trades a single intraday instrument; the engine accepts orb_symbol
+      // or exactly one ticker.
+      const sym = orbSymbol.trim().toUpperCase();
+      if (!sym) {
+        setLocalError("ORB requires an instrument symbol (e.g. SPY).");
         return;
       }
-      body.tickers = tickerList;
-      const { intents, error } = parseIntents(intentsText);
-      if (error) {
-        setLocalError(error);
-        return;
+      body.orb_symbol = sym;
+    } else if (usesUniverse(strategy)) {
+      // SEPA / multi optionally take a stock universe (ticker list or window);
+      // omitting both lets the engine resolve its own point-in-time universe.
+      if (intentSource === "universe") {
+        body.universe = {
+          start: start.trim(),
+          end: end.trim(),
+          table: universeTable,
+        };
+      } else if (tickerList.length > 0) {
+        body.tickers = tickerList;
       }
-      // Keep only intents whose ticker is in the selected list (a stale preset
-      // referencing a different symbol would be rejected by the engine).
-      const tickerSet = new Set(tickerList);
-      const usable = intents.filter((it) => tickerSet.has(it.ticker));
-      // If nothing usable remains (e.g. tickers were changed without editing the
-      // preset), synthesize a single LONG intent on the first ticker at the
-      // window start so a scripted run always has something to trade.
-      const effective =
-        usable.length > 0
-          ? usable
-          : [
-              {
-                date: start.trim(),
-                ticker: tickerList[0] as string,
-                side: "LONG" as const,
-                qty: 100,
-              },
-            ];
-      body.intents = effective;
     }
+    // sector_rotation / pairs derive their instruments from params: nothing to add.
 
     if (fillProfile === "realistic") {
       const slip = Number(slippageBps);
@@ -216,7 +273,7 @@ export function NewBacktestDialog({
       open={open}
       onClose={close}
       title="New backtest"
-      description="Run a scripted backtest against the engine. Progress streams live."
+      description="Run a backtest against the engine. Choose a strategy; progress streams live."
       data-testid="backtest-dialog"
       footer={
         tracked ? (
@@ -281,6 +338,39 @@ export function NewBacktestDialog({
         </div>
       ) : (
         <div className="space-y-4" data-testid="backtest-form">
+          {/* strategy */}
+          <div className="space-y-1.5">
+            <Label htmlFor="bt-strategy">Strategy</Label>
+            <Select
+              id="bt-strategy"
+              value={strategy}
+              onChange={(e) => {
+                setStrategy(e.target.value as BacktestStrategy);
+                setLocalError(null);
+              }}
+              data-testid="backtest-strategy"
+            >
+              {STRATEGY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+            <p className="text-xs text-muted-foreground" data-testid="backtest-strategy-hint">
+              {strategy === "scripted"
+                ? "Replays manual trade intents — no signal logic."
+                : strategy === "orb"
+                  ? "Opening-range breakout on a single intraday instrument."
+                  : strategy === "pairs"
+                    ? "Stat-arb pairs; legs come from the active params."
+                    : strategy === "sector_rotation"
+                      ? "Rotates the top sector ETFs by trailing return (params-derived)."
+                      : strategy === "multi"
+                        ? "Runs the full SEPA + Sector + Pairs portfolio with allocations."
+                        : "Minervini SEPA stage-2 breakouts over the equity universe."}
+            </p>
+          </div>
+
           {/* date range + balance */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -347,92 +437,138 @@ export function NewBacktestDialog({
             </div>
           ) : null}
 
-          {/* selection source */}
-          <div className="space-y-1.5">
-            <Label htmlFor="bt-source">Instruments</Label>
-            <Select
-              id="bt-source"
-              value={intentSource}
-              onChange={(e) => setIntentSource(e.target.value as IntentSource)}
-              data-testid="backtest-source"
-            >
-              <option value="explicit">Explicit tickers + scripted intents</option>
-              <option value="universe">Survivor-bias-free universe window</option>
-            </Select>
-          </div>
+          {/* ORB: single intraday instrument */}
+          {strategy === "orb" ? (
+            <div className="space-y-1.5" data-testid="backtest-orb-section">
+              <Label htmlFor="bt-orb-symbol">Instrument symbol</Label>
+              <Input
+                id="bt-orb-symbol"
+                value={orbSymbol}
+                onChange={(e) => setOrbSymbol(e.target.value)}
+                placeholder="SPY"
+                className="max-w-40 font-mono uppercase"
+                data-testid="backtest-orb-symbol"
+              />
+              <p className="text-xs text-muted-foreground">
+                ORB trades one instrument intraday and is flat by EOD.
+              </p>
+            </div>
+          ) : null}
 
-          {intentSource === "explicit" ? (
+          {/* sector_rotation / pairs: params-derived universe, no inputs */}
+          {strategy === "sector_rotation" || strategy === "pairs" ? (
+            <Alert data-testid="backtest-derived-universe">
+              <AlertDescription>
+                {strategy === "pairs"
+                  ? "The pair legs are resolved from the active params — no instruments to select."
+                  : "The sector ETF set is resolved from the active params — no instruments to select."}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          {/* scripted / sepa / multi: explicit equity universe */}
+          {usesUniverse(strategy) ? (
             <>
               <div className="space-y-1.5">
-                <Label htmlFor="bt-tickers">
-                  Tickers{" "}
-                  <span className="font-normal text-muted-foreground">
-                    (space/comma separated)
-                  </span>
-                </Label>
-                <Input
-                  id="bt-tickers"
-                  value={tickers}
-                  onChange={(e) => setTickers(e.target.value)}
-                  placeholder="AAPL KO"
-                  className="font-mono uppercase"
-                  data-testid="backtest-tickers"
-                />
-                {tickerList.length > 0 ? (
-                  <div className="flex flex-wrap gap-1 pt-1">
-                    {tickerList.map((t) => (
-                      <Badge key={t} variant="secondary">
-                        {t}
-                      </Badge>
-                    ))}
-                  </div>
+                <Label htmlFor="bt-source">Instruments</Label>
+                <Select
+                  id="bt-source"
+                  value={intentSource}
+                  onChange={(e) => setIntentSource(e.target.value as IntentSource)}
+                  data-testid="backtest-source"
+                >
+                  <option value="explicit">
+                    {strategy === "scripted"
+                      ? "Explicit tickers + scripted intents"
+                      : "Explicit tickers"}
+                  </option>
+                  <option value="universe">Survivor-bias-free universe window</option>
+                </Select>
+                {strategy !== "scripted" ? (
+                  <p className="text-xs text-muted-foreground">
+                    Optional: the strategy generates its own signals over this
+                    stock universe. Leave the ticker field empty to let the
+                    engine resolve a point-in-time universe.
+                  </p>
                 ) : null}
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="bt-intents">
-                  Scripted intents{" "}
-                  <span className="font-normal text-muted-foreground">
-                    (one per line: date,ticker,side,qty)
-                  </span>
-                </Label>
-                <textarea
-                  id="bt-intents"
-                  value={intentsText}
-                  onChange={(e) => setIntentsText(e.target.value)}
-                  spellCheck={false}
-                  rows={5}
-                  data-testid="backtest-intents"
-                  className="cockpit-scroll w-full rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
-                />
-                <button
-                  type="button"
-                  onClick={() => setIntentsText(PRESET_INTENTS)}
-                  className="text-xs text-primary underline-offset-2 hover:underline"
-                  data-testid="backtest-intents-preset"
-                >
-                  Reset to preset
-                </button>
-              </div>
+              {intentSource === "explicit" ? (
+                <>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="bt-tickers">
+                      Tickers{" "}
+                      <span className="font-normal text-muted-foreground">
+                        (space/comma separated)
+                      </span>
+                    </Label>
+                    <Input
+                      id="bt-tickers"
+                      value={tickers}
+                      onChange={(e) => setTickers(e.target.value)}
+                      placeholder="AAPL KO"
+                      className="font-mono uppercase"
+                      data-testid="backtest-tickers"
+                    />
+                    {tickerList.length > 0 ? (
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {tickerList.map((t) => (
+                          <Badge key={t} variant="secondary">
+                            {t}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {strategy === "scripted" ? (
+                    <div className="space-y-1.5">
+                      <Label htmlFor="bt-intents">
+                        Scripted intents{" "}
+                        <span className="font-normal text-muted-foreground">
+                          (one per line: date,ticker,side,qty)
+                        </span>
+                      </Label>
+                      <textarea
+                        id="bt-intents"
+                        value={intentsText}
+                        onChange={(e) => setIntentsText(e.target.value)}
+                        spellCheck={false}
+                        rows={5}
+                        data-testid="backtest-intents"
+                        className="cockpit-scroll w-full rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 dark:bg-input/30"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIntentsText(PRESET_INTENTS)}
+                        className="text-xs text-primary underline-offset-2 hover:underline"
+                        data-testid="backtest-intents-preset"
+                      >
+                        Reset to preset
+                      </button>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div className="space-y-1.5">
+                  <Label htmlFor="bt-universe-table">Universe table</Label>
+                  <Select
+                    id="bt-universe-table"
+                    value={universeTable}
+                    onChange={(e) => setUniverseTable(e.target.value)}
+                    data-testid="backtest-universe-table"
+                  >
+                    <option value="SF1">SF1 (common stocks)</option>
+                    <option value="SFP">SFP (ETFs / funds)</option>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    The engine resolves a point-in-time universe over the run
+                    window (no survivor bias).
+                  </p>
+                </div>
+              )}
             </>
-          ) : (
-            <div className="space-y-1.5">
-              <Label htmlFor="bt-universe-table">Universe table</Label>
-              <Select
-                id="bt-universe-table"
-                value={universeTable}
-                onChange={(e) => setUniverseTable(e.target.value)}
-                data-testid="backtest-universe-table"
-              >
-                <option value="SF1">SF1 (common stocks)</option>
-                <option value="SFP">SFP (ETFs / funds)</option>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                The engine resolves a point-in-time universe over the run window
-                (no survivor bias).
-              </p>
-            </div>
-          )}
+          ) : null}
 
           <div className="space-y-1.5">
             <Label htmlFor="bt-kind">Run kind (badge)</Label>

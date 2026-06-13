@@ -33,7 +33,8 @@ e2e/
     04-cancel-flow       cancel a job through the UI; DB confirms terminal
     05-auth              token-less /api/* = 401; valid token = 200; /healthz public
     06-console-errors    zero severe console errors across every route +
-                         the /backtests/{id} detail route
+                         the /backtests/{id} detail route + /strategies and
+                         /strategies/{id} (self-skip until built)
     07-backtest-launch   open New-backtest dialog, scripted run (2 tickers, ~3mo,
                          nautilus-compat), job running -> succeeded via the UI,
                          detail link targets the persisted run id (DB-checked)
@@ -42,7 +43,31 @@ e2e/
                          equity chart (canvas/svg) + trades + orders tables render
     09-backtest-cancel   launch a long-ish backtest (widest window), cancel mid-run
                          from the UI -> status canceled (race-tolerant, DB-checked)
+    10-strategies-list   /strategies lists the four shipped strategies (sepa, pairs,
+                         sector_rotation, intraday_breakout); each row's active
+                         params == tms.active_params -> param_sets (DB) / API
+    11-strategy-detail   /strategies/{id} param table == the active document's
+                         parameters[*].default, one param-row per parameter (DB/API)
+    12-strategy-backtest launch a REAL single-strategy run (SEPA, handful of tickers,
+                         ~1yr) from the UI -> WS progress -> succeeded; detail shows
+                         equity + trades and metric cards == GET /backtests/{id}
 ```
+
+### Strategies specs and build order
+
+The Strategies workspace ships after the P1 Data + P2 Backtests workspaces.
+Specs 10-12 (and the `/strategies` + `/strategies/{id}` console-error cases in
+06) are **permanent** and assert the documented contract (conventional
+`data-testid`s: list root `strategies-page` with `strategy-row-<id>` rows;
+detail root `strategy-detail` with `param-row-<name>` rows carrying
+`data-param-value`; the strategy launch affordance `strategy-backtest-launch`
+or a `backtest-strategy` selector on the shared New-backtest dialog). While the
+section is still the `coming-soon` placeholder / the route is unbuilt, they
+**self-skip** cleanly so the gate stays green; once wired the assertions bind
+and never weaken. Every active-param value and metric card is compared to ground
+truth queried independently from postgres (tms.active_params -> param_sets) and
+the API — no fabricated values. The four canonical strategy ids come from
+`internal/params/loader.go` (sepa, pairs, sector_rotation, intraday_breakout).
 
 ### Backtests specs and build order
 

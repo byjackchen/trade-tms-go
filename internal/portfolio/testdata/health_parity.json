@@ -1,0 +1,256 @@
+[
+  {
+    "name": "pos_pnl",
+    "nav": "100000",
+    "realized": "500",
+    "unrealized": "200",
+    "positions": [],
+    "last_close": {},
+    "halt": 0.05,
+    "want": {
+      "day_pnl": "700",
+      "day_pnl_pct": "0.007",
+      "daily_loss_halt": false,
+      "halt_headroom_pct": "0.057",
+      "concentration_pct": "0"
+    }
+  },
+  {
+    "name": "halt_below",
+    "nav": "100000",
+    "realized": "-6000",
+    "unrealized": "0",
+    "positions": [],
+    "last_close": {},
+    "halt": 0.05,
+    "want": {
+      "day_pnl": "-6000",
+      "day_pnl_pct": "-0.06",
+      "daily_loss_halt": true,
+      "halt_headroom_pct": "0",
+      "concentration_pct": "0"
+    }
+  },
+  {
+    "name": "boundary_at_threshold",
+    "nav": "100000",
+    "realized": "-5000",
+    "unrealized": "0",
+    "positions": [],
+    "last_close": {},
+    "halt": 0.05,
+    "want": {
+      "day_pnl": "-5000",
+      "day_pnl_pct": "-0.05",
+      "daily_loss_halt": false,
+      "halt_headroom_pct": "0.00",
+      "concentration_pct": "0"
+    }
+  },
+  {
+    "name": "headroom",
+    "nav": "100000",
+    "realized": "100",
+    "unrealized": "0",
+    "positions": [],
+    "last_close": {},
+    "halt": 0.05,
+    "want": {
+      "day_pnl": "100",
+      "day_pnl_pct": "0.001",
+      "daily_loss_halt": false,
+      "halt_headroom_pct": "0.051",
+      "concentration_pct": "0"
+    }
+  },
+  {
+    "name": "headroom_clamped",
+    "nav": "100000",
+    "realized": "-7000",
+    "unrealized": "0",
+    "positions": [],
+    "last_close": {},
+    "halt": 0.05,
+    "want": {
+      "day_pnl": "-7000",
+      "day_pnl_pct": "-0.07",
+      "daily_loss_halt": true,
+      "halt_headroom_pct": "0",
+      "concentration_pct": "0"
+    }
+  },
+  {
+    "name": "conc_largest",
+    "nav": "200000",
+    "realized": "0",
+    "unrealized": "0",
+    "positions": [
+      {
+        "strat": "S1",
+        "sym": "AAPL",
+        "qty": 100
+      },
+      {
+        "strat": "S2",
+        "sym": "AAPL",
+        "qty": 50
+      },
+      {
+        "strat": "S1",
+        "sym": "NVDA",
+        "qty": 100
+      }
+    ],
+    "last_close": {
+      "AAPL": "200",
+      "NVDA": "500"
+    },
+    "halt": 0.05,
+    "want": {
+      "day_pnl": "0",
+      "day_pnl_pct": "0",
+      "daily_loss_halt": false,
+      "halt_headroom_pct": "0.05",
+      "concentration_pct": "0.25"
+    }
+  },
+  {
+    "name": "conc_zero_flat",
+    "nav": "100000",
+    "realized": "0",
+    "unrealized": "0",
+    "positions": [],
+    "last_close": {},
+    "halt": 0.05,
+    "want": {
+      "day_pnl": "0",
+      "day_pnl_pct": "0",
+      "daily_loss_halt": false,
+      "halt_headroom_pct": "0.05",
+      "concentration_pct": "0"
+    }
+  },
+  {
+    "name": "conc_net_not_gross",
+    "nav": "100000",
+    "realized": "0",
+    "unrealized": "0",
+    "positions": [
+      {
+        "strat": "S1",
+        "sym": "AAPL",
+        "qty": 100
+      },
+      {
+        "strat": "S2",
+        "sym": "AAPL",
+        "qty": -100
+      }
+    ],
+    "last_close": {
+      "AAPL": "200"
+    },
+    "halt": 0.05,
+    "want": {
+      "day_pnl": "0",
+      "day_pnl_pct": "0",
+      "daily_loss_halt": false,
+      "halt_headroom_pct": "0.05",
+      "concentration_pct": "0"
+    }
+  },
+  {
+    "name": "nonterm_pnl_pct",
+    "nav": "30000",
+    "realized": "100",
+    "unrealized": "0",
+    "positions": [],
+    "last_close": {},
+    "halt": 0.05,
+    "want": {
+      "day_pnl": "100",
+      "day_pnl_pct": "0.003333333333333333333333333333",
+      "daily_loss_halt": false,
+      "halt_headroom_pct": "0.05333333333333333333333333333",
+      "concentration_pct": "0"
+    }
+  },
+  {
+    "name": "nonterm_headroom",
+    "nav": "30000",
+    "realized": "7",
+    "unrealized": "0",
+    "positions": [],
+    "last_close": {},
+    "halt": 0.05,
+    "want": {
+      "day_pnl": "7",
+      "day_pnl_pct": "0.0002333333333333333333333333333",
+      "daily_loss_halt": false,
+      "halt_headroom_pct": "0.05023333333333333333333333333",
+      "concentration_pct": "0"
+    }
+  },
+  {
+    "name": "nonterm_conc",
+    "nav": "70000",
+    "realized": "0",
+    "unrealized": "0",
+    "positions": [
+      {
+        "strat": "S1",
+        "sym": "AAPL",
+        "qty": 13
+      }
+    ],
+    "last_close": {
+      "AAPL": "100"
+    },
+    "halt": 0.05,
+    "want": {
+      "day_pnl": "0",
+      "day_pnl_pct": "0",
+      "daily_loss_halt": false,
+      "halt_headroom_pct": "0.05",
+      "concentration_pct": "0.01857142857142857142857142857"
+    }
+  },
+  {
+    "name": "nav_zero",
+    "nav": "0",
+    "realized": "100",
+    "unrealized": "0",
+    "positions": [],
+    "last_close": {},
+    "halt": 0.05,
+    "want": {
+      "day_pnl": "100",
+      "day_pnl_pct": "0",
+      "daily_loss_halt": false,
+      "halt_headroom_pct": "0",
+      "concentration_pct": "0"
+    }
+  },
+  {
+    "name": "missing_price_conc",
+    "nav": "100000",
+    "realized": "0",
+    "unrealized": "0",
+    "positions": [
+      {
+        "strat": "S1",
+        "sym": "ZZZ",
+        "qty": 10
+      }
+    ],
+    "last_close": {},
+    "halt": 0.05,
+    "want": {
+      "day_pnl": "0",
+      "day_pnl_pct": "0",
+      "daily_loss_halt": false,
+      "halt_headroom_pct": "0.05",
+      "concentration_pct": "0"
+    }
+  }
+]

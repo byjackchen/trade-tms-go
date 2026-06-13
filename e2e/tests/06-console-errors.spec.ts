@@ -22,6 +22,7 @@
 
 import { test, expect } from "../fixtures/test";
 import { withDb, latestCompleteRun } from "../lib/db";
+import { strategiesUiReady, strategyDetailReady, STRATEGY_IDS } from "../lib/strategies";
 
 /** Bounded best-effort settle: lets late XHRs + a render tick flush without
  * ever hanging on the perpetually-open SSE connection. */
@@ -125,6 +126,52 @@ test.describe("no severe console errors", () => {
     expect(
       consoleErrors,
       `severe console/page errors on /backtests/${run.id}:\n` +
+        consoleErrors.map((e) => `  [${e.kind}] ${e.text}`).join("\n"),
+    ).toHaveLength(0);
+  });
+
+  // (4) The Strategies LIST route must be free of severe console errors. Self-
+  // skips until the Strategies workspace replaces the coming-soon placeholder /
+  // the route is built.
+  test("/strategies renders without severe console errors", async ({
+    page,
+    consoleErrors,
+  }) => {
+    const ready = await strategiesUiReady(page); // navigates to /strategies
+    test.skip(!ready, "Strategies workspace not yet implemented (coming-soon).");
+    if (!ready) return;
+
+    await expect(page.getByTestId("app-shell")).toBeVisible();
+    await expect(page.getByTestId("strategies-page")).toBeVisible();
+
+    await settle(page);
+    await page.waitForTimeout(1_500);
+    expect(
+      consoleErrors,
+      `severe console/page errors on /strategies:\n` +
+        consoleErrors.map((e) => `  [${e.kind}] ${e.text}`).join("\n"),
+    ).toHaveLength(0);
+  });
+
+  // (4) The Strategies DETAIL route must be free of severe console errors, for
+  // each canonical strategy. Self-skips until the detail page is implemented.
+  test("/strategies/{id} renders without severe console errors", async ({
+    page,
+    consoleErrors,
+  }) => {
+    const id = STRATEGY_IDS[0]; // sepa — a representative real strategy
+    const ready = await strategyDetailReady(page, id); // navigates to detail
+    test.skip(!ready, "Strategies detail page not yet implemented (coming-soon).");
+    if (!ready) return;
+
+    await expect(page.getByTestId("app-shell")).toBeVisible();
+    await expect(page.getByTestId("strategy-detail")).toBeVisible();
+
+    await settle(page);
+    await page.waitForTimeout(1_500);
+    expect(
+      consoleErrors,
+      `severe console/page errors on /strategies/${id}:\n` +
         consoleErrors.map((e) => `  [${e.kind}] ${e.text}`).join("\n"),
     ).toHaveLength(0);
   });

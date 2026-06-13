@@ -24,6 +24,8 @@ import type {
   BacktestTradesResponse,
   BacktestOrder,
   CreateBacktestRequest,
+  StrategiesResponse,
+  StrategyResponse,
 } from "./types";
 
 export function useCoverage(): UseQueryResult<CoverageResponse, Error> {
@@ -188,6 +190,29 @@ export function useCreateBacktest() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["backtests"] });
       void qc.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
+}
+
+// ---- Strategies ----
+
+export function useStrategies(): UseQueryResult<StrategiesResponse, Error> {
+  return useQuery({
+    queryKey: ["strategies"],
+    queryFn: () => apiGet<StrategiesResponse>("strategies"),
+  });
+}
+
+export function useStrategy(
+  id: string | null,
+): UseQueryResult<StrategyResponse, Error> {
+  return useQuery({
+    queryKey: ["strategy", id],
+    queryFn: () => apiGet<StrategyResponse>(`strategies/${id}`),
+    enabled: id != null && id !== "",
+    retry: (count, err) => {
+      // 404 (unknown strategy id) is a terminal empty state, not a retry case.
+      return (err as { status?: number })?.status !== 404 && count < 2;
     },
   });
 }

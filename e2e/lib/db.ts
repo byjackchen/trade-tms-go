@@ -207,3 +207,102 @@ export async function tradeCount(c: Client, runId: number): Promise<number> {
   );
   return Number(rows[0].n);
 }
+
+// ---------------------------------------------------------------------------
+// Strategies ground truth (tms.param_sets / tms.active_params — the DB
+// counterpart of the Python reference's src/strategies/params/* docs, per
+// migrations/000003_strategy.up.sql). The Strategies workspace lists the four
+// shipped strategies with their *active* parameter document; "active" means the
+// payload of the param_set pointed at by tms.active_params, OR — when no
+// active_params row exists (the "No row = baseline" case, spec §8.4) — the
+// strategy's resolved baseline. These helpers expose the active document
+// exactly as the API/UI must render it so a spec can compare UI == ground
+// truth without fabricating numbers.
+//
+// The four canonical strategy ids (internal/params/loader.go: Python package
+// stems / baseline file names) are the only strategies that exist.
+// ---------------------------------------------------------------------------
+
+/** The four canonical strategy ids, in a stable display order. */
+export const STRATEGY_IDS = [
+  "sepa",
+  "pairs",
+  "sector_rotation",
+  "intraday_breakout",
+] as const;
+export type StrategyId = (typeof STRATEGY_IDS)[number];
+
+/** The "active" parameter document for one strategy: the param_sets.payload the
+ * active_params pointer selects, plus its identity (id/version/source). `null`
+ * when the strategy has no row in either table (a stack that has not seeded the
+ * param documents at all — the spec should fall back to the API or skip). */
+export type ActiveStrategyTruth = {
+  strategy: string;
+  /** tms.param_sets.id of the active document (null when only baseline exists). */
+  paramSetId: number | null;
+  version: number | null;
+  source: string | null;
+  /** Full params JSON document (strategy, schema_version, display, allocation,
+   * metadata, parameters, constraints) — the `parameters` block drives the
+   * detail page's param table. */
+  payload: Record<string, unknown> | null;
+};
+
+/** Active param document for a strategy, resolving the active_params -> param_sets
+ * pointer. Returns a row with null payload when the strategy has no stored
+ * param_set at all (baseline-only — the UI may still render it from the API's
+ * embedded baseline; specs treat a null payload as "use the API as truth"). */
+export async function activeStrategy(
+  c: Client,
+  strategy: string,
+): Promise<ActiveStrategyTruth> {
+  // Prefer the explicit active_params promotion; otherwise the highest version
+  // stored for the strategy (a seeded baseline param_set). Either way we read
+  // the payload the run path would resolve from the DB.
+  const { rows } = await c.query<{
+    id: string | null;
+    version: string | null;
+    source: string | null;
+    payload: Record<string, unknown> | null;
+  }>(
+    `SELECT ps.id::text       AS id,
+            ps.version::text  AS version,
+            ps.source         AS source,
+            ps.payload        AS payload
+       FROM tms.param_sets ps
+       LEFT JOIN tms.active_params ap
+              ON ap.strategy = ps.strategy
+             AND ap.param_set_id = ps.id
+      WHERE ps.strategy = $1
+      ORDER BY (ap.param_set_id IS NOT NULL) DESC, ps.version DESC
+      LIMIT 1`,
+    [strategy],
+  );
+  if (!rows.length) {
+    return {
+      strategy,
+      paramSetId: null,
+      version: null,
+      source: null,
+      payload: null,
+    };
+  }
+  const r = rows[0];
+  return {
+    strategy,
+    paramSetId: r.id != null ? Number(r.id) : null,
+    version: r.version != null ? Number(r.version) : null,
+    source: r.source,
+    payload: r.payload,
+  };
+}
+
+/** Count of distinct strategies that have at least one stored param_set. Used
+ * only to decide whether the DB carries param documents at all (vs. a stack
+ * that serves strategies purely from the embedded baseline via the API). */
+export async function storedStrategyCount(c: Client): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(DISTINCT strategy)::text AS n FROM tms.param_sets`,
+  );
+  return Number(rows[0].n);
+}

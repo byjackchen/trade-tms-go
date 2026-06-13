@@ -49,6 +49,7 @@ type backtestRequest struct {
 	StartingBalance *float64         `json:"starting_balance"`
 	FillProfile     string           `json:"fill_profile"`
 	Strategy        string           `json:"strategy"`
+	ORBSymbol       string           `json:"orb_symbol"`
 	Intents         []map[string]any `json:"intents"`
 	Kind            string           `json:"kind"`
 	Seed            int64            `json:"seed"`
@@ -70,18 +71,32 @@ func (s *Server) handleBacktestEnqueue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeValidation, `"start" and "end" are required (YYYY-MM-DD)`)
 		return
 	}
-	if len(req.Tickers) == 0 && req.Universe == nil {
+	strategy := req.Strategy
+	if strategy == "" {
+		strategy = "scripted"
+	}
+	switch strategy {
+	case "scripted", "sepa", "sector_rotation", "pairs", "orb", "multi":
+	default:
+		writeError(w, http.StatusBadRequest, CodeValidation,
+			fmt.Sprintf("unsupported strategy %q (want scripted|sepa|sector_rotation|pairs|orb|multi)", req.Strategy))
+		return
+	}
+	// scripted needs an explicit ticker list or universe window; the real
+	// strategies derive their universe (ETFs / pair legs / SPY) from params, so
+	// tickers/universe are optional for them (SEPA/multi treat supplied tickers
+	// as the stock universe).
+	if strategy == "scripted" && len(req.Tickers) == 0 && req.Universe == nil {
 		writeError(w, http.StatusBadRequest, CodeValidation, `supply "tickers" or a "universe" window`)
+		return
+	}
+	if strategy == "orb" && strings.TrimSpace(req.ORBSymbol) == "" && len(req.Tickers) != 1 {
+		writeError(w, http.StatusBadRequest, CodeValidation, `strategy "orb" requires "orb_symbol" (or exactly one ticker)`)
 		return
 	}
 	if req.FillProfile != "" && req.FillProfile != "nautilus-compat" && req.FillProfile != "realistic" {
 		writeError(w, http.StatusBadRequest, CodeValidation,
 			fmt.Sprintf("unknown fill_profile %q (want \"nautilus-compat\" or \"realistic\")", req.FillProfile))
-		return
-	}
-	if req.Strategy != "" && req.Strategy != "scripted" {
-		writeError(w, http.StatusBadRequest, CodeValidation,
-			fmt.Sprintf("unsupported strategy %q (only \"scripted\" is implemented)", req.Strategy))
 		return
 	}
 	if req.MaxAttempts < 0 || req.MaxAttempts > 10 {
@@ -103,8 +118,9 @@ func (s *Server) handleBacktestEnqueue(w http.ResponseWriter, r *http.Request) {
 	if req.FillProfile != "" {
 		payload["fill_profile"] = req.FillProfile
 	}
-	if req.Strategy != "" {
-		payload["strategy"] = req.Strategy
+	payload["strategy"] = strategy
+	if s := strings.TrimSpace(req.ORBSymbol); s != "" {
+		payload["orb_symbol"] = s
 	}
 	if req.Intents != nil {
 		payload["intents"] = req.Intents

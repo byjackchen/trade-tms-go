@@ -1,0 +1,61 @@
+{
+  "strategy": "pairs",
+  "schema_version": 1,
+  "display": {
+    "description": "Statistical-arbitrage pairs trading on rolling-beta-neutral spread z-score"
+  },
+  "allocation": {
+    "capital_pct": 0.20,
+    "active": true
+  },
+  "metadata": {
+    "source": "baseline",
+    "created_at": "2026-05-06T00:00:00+00:00",
+    "tuned_from_study": null,
+    "tuned_from_trial": null
+  },
+  "parameters": {
+    "lookback": {
+      "default": 60,
+      "type": "int",
+      "search": {"low": 30, "high": 120},
+      "description": "Rolling beta + spread mean/std window"
+    },
+    "entry_z": {
+      "default": 2.0,
+      "type": "float",
+      "search": {"low": 1.5, "high": 3.0},
+      "description": "Spread z-score threshold to open a pair"
+    },
+    "exit_z": {
+      "default": 0.5,
+      "type": "float",
+      "search": {"low": 0.1, "high": 1.0},
+      "description": "Spread z-score threshold to close a pair"
+    },
+    "capital_per_pair_pct": {
+      "default": 0.30,
+      "type": "float",
+      "search": {"low": 0.10, "high": 0.45},
+      "description": "Account % allocated per active pair"
+    },
+    "pairs": {
+      "default": [["KO", "PEP"], ["MA", "V"], ["XOM", "CVX"]],
+      "type": "list",
+      "search": null,
+      "description": "Default pair tickers"
+    },
+    "timezone": {
+      "default": "America/New_York",
+      "type": "str",
+      "search": null
+    }
+  },
+  "constraints": [
+    {
+      "kind": "clamp_high",
+      "param": "exit_z",
+      "expression": "min(1.0, entry_z - 0.1)"
+    }
+  ]
+}

@@ -30,13 +30,25 @@ func isRegistered(strategy string) bool {
 	return false
 }
 
+// BaselineRaw returns the embedded baseline JSON bytes for strategy verbatim
+// (for callers that need the full document, including the display/allocation
+// blocks that ParseStrategyParams ignores — e.g. internal/params). The error
+// message matches the reference's "not found in env dir nor baseline".
+func BaselineRaw(strategy string) ([]byte, error) {
+	raw, err := baselineFS.ReadFile("baseline/" + strategy + ".json")
+	if err != nil {
+		return nil, fmt.Errorf("strategy params file not found in env dir nor baseline: %s.json", strategy)
+	}
+	return raw, nil
+}
+
 // LoadBaselineParams parses the embedded baseline JSON for strategy. Any of the
 // four baseline files (incl. intraday_breakout) can be loaded; registration is
 // a separate concern enforced by SuggestParams/SuggestJointParams.
 func LoadBaselineParams(strategy string) (*StrategyParams, error) {
-	raw, err := baselineFS.ReadFile("baseline/" + strategy + ".json")
+	raw, err := BaselineRaw(strategy)
 	if err != nil {
-		return nil, fmt.Errorf("strategy params file not found in env dir nor baseline: %s.json", strategy)
+		return nil, err
 	}
 	return ParseStrategyParams(raw, strategy)
 }

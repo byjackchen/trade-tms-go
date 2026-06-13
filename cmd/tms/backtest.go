@@ -26,6 +26,8 @@ func newBacktestCmd(env *runtimeEnv) *cobra.Command {
 		end          string
 		startBalance float64
 		fillProfile  string
+		strategy     string
+		orbSymbol    string
 		intentsPath  string
 		intentsJSON  string
 		kind         string
@@ -52,6 +54,8 @@ func newBacktestCmd(env *runtimeEnv) *cobra.Command {
 				end:          end,
 				startBalance: startBalance,
 				fillProfile:  fillProfile,
+				strategy:     strategy,
+				orbSymbol:    orbSymbol,
 				intentsPath:  intentsPath,
 				intentsJSON:  intentsJSON,
 				kind:         kind,
@@ -73,6 +77,8 @@ func newBacktestCmd(env *runtimeEnv) *cobra.Command {
 	cmd.Flags().StringVar(&end, "end", "", "bar window end (YYYY-MM-DD, required)")
 	cmd.Flags().Float64Var(&startBalance, "starting-balance", 100000.0, "starting account balance in USD")
 	cmd.Flags().StringVar(&fillProfile, "fill-profile", "nautilus-compat", "fill model: nautilus-compat | realistic")
+	cmd.Flags().StringVar(&strategy, "strategy", "scripted", "strategy: scripted | sepa | sector_rotation | pairs | orb | multi")
+	cmd.Flags().StringVar(&orbSymbol, "orb-symbol", "", "ORB strategy: the single intraday instrument symbol")
 	cmd.Flags().StringVar(&intentsPath, "intents", "", "path to a JSON array of scripted intents")
 	cmd.Flags().StringVar(&intentsJSON, "intents-json", "", "inline JSON array of scripted intents (overrides --intents)")
 	cmd.Flags().StringVar(&kind, "kind", "multi-strategy", "run kind badge")
@@ -90,6 +96,8 @@ type backtestPayloadArgs struct {
 	end          string
 	startBalance float64
 	fillProfile  string
+	strategy     string
+	orbSymbol    string
 	intentsPath  string
 	intentsJSON  string
 	kind         string
@@ -103,6 +111,10 @@ func buildBacktestPayload(a backtestPayloadArgs) (json.RawMessage, error) {
 	if strings.TrimSpace(a.start) == "" || strings.TrimSpace(a.end) == "" {
 		return nil, fmt.Errorf("--start and --end are required (YYYY-MM-DD)")
 	}
+	strategy := strings.TrimSpace(a.strategy)
+	if strategy == "" {
+		strategy = "scripted"
+	}
 	var tickers []string
 	for _, t := range strings.Split(a.tickersCSV, ",") {
 		t = strings.ToUpper(strings.TrimSpace(t))
@@ -110,8 +122,14 @@ func buildBacktestPayload(a backtestPayloadArgs) (json.RawMessage, error) {
 			tickers = append(tickers, t)
 		}
 	}
-	if len(tickers) == 0 {
-		return nil, fmt.Errorf("--tickers is required (comma-separated)")
+	// scripted needs an explicit ticker list; the real strategies derive their
+	// universe (ETFs / pair legs / SPY) from params, so tickers are optional —
+	// SEPA/multi treat any supplied tickers as the stock universe.
+	if strategy == "scripted" && len(tickers) == 0 {
+		return nil, fmt.Errorf("--tickers is required for --strategy=scripted (comma-separated)")
+	}
+	if strategy == "orb" && strings.TrimSpace(a.orbSymbol) == "" && len(tickers) != 1 {
+		return nil, fmt.Errorf("--strategy=orb requires --orb-symbol (or exactly one --tickers entry)")
 	}
 
 	var intents []any
@@ -130,14 +148,19 @@ func buildBacktestPayload(a backtestPayloadArgs) (json.RawMessage, error) {
 	}
 
 	payload := map[string]any{
-		"tickers":          tickers,
 		"start":            a.start,
 		"end":              a.end,
 		"starting_balance": a.startBalance,
 		"fill_profile":     a.fillProfile,
-		"strategy":         "scripted",
+		"strategy":         strategy,
 		"kind":             a.kind,
 		"seed":             a.seed,
+	}
+	if len(tickers) > 0 {
+		payload["tickers"] = tickers
+	}
+	if s := strings.TrimSpace(a.orbSymbol); s != "" {
+		payload["orb_symbol"] = strings.ToUpper(s)
 	}
 	if intents != nil {
 		payload["intents"] = intents
@@ -184,7 +207,7 @@ func runBacktestInline(ctx context.Context, env *runtimeEnv, payload json.RawMes
 	}
 	defer pool.Close()
 
-	h, err := handlers.NewBacktest(pool, env.cfg.RunsDir, env.log)
+	h, err := handlers.NewBacktestWithParamsDir(pool, env.cfg.RunsDir, env.cfg.StrategyParamsDir, env.log)
 	if err != nil {
 		return err
 	}

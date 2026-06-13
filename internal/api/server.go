@@ -32,6 +32,7 @@ type Deps struct {
 	Data        DataStore
 	Universe    UniverseReader
 	Runs        RunsReader
+	Strategies  StrategyReader
 	Calendar    *calendar.Calendar
 	PingPG      PingFunc
 	PingRedis   PingFunc
@@ -48,6 +49,7 @@ type Server struct {
 	data        DataStore
 	uni         UniverseReader
 	runs        RunsReader
+	strat       StrategyReader
 	cal         *calendar.Calendar
 	pingPG      PingFunc
 	pingRedis   PingFunc
@@ -86,6 +88,7 @@ func NewServer(d Deps) (*Server, error) {
 		data:        d.Data,
 		uni:         d.Universe,
 		runs:        d.Runs,
+		strat:       d.Strategies,
 		cal:         d.Calendar,
 		pingPG:      d.PingPG,
 		pingRedis:   d.PingRedis,
@@ -138,6 +141,9 @@ func (s *Server) Routes() *chi.Mux {
 
 			r.Get("/universe/latest", s.handleUniverseLatest)
 			r.Post("/universe/rebuild", s.handleUniverseRebuild)
+
+			r.Get("/strategies", s.handleStrategyList)
+			r.Get("/strategies/{id}", s.handleStrategyGet)
 
 			r.Post("/backtests", s.handleBacktestEnqueue)
 			r.Get("/backtests", s.handleBacktestList)

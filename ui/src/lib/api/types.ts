@@ -325,6 +325,7 @@ export type CreateBacktestRequest = {
   starting_balance?: number;
   fill_profile?: FillProfile;
   strategy?: string;
+  orb_symbol?: string;
   intents?: BacktestIntent[];
   kind?: string;
   seed?: number;
@@ -334,6 +335,55 @@ export type CreateBacktestRequest = {
   max_attempts?: number;
   dedupe_key?: string;
 };
+
+// ---- Strategies ----
+
+/** One parameter's schema: resolved default + optional numeric search bounds. */
+export type ParamSchema = {
+  name: string;
+  type: "float" | "int" | "str" | "list" | string;
+  default: unknown;
+  search_low?: number;
+  search_high?: number;
+  description?: string;
+};
+
+/**
+ * A production strategy's resolved metadata + active params + schema.
+ *
+ * `id` is the canonical loader stem (sepa|sector_rotation|pairs|intraday_breakout).
+ * `backtest_id` is the token POST /backtests accepts (the only difference is ORB:
+ * id "intraday_breakout" -> backtest_id "orb"). The list page links by `id` and
+ * launches a run with `backtest_id`.
+ */
+export type StrategyMeta = {
+  id: string;
+  backtest_id: string;
+  label: string;
+  description: string;
+  capital_pct: number | null;
+  active: boolean;
+  params_source: "db" | "file" | "baseline" | string;
+  schema_version: number;
+  parameters_count: number;
+  parameters: ParamSchema[];
+  active_values: Record<string, unknown>;
+  error?: string;
+};
+
+export type StrategiesResponse = { strategies: StrategyMeta[] };
+export type StrategyResponse = { strategy: StrategyMeta };
+
+/** Strategy tokens the backtest dialog can launch directly. */
+export const BACKTEST_STRATEGIES = [
+  "scripted",
+  "sepa",
+  "sector_rotation",
+  "pairs",
+  "orb",
+  "multi",
+] as const;
+export type BacktestStrategy = (typeof BACKTEST_STRATEGIES)[number];
 
 // ---- WebSocket envelope ----
 

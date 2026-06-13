@@ -148,6 +148,15 @@ func countsFor(res *engine.Result, strategyID string) metrics.Counts {
 			c.NumRejectedOrders++
 		}
 	}
+	// Gate-rejected signal orders never become domain.Orders (the portfolio gate
+	// blocks them pre-submit, mirroring a Nautilus REJECTED order). Count them
+	// here so num_rejected_orders is meaningful for the real-strategy path.
+	for _, r := range res.RejectedOrders {
+		if strategyID != "" && r.StrategyID != strategyID {
+			continue
+		}
+		c.NumRejectedOrders++
+	}
 	for _, pos := range res.Positions {
 		if strategyID != "" && pos.StrategyID != strategyID {
 			continue

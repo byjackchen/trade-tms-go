@@ -1,0 +1,2809 @@
+{
+  "config": {
+    "symbol": "AAPL",
+    "risk_pct": 1.0,
+    "range_minutes": 30,
+    "vol_multiple": 1.5,
+    "profit_target_r": 2.0,
+    "hard_stop_pct": 1.0,
+    "eod_exit_time": "15:55",
+    "timezone": "America/New_York",
+    "equity": "100000"
+  },
+  "records": [
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-08 14:30:00+00:00",
+        "open": "100.0",
+        "high": "101.0",
+        "low": "99.0",
+        "close": "100.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-08 14:30:00+00:00",
+        "generation": 1,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-08 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-08",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-08",
+        "range_bars_count": 1,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "range_total_volume": 1000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-08 14:35:00+00:00",
+        "open": "100.0",
+        "high": "101.0",
+        "low": "99.0",
+        "close": "100.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-08 14:35:00+00:00",
+        "generation": 2,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-08 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-08",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-08",
+        "range_bars_count": 2,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "range_total_volume": 2000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-08 14:40:00+00:00",
+        "open": "100.0",
+        "high": "101.0",
+        "low": "99.0",
+        "close": "100.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-08 14:40:00+00:00",
+        "generation": 3,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-08 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-08",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-08",
+        "range_bars_count": 3,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "range_total_volume": 3000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-08 14:45:00+00:00",
+        "open": "100.0",
+        "high": "101.0",
+        "low": "99.0",
+        "close": "100.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-08 14:45:00+00:00",
+        "generation": 4,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-08 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-08",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-08",
+        "range_bars_count": 4,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "range_total_volume": 4000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-08 14:50:00+00:00",
+        "open": "100.0",
+        "high": "101.0",
+        "low": "99.0",
+        "close": "100.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-08 14:50:00+00:00",
+        "generation": 5,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-08 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-08",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-08",
+        "range_bars_count": 5,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "range_total_volume": 5000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-08 14:55:00+00:00",
+        "open": "100.0",
+        "high": "101.0",
+        "low": "99.0",
+        "close": "100.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-08 14:55:00+00:00",
+        "generation": 6,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-08 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-08",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-08",
+        "range_bars_count": 6,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "range_total_volume": 6000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-08 15:05:00+00:00",
+        "open": "101.0",
+        "high": "102.5",
+        "low": "101.0",
+        "close": "102.0",
+        "volume": 2000000
+      },
+      "signals": [
+        {
+          "symbol": "AAPL",
+          "ts": "2024-01-08 15:05:00+00:00",
+          "side": "LONG",
+          "target_qty": 980,
+          "reason": "ORB breakout: close 102.0 > range_high 101.0, vol 2000000 > avg 1000000 * 1.5 :: stop 100.980, target 104.0400",
+          "confidence": 1.0,
+          "grade": null,
+          "stop_price": "100.980"
+        }
+      ],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "hold",
+        "strength": 100.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-08 15:05:00+00:00",
+        "generation": 7,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-08 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-08",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": true,
+        "avg_volume": 1000000.0,
+        "position_qty": 980,
+        "entry_price": "102.0",
+        "stop_price": "100.980",
+        "target_price": "104.0400"
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-08",
+        "range_bars_count": 6,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": true,
+        "range_total_volume": 6000000,
+        "avg_volume": 1000000.0,
+        "position_qty": 980,
+        "entry_price": "102.0",
+        "stop_price": "100.980",
+        "target_price": "104.0400",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-08 15:10:00+00:00",
+        "open": "102.0",
+        "high": "103.0",
+        "low": "101.5",
+        "close": "102.5",
+        "volume": 800000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "hold",
+        "strength": 100.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-08 15:10:00+00:00",
+        "generation": 8,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-08 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-08",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": true,
+        "avg_volume": 1000000.0,
+        "position_qty": 980,
+        "entry_price": "102.0",
+        "stop_price": "100.980",
+        "target_price": "104.0400"
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-08",
+        "range_bars_count": 6,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": true,
+        "range_total_volume": 6000000,
+        "avg_volume": 1000000.0,
+        "position_qty": 980,
+        "entry_price": "102.0",
+        "stop_price": "100.980",
+        "target_price": "104.0400",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-08 15:15:00+00:00",
+        "open": "103.0",
+        "high": "104.1",
+        "low": "102.5",
+        "close": "104.0",
+        "volume": 1500000
+      },
+      "signals": [
+        {
+          "symbol": "AAPL",
+          "ts": "2024-01-08 15:15:00+00:00",
+          "side": "FLAT",
+          "target_qty": 980,
+          "reason": "target hit at 104.0400",
+          "confidence": 1.0,
+          "grade": null,
+          "stop_price": null
+        }
+      ],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "buy",
+        "strength": 100.0,
+        "proximity_to_trigger_pct": 2.9702970297029703,
+        "updated_at": "2024-01-08 15:15:00+00:00",
+        "generation": 9,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-08 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-08",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": true,
+        "avg_volume": 1000000.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-08",
+        "range_bars_count": 6,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": true,
+        "range_total_volume": 6000000,
+        "avg_volume": 1000000.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-08 15:20:00+00:00",
+        "open": "104.0",
+        "high": "104.2",
+        "low": "103.5",
+        "close": "103.8",
+        "volume": 700000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "buy",
+        "strength": 100.0,
+        "proximity_to_trigger_pct": 2.772277227722772,
+        "updated_at": "2024-01-08 15:20:00+00:00",
+        "generation": 10,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-08 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-08",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": true,
+        "avg_volume": 1000000.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-08",
+        "range_bars_count": 6,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": true,
+        "range_total_volume": 6000000,
+        "avg_volume": 1000000.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-09 14:30:00+00:00",
+        "open": "200.0",
+        "high": "201.0",
+        "low": "199.0",
+        "close": "200.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-09 14:30:00+00:00",
+        "generation": 11,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "201.0",
+        "orb_low": "199.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-09 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-09",
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-09",
+        "range_bars_count": 1,
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": false,
+        "range_total_volume": 1000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-09 14:35:00+00:00",
+        "open": "200.0",
+        "high": "201.0",
+        "low": "199.0",
+        "close": "200.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-09 14:35:00+00:00",
+        "generation": 12,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "201.0",
+        "orb_low": "199.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-09 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-09",
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-09",
+        "range_bars_count": 2,
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": false,
+        "range_total_volume": 2000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-09 14:40:00+00:00",
+        "open": "200.0",
+        "high": "201.0",
+        "low": "199.0",
+        "close": "200.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-09 14:40:00+00:00",
+        "generation": 13,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "201.0",
+        "orb_low": "199.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-09 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-09",
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-09",
+        "range_bars_count": 3,
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": false,
+        "range_total_volume": 3000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-09 14:45:00+00:00",
+        "open": "200.0",
+        "high": "201.0",
+        "low": "199.0",
+        "close": "200.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-09 14:45:00+00:00",
+        "generation": 14,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "201.0",
+        "orb_low": "199.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-09 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-09",
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-09",
+        "range_bars_count": 4,
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": false,
+        "range_total_volume": 4000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-09 14:50:00+00:00",
+        "open": "200.0",
+        "high": "201.0",
+        "low": "199.0",
+        "close": "200.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-09 14:50:00+00:00",
+        "generation": 15,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "201.0",
+        "orb_low": "199.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-09 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-09",
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-09",
+        "range_bars_count": 5,
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": false,
+        "range_total_volume": 5000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-09 14:55:00+00:00",
+        "open": "200.0",
+        "high": "201.0",
+        "low": "199.0",
+        "close": "200.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-09 14:55:00+00:00",
+        "generation": 16,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "201.0",
+        "orb_low": "199.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-09 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-09",
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-09",
+        "range_bars_count": 6,
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": false,
+        "range_total_volume": 6000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-09 15:05:00+00:00",
+        "open": "201.0",
+        "high": "202.5",
+        "low": "201.0",
+        "close": "202.0",
+        "volume": 3000000
+      },
+      "signals": [
+        {
+          "symbol": "AAPL",
+          "ts": "2024-01-09 15:05:00+00:00",
+          "side": "LONG",
+          "target_qty": 495,
+          "reason": "ORB breakout: close 202.0 > range_high 201.0, vol 3000000 > avg 1000000 * 1.5 :: stop 199.980, target 206.0400",
+          "confidence": 1.0,
+          "grade": null,
+          "stop_price": "199.980"
+        }
+      ],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "hold",
+        "strength": 100.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-09 15:05:00+00:00",
+        "generation": 17,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "201.0",
+        "orb_low": "199.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-09 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-09",
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": true,
+        "avg_volume": 1000000.0,
+        "position_qty": 495,
+        "entry_price": "202.0",
+        "stop_price": "199.980",
+        "target_price": "206.0400"
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-09",
+        "range_bars_count": 6,
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": true,
+        "range_total_volume": 6000000,
+        "avg_volume": 1000000.0,
+        "position_qty": 495,
+        "entry_price": "202.0",
+        "stop_price": "199.980",
+        "target_price": "206.0400",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-09 15:10:00+00:00",
+        "open": "201.5",
+        "high": "201.6",
+        "low": "199.5",
+        "close": "199.8",
+        "volume": 1000000
+      },
+      "signals": [
+        {
+          "symbol": "AAPL",
+          "ts": "2024-01-09 15:10:00+00:00",
+          "side": "FLAT",
+          "target_qty": 495,
+          "reason": "stop hit at 199.980",
+          "confidence": 1.0,
+          "grade": null,
+          "stop_price": null
+        }
+      ],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "forming",
+        "strength": 40.0,
+        "proximity_to_trigger_pct": -0.5970149253731343,
+        "updated_at": "2024-01-09 15:10:00+00:00",
+        "generation": 18,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "201.0",
+        "orb_low": "199.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-09 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-09",
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": true,
+        "avg_volume": 1000000.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-09",
+        "range_bars_count": 6,
+        "range_high": "201.0",
+        "range_low": "199.0",
+        "range_locked": true,
+        "range_total_volume": 6000000,
+        "avg_volume": 1000000.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-10 14:30:00+00:00",
+        "open": "50.0",
+        "high": "51.0",
+        "low": "49.0",
+        "close": "50.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-10 14:30:00+00:00",
+        "generation": 19,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "51.0",
+        "orb_low": "49.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-10 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-10",
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-10",
+        "range_bars_count": 1,
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": false,
+        "range_total_volume": 1000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-10 14:35:00+00:00",
+        "open": "50.0",
+        "high": "51.0",
+        "low": "49.0",
+        "close": "50.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-10 14:35:00+00:00",
+        "generation": 20,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "51.0",
+        "orb_low": "49.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-10 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-10",
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-10",
+        "range_bars_count": 2,
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": false,
+        "range_total_volume": 2000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-10 14:40:00+00:00",
+        "open": "50.0",
+        "high": "51.0",
+        "low": "49.0",
+        "close": "50.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-10 14:40:00+00:00",
+        "generation": 21,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "51.0",
+        "orb_low": "49.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-10 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-10",
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-10",
+        "range_bars_count": 3,
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": false,
+        "range_total_volume": 3000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-10 14:45:00+00:00",
+        "open": "50.0",
+        "high": "51.0",
+        "low": "49.0",
+        "close": "50.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-10 14:45:00+00:00",
+        "generation": 22,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "51.0",
+        "orb_low": "49.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-10 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-10",
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-10",
+        "range_bars_count": 4,
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": false,
+        "range_total_volume": 4000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-10 14:50:00+00:00",
+        "open": "50.0",
+        "high": "51.0",
+        "low": "49.0",
+        "close": "50.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-10 14:50:00+00:00",
+        "generation": 23,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "51.0",
+        "orb_low": "49.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-10 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-10",
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-10",
+        "range_bars_count": 5,
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": false,
+        "range_total_volume": 5000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-10 14:55:00+00:00",
+        "open": "50.0",
+        "high": "51.0",
+        "low": "49.0",
+        "close": "50.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-10 14:55:00+00:00",
+        "generation": 24,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "51.0",
+        "orb_low": "49.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-10 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-10",
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-10",
+        "range_bars_count": 6,
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": false,
+        "range_total_volume": 6000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-10 15:05:00+00:00",
+        "open": "50.5",
+        "high": "51.2",
+        "low": "50.0",
+        "close": "51.5",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "buy",
+        "strength": 100.0,
+        "proximity_to_trigger_pct": 0.9803921568627451,
+        "updated_at": "2024-01-10 15:05:00+00:00",
+        "generation": 25,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "51.0",
+        "orb_low": "49.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-10 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-10",
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": true,
+        "avg_volume": 1000000.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-10",
+        "range_bars_count": 6,
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": true,
+        "range_total_volume": 6000000,
+        "avg_volume": 1000000.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-10 15:10:00+00:00",
+        "open": "51.5",
+        "high": "52.0",
+        "low": "51.0",
+        "close": "51.8",
+        "volume": 2000000
+      },
+      "signals": [
+        {
+          "symbol": "AAPL",
+          "ts": "2024-01-10 15:10:00+00:00",
+          "side": "LONG",
+          "target_qty": 1930,
+          "reason": "ORB breakout: close 51.8 > range_high 51.0, vol 2000000 > avg 1000000 * 1.5 :: stop 51.282, target 52.8360",
+          "confidence": 1.0,
+          "grade": null,
+          "stop_price": "51.282"
+        }
+      ],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "hold",
+        "strength": 100.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-10 15:10:00+00:00",
+        "generation": 26,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "51.0",
+        "orb_low": "49.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-10 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-10",
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": true,
+        "avg_volume": 1000000.0,
+        "position_qty": 1930,
+        "entry_price": "51.8",
+        "stop_price": "51.282",
+        "target_price": "52.8360"
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-10",
+        "range_bars_count": 6,
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": true,
+        "range_total_volume": 6000000,
+        "avg_volume": 1000000.0,
+        "position_qty": 1930,
+        "entry_price": "51.8",
+        "stop_price": "51.282",
+        "target_price": "52.8360",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-10 20:55:00+00:00",
+        "open": "51.8",
+        "high": "52.0",
+        "low": "51.5",
+        "close": "51.9",
+        "volume": 400000
+      },
+      "signals": [
+        {
+          "symbol": "AAPL",
+          "ts": "2024-01-10 20:55:00+00:00",
+          "side": "FLAT",
+          "target_qty": 1930,
+          "reason": "EOD exit at 15:55",
+          "confidence": 1.0,
+          "grade": null,
+          "stop_price": null
+        }
+      ],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-10 20:55:00+00:00",
+        "generation": 27,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "51.0",
+        "orb_low": "49.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-10 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-10",
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": true,
+        "avg_volume": 1000000.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-10",
+        "range_bars_count": 6,
+        "range_high": "51.0",
+        "range_low": "49.0",
+        "range_locked": true,
+        "range_total_volume": 6000000,
+        "avg_volume": 1000000.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-11 14:30:00+00:00",
+        "open": "100.0",
+        "high": "101.0",
+        "low": "99.0",
+        "close": "100.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-11 14:30:00+00:00",
+        "generation": 28,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-11 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-11",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-11",
+        "range_bars_count": 1,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "range_total_volume": 1000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-11 14:35:00+00:00",
+        "open": "100.0",
+        "high": "101.0",
+        "low": "99.0",
+        "close": "100.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-11 14:35:00+00:00",
+        "generation": 29,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-11 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-11",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-11",
+        "range_bars_count": 2,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "range_total_volume": 2000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-11 14:40:00+00:00",
+        "open": "100.0",
+        "high": "101.0",
+        "low": "99.0",
+        "close": "100.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-11 14:40:00+00:00",
+        "generation": 30,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-11 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-11",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-11",
+        "range_bars_count": 3,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "range_total_volume": 3000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-11 14:45:00+00:00",
+        "open": "100.0",
+        "high": "101.0",
+        "low": "99.0",
+        "close": "100.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-11 14:45:00+00:00",
+        "generation": 31,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-11 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-11",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-11",
+        "range_bars_count": 4,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "range_total_volume": 4000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-11 14:50:00+00:00",
+        "open": "100.0",
+        "high": "101.0",
+        "low": "99.0",
+        "close": "100.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-11 14:50:00+00:00",
+        "generation": 32,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-11 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-11",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-11",
+        "range_bars_count": 5,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "range_total_volume": 5000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-11 14:55:00+00:00",
+        "open": "100.0",
+        "high": "101.0",
+        "low": "99.0",
+        "close": "100.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-11 14:55:00+00:00",
+        "generation": 33,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-11 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-11",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-11",
+        "range_bars_count": 6,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": false,
+        "range_total_volume": 6000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-11 15:05:00+00:00",
+        "open": "101.0",
+        "high": "102.5",
+        "low": "101.0",
+        "close": "102.0",
+        "volume": 2000000
+      },
+      "signals": [
+        {
+          "symbol": "AAPL",
+          "ts": "2024-01-11 15:05:00+00:00",
+          "side": "LONG",
+          "target_qty": 980,
+          "reason": "ORB breakout: close 102.0 > range_high 101.0, vol 2000000 > avg 1000000 * 1.5 :: stop 100.980, target 104.0400",
+          "confidence": 1.0,
+          "grade": null,
+          "stop_price": "100.980"
+        }
+      ],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "hold",
+        "strength": 100.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-11 15:05:00+00:00",
+        "generation": 34,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-11 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-11",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": true,
+        "avg_volume": 1000000.0,
+        "position_qty": 980,
+        "entry_price": "102.0",
+        "stop_price": "100.980",
+        "target_price": "104.0400"
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-11",
+        "range_bars_count": 6,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": true,
+        "range_total_volume": 6000000,
+        "avg_volume": 1000000.0,
+        "position_qty": 980,
+        "entry_price": "102.0",
+        "stop_price": "100.980",
+        "target_price": "104.0400",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-11 15:10:00+00:00",
+        "open": "102.0",
+        "high": "103.0",
+        "low": "101.5",
+        "close": "102.4",
+        "volume": 600000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "hold",
+        "strength": 100.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-11 15:10:00+00:00",
+        "generation": 35,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "101.0",
+        "orb_low": "99.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-11 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-11",
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": true,
+        "avg_volume": 1000000.0,
+        "position_qty": 980,
+        "entry_price": "102.0",
+        "stop_price": "100.980",
+        "target_price": "104.0400"
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-11",
+        "range_bars_count": 6,
+        "range_high": "101.0",
+        "range_low": "99.0",
+        "range_locked": true,
+        "range_total_volume": 6000000,
+        "avg_volume": 1000000.0,
+        "position_qty": 980,
+        "entry_price": "102.0",
+        "stop_price": "100.980",
+        "target_price": "104.0400",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-12 14:30:00+00:00",
+        "open": "300.0",
+        "high": "301.0",
+        "low": "299.0",
+        "close": "300.0",
+        "volume": 1000000
+      },
+      "signals": [
+        {
+          "symbol": "AAPL",
+          "ts": "2024-01-12 14:30:00+00:00",
+          "side": "FLAT",
+          "target_qty": 980,
+          "reason": "session boundary",
+          "confidence": 1.0,
+          "grade": null,
+          "stop_price": null
+        }
+      ],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-12 14:30:00+00:00",
+        "generation": 36,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "301.0",
+        "orb_low": "299.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-12 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-12",
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-12",
+        "range_bars_count": 1,
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": false,
+        "range_total_volume": 1000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-12 14:35:00+00:00",
+        "open": "300.0",
+        "high": "301.0",
+        "low": "299.0",
+        "close": "300.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-12 14:35:00+00:00",
+        "generation": 37,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "301.0",
+        "orb_low": "299.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-12 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-12",
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-12",
+        "range_bars_count": 2,
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": false,
+        "range_total_volume": 2000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-12 14:40:00+00:00",
+        "open": "300.0",
+        "high": "301.0",
+        "low": "299.0",
+        "close": "300.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-12 14:40:00+00:00",
+        "generation": 38,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "301.0",
+        "orb_low": "299.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-12 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-12",
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-12",
+        "range_bars_count": 3,
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": false,
+        "range_total_volume": 3000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-12 14:45:00+00:00",
+        "open": "300.0",
+        "high": "301.0",
+        "low": "299.0",
+        "close": "300.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-12 14:45:00+00:00",
+        "generation": 39,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "301.0",
+        "orb_low": "299.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-12 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-12",
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-12",
+        "range_bars_count": 4,
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": false,
+        "range_total_volume": 4000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-12 14:50:00+00:00",
+        "open": "300.0",
+        "high": "301.0",
+        "low": "299.0",
+        "close": "300.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-12 14:50:00+00:00",
+        "generation": 40,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "301.0",
+        "orb_low": "299.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-12 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-12",
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-12",
+        "range_bars_count": 5,
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": false,
+        "range_total_volume": 5000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-12 14:55:00+00:00",
+        "open": "300.0",
+        "high": "301.0",
+        "low": "299.0",
+        "close": "300.0",
+        "volume": 1000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-12 14:55:00+00:00",
+        "generation": 41,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "301.0",
+        "orb_low": "299.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-12 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-12",
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": false,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-12",
+        "range_bars_count": 6,
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": false,
+        "range_total_volume": 6000000,
+        "avg_volume": 0.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-12 15:05:00+00:00",
+        "open": "301.0",
+        "high": "302.5",
+        "low": "301.0",
+        "close": "302.0",
+        "volume": 2000000
+      },
+      "signals": [
+        {
+          "symbol": "AAPL",
+          "ts": "2024-01-12 15:05:00+00:00",
+          "side": "LONG",
+          "target_qty": 333,
+          "reason": "ORB breakout: close 302.0 > range_high 301.0, vol 2000000 > avg 1000000 * 1.5 :: stop 299.0, target 308.00",
+          "confidence": 1.0,
+          "grade": null,
+          "stop_price": "299.0"
+        }
+      ],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "hold",
+        "strength": 100.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-12 15:05:00+00:00",
+        "generation": 42,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "301.0",
+        "orb_low": "299.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-12 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-12",
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": true,
+        "avg_volume": 1000000.0,
+        "position_qty": 333,
+        "entry_price": "302.0",
+        "stop_price": "299.0",
+        "target_price": "308.00"
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-12",
+        "range_bars_count": 6,
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": true,
+        "range_total_volume": 6000000,
+        "avg_volume": 1000000.0,
+        "position_qty": 333,
+        "entry_price": "302.0",
+        "stop_price": "299.0",
+        "target_price": "308.00",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-12 20:55:00+00:00",
+        "open": "302.0",
+        "high": "302.2",
+        "low": "301.8",
+        "close": "302.1",
+        "volume": 300000
+      },
+      "signals": [
+        {
+          "symbol": "AAPL",
+          "ts": "2024-01-12 20:55:00+00:00",
+          "side": "FLAT",
+          "target_qty": 333,
+          "reason": "EOD exit at 15:55",
+          "confidence": 1.0,
+          "grade": null,
+          "stop_price": null
+        }
+      ],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-12 20:55:00+00:00",
+        "generation": 43,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "301.0",
+        "orb_low": "299.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-12 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-12",
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": true,
+        "avg_volume": 1000000.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-12",
+        "range_bars_count": 6,
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": true,
+        "range_total_volume": 6000000,
+        "avg_volume": 1000000.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    },
+    {
+      "bar": {
+        "symbol": "AAPL",
+        "ts": "2024-01-12 21:00:00+00:00",
+        "open": "303.0",
+        "high": "305.0",
+        "low": "303.0",
+        "close": "304.0",
+        "volume": 9000000
+      },
+      "signals": [],
+      "intent": {
+        "symbol": "AAPL",
+        "state": "no_setup",
+        "strength": 0.0,
+        "proximity_to_trigger_pct": null,
+        "updated_at": "2024-01-12 21:00:00+00:00",
+        "generation": 44,
+        "strategy_id": "intraday_breakout",
+        "orb_high": "301.0",
+        "orb_low": "299.0",
+        "atr_at_open": null,
+        "entry_window_end": "2024-01-12 20:55:00+00:00"
+      },
+      "state_summary": {
+        "symbol": "AAPL",
+        "session_date": "2024-01-12",
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": true,
+        "avg_volume": 1000000.0,
+        "position_qty": 0,
+        "entry_price": null,
+        "stop_price": null,
+        "target_price": null
+      },
+      "state_dict": {
+        "current_session_date": "2024-01-12",
+        "range_bars_count": 6,
+        "range_high": "301.0",
+        "range_low": "299.0",
+        "range_locked": true,
+        "range_total_volume": 6000000,
+        "avg_volume": 1000000.0,
+        "position_qty": 0,
+        "entry_price": "0",
+        "stop_price": "0",
+        "target_price": "0",
+        "config": {
+          "symbol": "AAPL",
+          "risk_pct": 1.0,
+          "range_minutes": 30,
+          "vol_multiple": 1.5,
+          "profit_target_r": 2.0,
+          "hard_stop_pct": 1.0,
+          "eod_exit_time": "15:55",
+          "timezone": "America/New_York",
+          "equity_at_snapshot": 100000.0
+        }
+      }
+    }
+  ]
+}

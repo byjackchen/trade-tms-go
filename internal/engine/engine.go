@@ -41,6 +41,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/exec"
+	"github.com/byjackchen/trade-tms-go/internal/portfolio"
 )
 
 // Engine is one assembled, runnable backtest. Build with New, then Run once.
@@ -57,6 +58,15 @@ type Engine struct {
 	strategies     []Strategy
 	registration   []string // instrument symbols in registration order
 	registrationIx map[string]int
+
+	// pre-trade gating + look-ahead-safe context (multi-strategy path).
+	gate    *portfolio.Portfolio
+	ctxProv *portfolio.ContextProvider
+	ctxStat *portfolio.SharedContextState
+	spySym  string
+	ctxCons []ContextConsumer // strategies implementing ContextConsumer
+
+	rejected []RejectedOrder
 
 	barsProcessed int
 	totalBars     int
@@ -90,6 +100,10 @@ func New(ctx context.Context, cfg Config, feed BarFeed) (*Engine, error) {
 		return nil, err
 	}
 
+	spySym := cfg.SPYSymbol
+	if spySym == "" {
+		spySym = "SPY"
+	}
 	eng := &Engine{
 		cfg:            cfg,
 		loop:           loop,
@@ -98,18 +112,37 @@ func New(ctx context.Context, cfg Config, feed BarFeed) (*Engine, error) {
 		smplr:          smplr,
 		rec:            rec,
 		registrationIx: make(map[string]int),
+		gate:           cfg.Portfolio,
+		ctxProv:        cfg.Context,
+		spySym:         spySym,
+	}
+	if cfg.Context != nil {
+		eng.ctxStat = portfolio.NewSharedContextState()
 	}
 	// Fill sink routes executor fills into the loop as FillEvents.
 	sink := fillSink{eng: eng}
 	eng.exec = exec.NewSimExecutor(model, sink, loop)
 
-	// Build strategies; the account is the position reader for FLAT sizing.
-	for _, spec := range cfg.Strategies {
-		st, err := NewScriptedStrategy(spec.ID, spec.Intents, accountPositionReader{acct})
-		if err != nil {
-			return nil, fmt.Errorf("engine: building strategy %q: %w", spec.ID, err)
+	// Build strategies. Real (prebuilt) strategies take precedence; otherwise
+	// build the scripted parity drivers from the intent specs. The account is
+	// the position reader for FLAT close sizing in either path.
+	if len(cfg.PrebuiltStrategies) > 0 {
+		eng.strategies = append(eng.strategies, cfg.PrebuiltStrategies...)
+	} else {
+		for _, spec := range cfg.Strategies {
+			st, err := NewScriptedStrategy(spec.ID, spec.Intents, accountPositionReader{acct})
+			if err != nil {
+				return nil, fmt.Errorf("engine: building strategy %q: %w", spec.ID, err)
+			}
+			eng.strategies = append(eng.strategies, st)
 		}
-		eng.strategies = append(eng.strategies, st)
+	}
+	// Index the context consumers (strategies that read per-bar regime / market
+	// cap / earnings) so the bar handler can inject before OnBar.
+	for _, st := range eng.strategies {
+		if cc, ok := st.(ContextConsumer); ok {
+			eng.ctxCons = append(eng.ctxCons, cc)
+		}
 	}
 
 	// Load and register instruments deterministically in ticker order.
@@ -207,6 +240,17 @@ func (e *Engine) handleBar(_ context.Context, ev core.Event) error {
 	// Mark-to-market: record the bar close as the symbol's last price.
 	e.acct.ObserveBar(bar)
 
+	// Context refresh (multi-strategy path): on the SPY heartbeat bar, advance
+	// the look-ahead-safe provider and push the resulting regime / market-cap /
+	// earnings snapshot into every ContextConsumer strategy (mirroring the
+	// Python Context Actors publishing on the SPY bar; the SG setters persist
+	// the value until the next update). SPY is registered FIRST so same-date
+	// stock bars dispatched after it already see today's context.
+	if e.ctxProv != nil && bar.Symbol == e.spySym {
+		e.ctxProv.OnBar(e.ctxStat, bar.TS)
+		e.injectContext(bar.TS)
+	}
+
 	// Run strategies in registration order (deterministic).
 	sub := orderSubmitter{eng: e}
 	for _, st := range e.strategies {
@@ -226,9 +270,44 @@ func (e *Engine) handleBar(_ context.Context, ev core.Event) error {
 	return nil
 }
 
+// injectContext snapshots the current shared context state and pushes it into
+// every ContextConsumer strategy. asOf is the heartbeat bar's timestamp (carried
+// for telemetry; the values themselves come from the shared state the provider
+// just wrote). The snapshot maps carry ONLY the symbols that have a published
+// value, so a consumer for a symbol without context keeps its prior value
+// (matching the Actors only calling set_* on transitions).
+func (e *Engine) injectContext(asOf time.Time) {
+	if len(e.ctxCons) == 0 || e.ctxStat == nil {
+		return
+	}
+	ctx := StrategyContext{
+		Regime:           e.ctxStat.Regime(),
+		AsOf:             asOf,
+		MarketCapUSD:     e.ctxStat.MarketCapFloats(),
+		EarningsBlackout: e.ctxStat.EarningsBlackouts(),
+	}
+	for _, cc := range e.ctxCons {
+		cc.InjectContext(ctx)
+	}
+}
+
 // TotalBars returns the number of bars scheduled for this run (available after
 // New, before Run).
 func (e *Engine) TotalBars() int { return e.totalBars }
+
+// EquityFloat returns the current account equity (cash + unrealized) as a
+// float64, mirroring the Python equity_provider that pulls
+// engine.portfolio.account(VENUE).balance_total and float()s it. Returns the
+// starting balance on the (never-expected) error path so a sizing closure built
+// over it degrades gracefully rather than panicking. Strategy assemblers bind
+// this as the generators' EquityProvider so sizing reflects the live book.
+func (e *Engine) EquityFloat() float64 {
+	eq, err := e.acct.Equity()
+	if err != nil {
+		return e.cfg.StartingBalance.Float64()
+	}
+	return eq.Float64()
+}
 
 // handleFill settles a FillEvent popped from the queue. The engine's own
 // executor settles fills synchronously via fillSink (so same-bar position reads
@@ -272,8 +351,15 @@ func (e *Engine) buildResult() (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("engine: total pnl: %w", err)
 	}
+	// Distinct logical strategy ids (prebuilt SEPA runs many per-symbol instances
+	// under one id; dedup so the result lists each logical strategy once).
+	idSet := make(map[string]struct{}, len(e.strategies))
 	strategyIDs := make([]string, 0, len(e.strategies))
 	for _, st := range e.strategies {
+		if _, seen := idSet[st.ID()]; seen {
+			continue
+		}
+		idSet[st.ID()] = struct{}{}
 		strategyIDs = append(strategyIDs, st.ID())
 	}
 	sort.Strings(strategyIDs)
@@ -291,6 +377,7 @@ func (e *Engine) buildResult() (*Result, error) {
 		Strategies:       strategyIDs,
 		Orders:           e.rec.Orders(),
 		Fills:            e.rec.Fills(),
+		RejectedOrders:   e.rejected,
 		Positions:        e.acct.AllPositions(),
 		AccountStates:    e.rec.AccountStates(),
 		TotalEquityCurve: e.smplr.TotalCurve(),
@@ -314,7 +401,8 @@ func (e *Engine) profile() FillProfile {
 // ---------------------------------------------------------------------------
 
 // orderSubmitter routes strategy order submissions to the executor with a
-// deterministic client order id, and records the submitted order.
+// deterministic client order id, records the submitted order, and (for signal
+// orders) runs the pre-trade portfolio gate.
 type orderSubmitter struct{ eng *Engine }
 
 func (s orderSubmitter) SubmitMarket(strategyID, symbol string, side domain.OrderSide, qty domain.Qty, reason string, ts time.Time) (string, error) {
@@ -325,6 +413,48 @@ func (s orderSubmitter) SubmitMarket(strategyID, symbol string, side domain.Orde
 	}
 	s.eng.rec.RecordOrder(order)
 	return coid, nil
+}
+
+// SubmitMarketSignal runs the pre-trade portfolio gate (when configured) for a
+// strategy signal before submitting. It mirrors src/strategies/_base/runner.py
+// :_gate + maybe_check_portfolio: build a ProposedOrder (strategy id, symbol,
+// signalSide, abs qty, estimated price = the symbol's last close), snapshot the
+// account, and run portfolio.Check. FLAT and qty<=0 bypass the gate inside the
+// pipeline (closes always proceed, even during a daily-loss halt). On a
+// rejection it records the rejection and returns submitted=false WITHOUT
+// placing an order (the runner skips the submit). A nil gate always submits.
+func (s orderSubmitter) SubmitMarketSignal(strategyID, symbol string, signalSide domain.SignalSide, orderSide domain.OrderSide, qty domain.Qty, reason string, ts time.Time) (string, bool, error) {
+	if s.eng.gate != nil && signalSide != domain.SideFlat && qty > 0 {
+		// Estimated fill price = the symbol's last observed close (the reference
+		// _gate reads self._last_close.get(symbol, Decimal(0))). The engine has
+		// already ObserveBar'd this bar's close before strategies run, so the
+		// current bar's close is the price — matching Python, which sets
+		// _last_close to the current bar at the top of on_bar.
+		price, _ := s.eng.acct.LastPrice(symbol) // zero Price when unknown == Decimal(0)
+		snap, err := s.eng.acct.Snapshot()
+		if err != nil {
+			return "", false, fmt.Errorf("engine: gate snapshot for %s/%s: %w", strategyID, symbol, err)
+		}
+		proposed := portfolio.NewProposedOrder(strategyID, symbol, signalSide, qty, price, ts)
+		decision := s.eng.gate.Check(proposed, portfolio.SnapshotFromDomain(snap))
+		if !decision.Approved {
+			s.eng.rejected = append(s.eng.rejected, RejectedOrder{
+				StrategyID: strategyID,
+				Symbol:     symbol,
+				SignalSide: signalSide,
+				Qty:        qty,
+				RuleName:   decision.RuleName,
+				Reason:     decision.Reason,
+				TS:         ts,
+			})
+			return "", false, nil
+		}
+	}
+	coid, err := s.SubmitMarket(strategyID, symbol, orderSide, qty, reason, ts)
+	if err != nil {
+		return "", false, err
+	}
+	return coid, true, nil
 }
 
 // fillSink settles executor fills synchronously on the loop goroutine: the
@@ -396,10 +526,13 @@ func validateConfig(cfg Config) error {
 	if cfg.Profile != "" && !cfg.Profile.IsValid() {
 		return fmt.Errorf("%w: unknown fill profile %q", domain.ErrInvalidArgument, cfg.Profile)
 	}
-	if len(cfg.Strategies) == 0 {
+	if len(cfg.Strategies) == 0 && len(cfg.PrebuiltStrategies) == 0 {
 		return fmt.Errorf("%w: config has no strategies", domain.ErrInvalidArgument)
 	}
-	ids := make(map[string]struct{}, len(cfg.Strategies))
+	if len(cfg.Strategies) > 0 && len(cfg.PrebuiltStrategies) > 0 {
+		return fmt.Errorf("%w: config sets both Strategies and PrebuiltStrategies (supply exactly one)", domain.ErrInvalidArgument)
+	}
+	ids := make(map[string]struct{}, len(cfg.Strategies)+len(cfg.PrebuiltStrategies))
 	for _, s := range cfg.Strategies {
 		if s.ID == "" {
 			return fmt.Errorf("%w: config has a strategy with empty id", domain.ErrInvalidArgument)
@@ -408,6 +541,21 @@ func validateConfig(cfg Config) error {
 			return fmt.Errorf("%w: config has duplicate strategy id %q", domain.ErrInvalidArgument, s.ID)
 		}
 		ids[s.ID] = struct{}{}
+	}
+	// Prebuilt strategies MAY share a logical engine id: the SEPA universe path
+	// runs one per-symbol generator instance per stock, all under the single
+	// allocator key "SEPA-UNIVERSE-001" (mirroring the Python SEPAUniverseRunner,
+	// one strategy id managing N SignalGenerators). The allocator budget and the
+	// positions book are keyed by (strategy_id, symbol), so a shared id across
+	// distinct symbols is correct, not a collision. We therefore only reject
+	// empty ids here, not duplicates.
+	for _, s := range cfg.PrebuiltStrategies {
+		if s == nil {
+			return fmt.Errorf("%w: config has a nil prebuilt strategy", domain.ErrInvalidArgument)
+		}
+		if s.ID() == "" {
+			return fmt.Errorf("%w: config has a prebuilt strategy with empty id", domain.ErrInvalidArgument)
+		}
 	}
 	return nil
 }

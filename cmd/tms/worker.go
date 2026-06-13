@@ -181,7 +181,7 @@ func runWorker(ctx context.Context, env *runtimeEnv, healthAddr string, opts job
 	// persist the result to research.* (DB source of truth) and emit the
 	// legacy runs/{ts}/*.json artifact set. The API (POST /api/v1/backtests)
 	// enqueues these.
-	backtest, err := handlers.NewBacktest(pool, env.cfg.RunsDir, log)
+	backtest, err := handlers.NewBacktestWithParamsDir(pool, env.cfg.RunsDir, env.cfg.StrategyParamsDir, log)
 	if err != nil {
 		return err
 	}

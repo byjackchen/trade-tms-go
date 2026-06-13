@@ -48,8 +48,14 @@ func TestBacktestEnqueue(t *testing.T) {
 	t.Run("unsupported strategy is 400", func(t *testing.T) {
 		ts := newTestServer(t)
 		rec := ts.do(t, http.MethodPost, "/api/v1/backtests",
-			strings.NewReader(`{"start":"2024-01-02","end":"2024-12-31","tickers":["AAPL"],"strategy":"sepa"}`), true)
+			strings.NewReader(`{"start":"2024-01-02","end":"2024-12-31","tickers":["AAPL"],"strategy":"bogus"}`), true)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+	t.Run("real strategy enqueues without explicit tickers", func(t *testing.T) {
+		ts := newTestServer(t)
+		rec := ts.do(t, http.MethodPost, "/api/v1/backtests",
+			strings.NewReader(`{"start":"2024-01-02","end":"2024-12-31","strategy":"sector_rotation"}`), true)
+		assert.Equal(t, http.StatusAccepted, rec.Code)
 	})
 	t.Run("unknown json field is 400", func(t *testing.T) {
 		ts := newTestServer(t)

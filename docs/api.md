@@ -418,6 +418,63 @@ Validation `400`s: unknown `kind`, negative `top_k`, unknown JSON field.
 
 ---
 
+## Strategies
+
+The strategy registry the UI Strategies section renders: the four production
+strategies (SEPA / Sector Rotation / Pairs / ORB), their **active** parameter
+document and **param schema**, allocation and enabled state. The active document
+is resolved with the engine's precedence — DB `active_params` → file
+`TMS_STRATEGY_PARAMS_DIR/<id>.json` → embedded baseline (`params_source` reports
+which tier won), so a promotion is reflected without an API restart.
+
+Strategy ids are the canonical loader stems
+(`sepa|sector_rotation|pairs|intraday_breakout`). Each carries a `backtest_id` —
+the token `POST /api/v1/backtests` accepts — which differs only for ORB
+(`intraday_breakout` → `orb`). The UI links the detail page by `id` and launches
+a run with `backtest_id`.
+
+### `GET /api/v1/strategies`
+
+List all four strategies in a fixed display order (sepa, sector_rotation, pairs,
+orb).
+
+```json
+{ "strategies": [ {
+  "id": "sepa",
+  "backtest_id": "sepa",
+  "label": "SEPA",
+  "description": "Stage 2 breakout per Minervini's Specific Entry Point Analysis",
+  "capital_pct": 0.40,            // allocation.capital_pct (0..1); null = unallocated (e.g. ORB)
+  "active": true,                 // allocation.active (default true)
+  "params_source": "baseline",    // db | file | baseline
+  "schema_version": 1,
+  "parameters_count": 8,
+  "parameters": [ {
+    "name": "risk_pct", "type": "float", "default": 1.0,
+    "search_low": 1.0, "search_high": 4.0,   // omitted for static params
+    "description": "Per-trade risk as % of equity"
+  } /* ... in file order */ ],
+  "active_values": { "risk_pct": 1.0 /* name -> resolved value */ }
+} /* ... */ ] }
+```
+
+A per-strategy resolution failure (e.g. a malformed promoted document) keeps the
+row with an `"error"` string and empty `parameters`, rather than failing the
+whole list.
+
+### `GET /api/v1/strategies/{id}`
+
+One strategy's metadata + active params + full schema (same element shape as the
+list, wrapped in `strategy`). `404`
+`{"error":{"code":"not_found",...}}` for an unknown id (want
+`sepa|sector_rotation|pairs|intraday_breakout`).
+
+```json
+{ "strategy": { /* the element shape above */ } }
+```
+
+---
+
 ## Backtests
 
 The result + control plane over the DB source of truth (`research.runs` /
@@ -442,8 +499,9 @@ Request body:
   "universe": {"start":"...","end":"...","table":"SF1"}, // survivor-bias-free window
   "starting_balance": 100000.0,    // USD; default 100000
   "fill_profile": "nautilus-compat", // or "realistic"; default nautilus-compat
-  "strategy": "scripted",          // only "scripted" implemented
-  "intents": [ {"date":"2024-01-03","ticker":"AAPL","side":"LONG","qty":100} ],
+  "strategy": "scripted",          // scripted|sepa|sector_rotation|pairs|orb|multi
+  "orb_symbol": "SPY",             // required for strategy "orb" (or exactly one ticker)
+  "intents": [ {"date":"2024-01-03","ticker":"AAPL","side":"LONG","qty":100} ], // scripted only
   "kind": "multi-strategy",        // run-kind badge
   "seed": 0,                       // reserved for stochastic models
   "run_ts": "2026-..._..-..-..",  // optional idempotency key
@@ -460,9 +518,18 @@ Track progress via the `job` object (`progress` carries
 the job `result` carries `{run_id, run_ts, final_balance, sharpe, ...}` on
 success.
 
-Validation `400`s: missing `start`/`end`; neither `tickers` nor `universe`;
-unknown `fill_profile`; unsupported `strategy`; `max_attempts` out of `[0,10]`;
-unknown JSON field.
+`strategy` selects the signal source: `scripted` replays the supplied `intents`;
+`sepa`/`sector_rotation`/`pairs`/`orb` run a single production strategy; `multi`
+runs the SEPA + Sector + Pairs portfolio with its allocations. Only `scripted`
+requires `tickers`/`universe`; `sepa`/`multi` accept them as the stock universe
+(optional — the engine resolves a point-in-time universe otherwise);
+`sector_rotation`/`pairs` derive their instruments from the active params; `orb`
+needs `orb_symbol` (or exactly one ticker).
+
+Validation `400`s: missing `start`/`end`; `scripted` with neither `tickers` nor
+`universe`; `orb` with no `orb_symbol` and not exactly one ticker; unknown
+`fill_profile`; unsupported `strategy`; `max_attempts` out of `[0,10]`; unknown
+JSON field.
 
 ### `GET /api/v1/backtests`
 

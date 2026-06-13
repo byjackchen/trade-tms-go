@@ -6,6 +6,7 @@ import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import {
   Database,
+  Boxes,
   FlaskConical,
   Sparkles,
   Activity,
@@ -28,6 +29,7 @@ type Section = {
 
 const SECTIONS: Section[] = [
   { href: "/data", label: "Data", icon: Database, testid: "nav-data", ready: true },
+  { href: "/strategies", label: "Strategies", icon: Boxes, testid: "nav-strategies", ready: true },
   { href: "/backtests", label: "Backtests", icon: FlaskConical, testid: "nav-backtests", ready: true },
   { href: "/hyperopt", label: "Hyperopt", icon: Sparkles, testid: "nav-hyperopt", ready: false },
   { href: "/live", label: "Live", icon: Activity, testid: "nav-live", ready: false },

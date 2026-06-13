@@ -319,6 +319,7 @@ func newTestServer(t *testing.T) *testServer {
 		Data:        ds,
 		Universe:    ur,
 		Runs:        rr,
+		Strategies:  NewStrategyReader(nil, ""),
 		Calendar:    cal,
 		PingPG:      pingOK,
 		PingRedis:   pingOK,

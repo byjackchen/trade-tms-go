@@ -11,6 +11,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/accounting"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
+	"github.com/byjackchen/trade-tms-go/internal/portfolio"
 )
 
 // FillProfile selects the executor fill model.
@@ -50,8 +51,31 @@ type Config struct {
 	Profile FillProfile
 	// Realistic configures the realistic model (ignored for nautilus-compat).
 	Realistic RealisticParams
-	// Strategies are the scripted strategies (the parity drivers).
+	// Strategies are the scripted strategies (the parity drivers). Mutually
+	// exclusive with PrebuiltStrategies; supply exactly one of the two.
 	Strategies []StrategySpec
+	// PrebuiltStrategies are already-constructed engine.Strategy instances (the
+	// real strategy adapters: SEPA / SectorRotation / Pairs / ORB), used by the
+	// multi-strategy assembler instead of Strategies. When set, the engine wires
+	// these directly (no ScriptedStrategy construction) and probes each for the
+	// P3 capability seams (ContextConsumer / StateSummarizer / ...). Exactly one
+	// of Strategies / PrebuiltStrategies must be non-empty.
+	PrebuiltStrategies []Strategy
+	// Portfolio is the optional pre-trade gating pipeline (allocator budget +
+	// aggregate risk constraints). When non-nil, every LONG/SHORT signal order
+	// is gated before submission, mirroring src/strategies/_base/runner.py:_gate;
+	// FLAT/close orders and qty<=0 bypass the gate. Rejections are counted and
+	// reported in RejectedOrders (never an error).
+	Portfolio *portfolio.Portfolio
+	// Context, when non-nil, is the look-ahead-safe per-bar context source
+	// (regime / market-cap / earnings). The engine advances it on every
+	// SPYSymbol heartbeat bar and injects the resulting context snapshot into
+	// each ContextConsumer strategy before OnBar (mirroring the Python Context
+	// Actors publishing onto the bus that the SignalGenerators read).
+	Context *portfolio.ContextProvider
+	// SPYSymbol is the heartbeat instrument whose bars drive Context refresh
+	// (default "SPY"). Ignored when Context is nil.
+	SPYSymbol string
 	// Progress, when non-nil, is called after each bar is dispatched with the
 	// number of bars processed so far and the total scheduled (for "% complete"
 	// reporting). It runs on the loop goroutine; keep it cheap and non-blocking.
@@ -64,6 +88,21 @@ type RealisticParams struct {
 	SlippageBps        float64
 	CommissionPerShare domain.Money
 	CommissionBps      float64
+}
+
+// RejectedOrder records one signal order the portfolio gate rejected, in
+// rejection (= signal emission) order. It is the engine's equivalent of a
+// Nautilus order whose status is REJECTED, and is what makes the metrics
+// num_rejected_orders count meaningful (the gate is the only producer of
+// rejections in this engine). Reason carries the rule name + explanation.
+type RejectedOrder struct {
+	StrategyID string
+	Symbol     string
+	SignalSide domain.SignalSide
+	Qty        domain.Qty
+	RuleName   string
+	Reason     string
+	TS         time.Time
 }
 
 // Result is the deterministic backtest output.
@@ -82,6 +121,11 @@ type Result struct {
 	// Orders submitted (submission order), Fills (settlement order).
 	Orders []domain.Order
 	Fills  []domain.Fill
+
+	// RejectedOrders are the signal orders the portfolio gate rejected, in
+	// rejection order (empty when no gate is configured or nothing was
+	// rejected). len(RejectedOrders) == num_rejected_orders.
+	RejectedOrders []RejectedOrder
 
 	// Positions are the final position snapshots (all keys, sorted).
 	Positions []domain.Position

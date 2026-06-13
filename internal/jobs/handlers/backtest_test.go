@@ -75,19 +75,20 @@ func TestBuildConfigValidation(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("explicit tickers", func(t *testing.T) {
-		cfg, runTS, err := h.buildConfig(ctx, backtestParams{
+		cfg, asm, runTS, err := h.buildConfig(ctx, backtestParams{
 			Tickers: []string{"AAPL", "KO"},
 			Start:   "2024-01-02", End: "2024-12-31",
 			Strategy: "scripted",
 		})
 		require.NoError(t, err)
+		assert.Nil(t, asm) // scripted path: no real-strategy assembly
 		assert.Equal(t, []string{"AAPL", "KO"}, cfg.Tickers)
 		assert.Equal(t, engine.ProfileNautilusCompat, cfg.Profile)
 		assert.Equal(t, domain.MustMoney("100000.00"), cfg.StartingBalance) // default
 		assert.NotEmpty(t, runTS)
 	})
 	t.Run("run_ts honored", func(t *testing.T) {
-		_, runTS, err := h.buildConfig(ctx, backtestParams{
+		_, _, runTS, err := h.buildConfig(ctx, backtestParams{
 			Tickers: []string{"AAPL"}, Start: "2024-01-02", End: "2024-12-31",
 			RunTS: "2026-01-01_00-00-00",
 		})
@@ -95,29 +96,29 @@ func TestBuildConfigValidation(t *testing.T) {
 		assert.Equal(t, "2026-01-01_00-00-00", runTS)
 	})
 	t.Run("unsupported strategy", func(t *testing.T) {
-		_, _, err := h.buildConfig(ctx, backtestParams{
-			Tickers: []string{"AAPL"}, Start: "2024-01-02", End: "2024-12-31", Strategy: "sepa",
+		_, _, _, err := h.buildConfig(ctx, backtestParams{
+			Tickers: []string{"AAPL"}, Start: "2024-01-02", End: "2024-12-31", Strategy: "bogus",
 		})
 		require.Error(t, err)
 	})
 	t.Run("invalid start date", func(t *testing.T) {
-		_, _, err := h.buildConfig(ctx, backtestParams{
+		_, _, _, err := h.buildConfig(ctx, backtestParams{
 			Tickers: []string{"AAPL"}, Start: "nope", End: "2024-12-31",
 		})
 		require.Error(t, err)
 	})
 	t.Run("no tickers, no universe", func(t *testing.T) {
-		_, _, err := h.buildConfig(ctx, backtestParams{Start: "2024-01-02", End: "2024-12-31"})
+		_, _, _, err := h.buildConfig(ctx, backtestParams{Start: "2024-01-02", End: "2024-12-31"})
 		require.Error(t, err)
 	})
 	t.Run("unknown fill profile", func(t *testing.T) {
-		_, _, err := h.buildConfig(ctx, backtestParams{
+		_, _, _, err := h.buildConfig(ctx, backtestParams{
 			Tickers: []string{"AAPL"}, Start: "2024-01-02", End: "2024-12-31", FillProfile: "magic",
 		})
 		require.Error(t, err)
 	})
 	t.Run("realistic profile params", func(t *testing.T) {
-		cfg, _, err := h.buildConfig(ctx, backtestParams{
+		cfg, _, _, err := h.buildConfig(ctx, backtestParams{
 			Tickers: []string{"AAPL"}, Start: "2024-01-02", End: "2024-12-31",
 			FillProfile: "realistic",
 			Realistic:   &realisticJSON{SlippageBps: 2.0, CommissionBps: 1.0, CommissionPerShare: 0.01},

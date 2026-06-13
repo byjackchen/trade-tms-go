@@ -15,11 +15,29 @@ import (
 
 // OrderSubmitter is the narrow capability a strategy needs from the engine: to
 // submit a market order during on_bar. The engine supplies an implementation
-// that assigns a deterministic client order id and routes to the executor.
+// that assigns a deterministic client order id, runs the pre-trade portfolio
+// gate (when configured), and routes the approved order to the executor.
+//
+// SubmitMarket is the ungated primitive: it always submits (the caller has
+// already decided side/qty). The real strategy adapters instead use
+// SubmitMarketSignal, which carries the originating strategy-level SignalSide
+// so the engine can run the portfolio gate with exact Python parity (FLAT and
+// qty<=0 bypass the gate; LONG/SHORT are gated against the allocator budget and
+// the aggregate risk rules) — mirroring src/strategies/_base/runner.py:_gate.
 type OrderSubmitter interface {
 	// SubmitMarket submits a market order for the strategy and returns the
-	// assigned client order id.
+	// assigned client order id. It does NOT run the portfolio gate — use it for
+	// already-translated close/flatten orders, or for ungated scripted replays.
 	SubmitMarket(strategyID, symbol string, side domain.OrderSide, qty domain.Qty, reason string, ts time.Time) (string, error)
+
+	// SubmitMarketSignal submits a market order for a strategy SIGNAL, running
+	// the pre-trade portfolio gate first when one is configured. signalSide is
+	// the strategy-level side (LONG/SHORT/FLAT); orderSide is its translated
+	// broker side (BUY/SELL). qty is the absolute share magnitude. It returns
+	// the assigned client order id and whether the order was actually submitted
+	// (false == rejected by the gate, no order placed — the Python _gate returns
+	// False and the runner skips the submit). A gate rejection is NOT an error.
+	SubmitMarketSignal(strategyID, symbol string, signalSide domain.SignalSide, orderSide domain.OrderSide, qty domain.Qty, reason string, ts time.Time) (coid string, submitted bool, err error)
 }
 
 // Strategy is the engine-facing strategy contract. OnBar fires once per bar in
@@ -29,6 +47,56 @@ type Strategy interface {
 	ID() string
 	// OnBar handles one bar. It may submit orders through sub.
 	OnBar(sub OrderSubmitter, bar domain.Bar) error
+}
+
+// ---------------------------------------------------------------------------
+// Capability interfaces (P3, locked decision 3): EXTEND the Strategy seam
+// additively. Real strategies (SEPA / Pairs / Sector-ORB) implement these so
+// the engine and runners can inject context, pull per-leg intents, summarize
+// state, and persist/restore — WITHOUT changing the base Strategy interface,
+// so ScriptedStrategy keeps compiling untouched. The engine probes each
+// capability via a type assertion; a strategy that does not implement one is
+// simply not asked for it.
+// ---------------------------------------------------------------------------
+
+// IntentEvaluator is a strategy that can emit per-leg/per-name SignalIntents
+// for observability after a bar. Mirrors the Python SG.evaluate_intent
+// contract (read-side only; never affects trading).
+type IntentEvaluator interface {
+	// EvaluateIntentJSON returns the intents for the as-of timestamp as a
+	// JSON-serializable value (the concrete intent slice). It must be a pure
+	// read of strategy telemetry/state.
+	EvaluateIntentJSON(asOf time.Time) any
+}
+
+// StateSummarizer is a strategy that can publish a JSON-serializable summary
+// of its current state for the UI after every bar (Python SG.state_summary).
+type StateSummarizer interface {
+	StateSummaryJSON() any
+}
+
+// StatePersister is a strategy that can snapshot and restore its full internal
+// state (Python SG.state_dict / load_state) for warm restarts.
+type StatePersister interface {
+	StateDictJSON() any
+	LoadStateJSON(b []byte) error
+}
+
+// ContextConsumer is a strategy that consumes per-bar portfolio context
+// (regime / market-cap / earnings) injected before OnBar. Pairs does not need
+// context; SEPA does. Defined here so the seam is uniform across strategies.
+type ContextConsumer interface {
+	// InjectContext supplies the context snapshot effective for bars at ts.
+	InjectContext(ctx StrategyContext)
+}
+
+// StrategyContext is the per-bar context a ContextConsumer may read. Fields are
+// optional; a zero value means "not provided".
+type StrategyContext struct {
+	Regime           string
+	AsOf             time.Time
+	MarketCapUSD     map[string]float64
+	EarningsBlackout map[string]bool
 }
 
 // Intent is one scripted trading instruction: on the bar dated Date for Ticker,
