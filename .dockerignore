@@ -1,0 +1,28 @@
+# Keep the Docker build context to exactly what the build needs:
+# go.mod/go.sum, source trees (cmd/, internal/, migrations/ — embedded).
+#
+# Why each exclusion matters:
+#   bin/   — local build outputs (50+ MB stale binaries) bust the COPY . .
+#            source-layer cache on every build.
+#   tmp/   — parity dumps / scratch outputs; large and irrelevant.
+#   .env*  — gitignored but otherwise NOT dockerignored: a developer's .env
+#            would be copied into the intermediate builder layer, a
+#            secrets-into-layer hazard if build cache is ever exported or
+#            pushed. (.env.example is excluded too; the image never reads it.)
+#   .git   — history is not needed; VERSION/COMMIT come in as build args.
+#   docs/  — specs and notes; pure cache-busting noise for the builder.
+
+bin/
+tmp/
+.env*
+.git
+.gitignore
+docs/
+
+# Tooling/metadata never consumed by `go build` inside the container.
+.claude/
+.dockerignore
+Dockerfile
+compose.yaml
+Makefile
+README.md

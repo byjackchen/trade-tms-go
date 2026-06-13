@@ -1,0 +1,156 @@
+# tms local stack.
+#
+# Host ports reserved for this project (this machine runs other stacks —
+# never change these to defaults): postgres 55432, redis 56379,
+# api 18080, ui 13000.
+#
+# Base services (no profile): postgres, redis, migrate.
+#   docker compose up -d --wait        # brings up DB + cache, runs migrations
+#
+# App services are commented placeholders until their build phases land;
+# they will use the `app` profile:
+#   docker compose --profile app up -d
+
+name: tms
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: tms-postgres
+    environment:
+      POSTGRES_USER: ${TMS_PG_USER:-tms}
+      POSTGRES_PASSWORD: ${TMS_PG_PASSWORD:-tms}
+      POSTGRES_DB: ${TMS_PG_DATABASE:-tms}
+    ports:
+      - "55432:5432"
+    volumes:
+      - tms-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TMS_PG_USER:-tms} -d ${TMS_PG_DATABASE:-tms}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: tms-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "56379:6379"
+    volumes:
+      - tms-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tms:dev
+    container_name: tms-migrate
+    command: ["migrate", "up"]
+    environment:
+      TMS_PG_HOST: postgres
+      TMS_PG_PORT: "5432"
+      TMS_PG_USER: ${TMS_PG_USER:-tms}
+      TMS_PG_PASSWORD: ${TMS_PG_PASSWORD:-tms}
+      TMS_PG_DATABASE: ${TMS_PG_DATABASE:-tms}
+      TMS_PG_SSLMODE: disable
+      TMS_LOG_LEVEL: ${TMS_LOG_LEVEL:-info}
+      TMS_LOG_FORMAT: json
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ---------------------------------------------------------------------
+  # Placeholders — enabled in later build phases (profile: app).
+  # Reserved host ports: api 18080, ui 13000.
+  #
+  # container_name is global per Docker host. The Python reference stack
+  # (trade-multi-strategies) already runs containers literally named
+  # `tms-api` and `tms-ui` on this machine, so the app-profile services
+  # use the `tmsgo-` prefix to never collide with the reference stack.
+  # ---------------------------------------------------------------------
+
+  # tms-api:
+  #   image: tms:dev
+  #   container_name: tmsgo-api
+  #   profiles: ["app"]
+  #   command: ["api"]
+  #   ports:
+  #     - "18080:8080"
+  #   environment:
+  #     TMS_PG_HOST: postgres
+  #     TMS_PG_PORT: "5432"
+  #     TMS_PG_USER: ${TMS_PG_USER:-tms}
+  #     TMS_PG_PASSWORD: ${TMS_PG_PASSWORD:-tms}
+  #     TMS_PG_DATABASE: ${TMS_PG_DATABASE:-tms}
+  #     TMS_REDIS_ADDR: redis:6379
+  #     TMS_API_ADDR: ":8080"
+  #     TMS_LOG_LEVEL: ${TMS_LOG_LEVEL:-info}
+  #     TMS_LOG_FORMAT: json
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     migrate:
+  #       condition: service_completed_successfully
+  #   restart: unless-stopped
+
+  # tms-worker:
+  #   image: tms:dev
+  #   container_name: tmsgo-worker
+  #   profiles: ["app"]
+  #   command: ["eod"]   # EOD workflow / batch jobs
+  #   environment:
+  #     TMS_PG_HOST: postgres
+  #     TMS_REDIS_ADDR: redis:6379
+  #     TMS_LOG_FORMAT: json
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+
+  # tms-live:
+  #   image: tms:dev
+  #   container_name: tmsgo-live
+  #   profiles: ["app"]
+  #   command: ["live"]  # signal/paper/live trading node
+  #   environment:
+  #     TMS_PG_HOST: postgres
+  #     TMS_REDIS_ADDR: redis:6379
+  #     MOOMOO_OPEND_HOST: host.docker.internal  # OpenD runs on the host
+  #     MOOMOO_OPEND_PORT: "11111"
+  #     TMS_LOG_FORMAT: json
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+
+  # ui:
+  #   build:
+  #     context: ./ui
+  #   container_name: tmsgo-ui
+  #   profiles: ["app"]
+  #   ports:
+  #     - "13000:3000"
+  #   depends_on:
+  #     - tms-api
+  #   restart: unless-stopped
+
+volumes:
+  tms-pgdata:
+  tms-redisdata:

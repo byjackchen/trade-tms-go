@@ -6,6 +6,10 @@
 *.dylib
 /trade-tms-go
 /bin/
+bin/
+
+# Scratch / reference outputs
+tmp/
 
 # Test & coverage
 *.test
