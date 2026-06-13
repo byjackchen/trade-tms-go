@@ -177,6 +177,18 @@ func runWorker(ctx context.Context, env *runtimeEnv, healthAddr string, opts job
 		return err
 	}
 
+	// backtest.run: run a deterministic backtest through internal/engine,
+	// persist the result to research.* (DB source of truth) and emit the
+	// legacy runs/{ts}/*.json artifact set. The API (POST /api/v1/backtests)
+	// enqueues these.
+	backtest, err := handlers.NewBacktest(pool, env.cfg.RunsDir, log)
+	if err != nil {
+		return err
+	}
+	if err := registry.Register(backtest); err != nil {
+		return err
+	}
+
 	worker, err := jobs.NewWorker(queue, registry, log, opts)
 	if err != nil {
 		return err

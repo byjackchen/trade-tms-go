@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "name": "canonical",
+  "description": "Golden parity script: a fixed deterministic sequence of (date, ticker, side, qty) intents driving BOTH the Go engine and the reference Nautilus BacktestEngine over identical Sharadar bars. Covers every position-lifecycle transition the NETTING book must reproduce. Tickers + dates are fully inside the P0/P1 Sharadar import cache.",
+  "venue": "SIM",
+  "strategy_id": "Scripted-000",
+  "starting_balance_usd": 100000.0,
+  "tickers": ["AAPL", "KO", "NVDA"],
+  "start_date": "2021-01-04",
+  "end_date": "2021-06-30",
+  "scenarios": {
+    "long_open_close": "AAPL BUY 100 (2021-01-04) -> FLAT (2021-02-01): a clean long realized-PnL round trip held across many bars (unrealized accrual in between).",
+    "short_open_close_margin": "KO SELL 200 (2021-01-04) -> FLAT (2021-03-01): a short opened on margin (AccountType.MARGIN) and covered.",
+    "position_flip": "NVDA BUY 300 (2021-01-04) -> SELL 500 (2021-03-01) flips long->short crossing zero to -200 -> BUY 200 (2021-05-03) back to flat.",
+    "partial_reduce": "AAPL BUY 100 (2021-03-01) -> SELL 40 (2021-04-01) partial reduce to +60 -> FLAT (2021-06-01).",
+    "multi_symbol_same_day": "On 2021-03-01 AAPL, KO and NVDA all trade: same-timestamp ordering must follow instrument REGISTRATION order (AAPL, KO, NVDA) deterministically.",
+    "hold_through_bars": "Every open position is held across multiple bars before being reduced/closed, exercising mark-to-market unrealized accrual in the equity curve."
+  },
+  "intents": [
+    { "date": "2021-01-04", "ticker": "AAPL", "side": "LONG",  "qty": 100 },
+    { "date": "2021-01-04", "ticker": "KO",   "side": "SHORT", "qty": 200 },
+    { "date": "2021-01-04", "ticker": "NVDA", "side": "LONG",  "qty": 300 },
+
+    { "date": "2021-02-01", "ticker": "AAPL", "side": "FLAT",  "qty": 0 },
+
+    { "date": "2021-03-01", "ticker": "AAPL", "side": "LONG",  "qty": 100 },
+    { "date": "2021-03-01", "ticker": "KO",   "side": "FLAT",  "qty": 0 },
+    { "date": "2021-03-01", "ticker": "NVDA", "side": "SHORT", "qty": 500 },
+
+    { "date": "2021-04-01", "ticker": "AAPL", "side": "SHORT", "qty": 40 },
+
+    { "date": "2021-05-03", "ticker": "NVDA", "side": "LONG",  "qty": 200 },
+
+    { "date": "2021-06-01", "ticker": "AAPL", "side": "FLAT",  "qty": 0 }
+  ]
+}

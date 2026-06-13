@@ -22,9 +22,19 @@ export type TrackedJob = {
   log: LogLine[];
   error: string | null;
   done: boolean;
+  /** The job's `result` object once observed via the REST reconciliation poll. */
+  result: Record<string, unknown> | null;
 };
 
 const TERMINAL: JobStatus[] = ["succeeded", "failed", "canceled"];
+
+/** Percent from a progress object, accepting both `pct` (data) and `percent` (backtest). */
+function pctOf(p: JobProgress | null | undefined): number | null {
+  if (!p) return null;
+  if (typeof p.pct === "number") return p.pct;
+  if (typeof p.percent === "number") return p.percent;
+  return null;
+}
 
 function lineFor(ev: JobEvent): string {
   switch (ev.event) {
@@ -33,10 +43,26 @@ function lineFor(ev: JobEvent): string {
     case "claimed":
       return `claimed by ${ev.worker ?? "worker"}`;
     case "progress": {
-      const stage = ev.progress?.stage ? String(ev.progress.stage) : "working";
-      const pct =
-        typeof ev.progress?.pct === "number" ? ` ${ev.progress.pct}%` : "";
-      return `${stage}${pct}`;
+      const p = ev.progress ?? {};
+      // Data jobs report {stage, pct}; backtests report {phase, percent,
+      // bars_processed, bars_total}. Accept both.
+      const stage = p.stage
+        ? String(p.stage)
+        : p.phase
+          ? String(p.phase)
+          : "working";
+      const pctVal =
+        typeof p.pct === "number"
+          ? p.pct
+          : typeof p.percent === "number"
+            ? p.percent
+            : null;
+      const pct = pctVal != null ? ` ${Math.round(pctVal)}%` : "";
+      const bars =
+        typeof p.bars_processed === "number" && typeof p.bars_total === "number"
+          ? ` (${p.bars_processed}/${p.bars_total} bars)`
+          : "";
+      return `${stage}${pct}${bars}`;
     }
     case "succeeded":
       return "completed successfully";
@@ -82,6 +108,7 @@ export function useJobTracker(): {
         pct: null,
         error: null,
         done: TERMINAL.includes(job.status),
+        result: null,
         log: [
           {
             ts: new Date().toISOString(),
@@ -105,10 +132,9 @@ export function useJobTracker(): {
     if (idRef.current == null || ev.job_id !== idRef.current) return;
     setTracked((prev) => {
       if (!prev || prev.id !== ev.job_id) return prev;
+      const rawPct = pctOf(ev.progress);
       const pct =
-        typeof ev.progress?.pct === "number"
-          ? Math.max(0, Math.min(100, ev.progress.pct))
-          : prev.pct;
+        rawPct != null ? Math.max(0, Math.min(100, rawPct)) : prev.pct;
       const done = TERMINAL.includes(ev.status);
       return {
         ...prev,
@@ -147,10 +173,8 @@ export function useJobTracker(): {
         setTracked((prev) => {
           if (!prev || prev.id !== job.id) return prev;
           const done = TERMINAL.includes(job.status);
-          const pct =
-            typeof job.progress?.pct === "number"
-              ? job.progress.pct
-              : prev.pct;
+          const pollPct = pctOf(job.progress);
+          const pct = pollPct != null ? pollPct : prev.pct;
           // Only append a reconciliation line on a status transition.
           const statusChanged = prev.status !== job.status;
           return {
@@ -160,6 +184,7 @@ export function useJobTracker(): {
             pct: job.status === "succeeded" ? 100 : pct,
             error: job.last_error ?? prev.error,
             done,
+            result: job.result ?? prev.result,
             log: statusChanged
               ? [
                   ...prev.log,
@@ -188,6 +213,32 @@ export function useJobTracker(): {
     // live id via idRef, so a stale `tracked` closure is not a correctness risk.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tracked?.id, tracked?.done]);
+
+  // On terminal completion, do one final REST read to backfill the job `result`
+  // object (e.g. backtest run_id). The live poll above stops once `done` flips
+  // via SSE, which can race ahead of capturing the result payload.
+  const doneId =
+    tracked?.done && tracked.result == null ? tracked.id : null;
+  useEffect(() => {
+    if (doneId == null) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const resp = await apiGet<{ job?: Job }>(`jobs/${doneId}`);
+        const job = resp?.job;
+        if (cancelled || !job || typeof job.id !== "number") return;
+        setTracked((prev) => {
+          if (!prev || prev.id !== job.id || prev.result != null) return prev;
+          return { ...prev, result: job.result ?? null };
+        });
+      } catch {
+        /* best-effort */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [doneId]);
 
   return { tracked, track, reset };
 }

@@ -31,6 +31,7 @@ type Deps struct {
 	Jobs        JobQueue
 	Data        DataStore
 	Universe    UniverseReader
+	Runs        RunsReader
 	Calendar    *calendar.Calendar
 	PingPG      PingFunc
 	PingRedis   PingFunc
@@ -46,6 +47,7 @@ type Server struct {
 	jobs        JobQueue
 	data        DataStore
 	uni         UniverseReader
+	runs        RunsReader
 	cal         *calendar.Calendar
 	pingPG      PingFunc
 	pingRedis   PingFunc
@@ -64,6 +66,8 @@ func NewServer(d Deps) (*Server, error) {
 		return nil, errors.New("api: nil data store")
 	case d.Universe == nil:
 		return nil, errors.New("api: nil universe reader")
+	case d.Runs == nil:
+		return nil, errors.New("api: nil runs reader")
 	case d.Calendar == nil:
 		return nil, errors.New("api: nil trading calendar")
 	case d.PingPG == nil:
@@ -81,6 +85,7 @@ func NewServer(d Deps) (*Server, error) {
 		jobs:        d.Jobs,
 		data:        d.Data,
 		uni:         d.Universe,
+		runs:        d.Runs,
 		cal:         d.Calendar,
 		pingPG:      d.PingPG,
 		pingRedis:   d.PingRedis,
@@ -133,6 +138,13 @@ func (s *Server) Routes() *chi.Mux {
 
 			r.Get("/universe/latest", s.handleUniverseLatest)
 			r.Post("/universe/rebuild", s.handleUniverseRebuild)
+
+			r.Post("/backtests", s.handleBacktestEnqueue)
+			r.Get("/backtests", s.handleBacktestList)
+			r.Get("/backtests/{id}", s.handleBacktestGet)
+			r.Get("/backtests/{id}/equity", s.handleBacktestEquity)
+			r.Get("/backtests/{id}/trades", s.handleBacktestTrades)
+			r.Get("/backtests/{id}/orders", s.handleBacktestOrders)
 		})
 	})
 	return r

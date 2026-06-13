@@ -1,0 +1,67 @@
+{
+  "strategy": "sepa",
+  "schema_version": 1,
+  "display": {
+    "description": "Stage 2 breakout per Minervini's Specific Entry Point Analysis"
+  },
+  "allocation": {
+    "capital_pct": 0.40,
+    "active": true
+  },
+  "metadata": {
+    "source": "baseline",
+    "created_at": "2026-05-06T00:00:00+00:00",
+    "tuned_from_study": null,
+    "tuned_from_trial": null
+  },
+  "parameters": {
+    "risk_pct": {
+      "default": 1.0,
+      "type": "float",
+      "search": {"low": 1.0, "high": 4.0},
+      "description": "Per-trade risk as % of equity"
+    },
+    "market_cap_min_usd": {
+      "default": 500000000.0,
+      "type": "float",
+      "search": {"low": 250000000.0, "high": 1000000000.0},
+      "description": "Trend Template rule 8: market-cap floor"
+    },
+    "hard_stop_pct": {
+      "default": 7.5,
+      "type": "float",
+      "search": {"low": 4.0, "high": 12.0},
+      "description": "Hard stop = entry * (1 - hard_stop_pct/100)"
+    },
+    "pivot_buffer_pct": {
+      "default": 1.5,
+      "type": "float",
+      "search": {"low": 0.5, "high": 3.0},
+      "description": "Pivot buffer = pivot * (1 - pivot_buffer_pct/100)"
+    },
+    "breakout_volume_multiple": {
+      "default": 1.5,
+      "type": "float",
+      "search": {"low": 1.0, "high": 2.5},
+      "description": "Breakout bar volume must exceed this multiple of 50d avg"
+    },
+    "vcp_lookback": {
+      "default": 5,
+      "type": "int",
+      "search": {"low": 3, "high": 10},
+      "description": "Number of contraction segments to find for VCP"
+    },
+    "history_max_bars": {
+      "default": 1000,
+      "type": "int",
+      "search": null,
+      "description": "Internal kline buffer cap; not a tuning knob"
+    },
+    "timezone": {
+      "default": "America/New_York",
+      "type": "str",
+      "search": null
+    }
+  },
+  "constraints": []
+}

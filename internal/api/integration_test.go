@@ -34,6 +34,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 	"github.com/byjackchen/trade-tms-go/internal/db"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
+	"github.com/byjackchen/trade-tms-go/internal/runs"
 )
 
 const testPGImage = "timescale/timescaledb:latest-pg16"
@@ -167,6 +168,7 @@ func itestServer(t *testing.T) (*httptest.Server, *pgxpool.Pool) {
 		Jobs:        queue,
 		Data:        NewPGStore(itestPool),
 		Universe:    universe.NewStore(itestPool),
+		Runs:        runs.NewStore(itestPool),
 		Calendar:    cal,
 		PingPG:      itestPool.Ping,
 		PingRedis:   pingOK,

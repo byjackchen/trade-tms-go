@@ -1,0 +1,265 @@
+package runs_test
+
+// store_pg_test.go exercises the runs.Store against a REAL PostgreSQL /
+// TimescaleDB (the equity_curves hypertable, FK cascades and partial indexes
+// cannot be faked). It uses an ephemeral docker container per test binary,
+// skipping when docker is unavailable (TMS_TEST_NO_DOCKER=1). Mirrors the
+// jobs-package harness.
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/byjackchen/trade-tms-go/internal/config"
+	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
+	"github.com/byjackchen/trade-tms-go/internal/db"
+	"github.com/byjackchen/trade-tms-go/internal/domain"
+	"github.com/byjackchen/trade-tms-go/internal/metrics"
+	"github.com/byjackchen/trade-tms-go/internal/runs"
+)
+
+const testPGImage = "timescale/timescaledb:latest-pg16"
+
+var (
+	testPool      *pgxpool.Pool
+	pgUnavailable = "harness not initialized"
+)
+
+func TestMain(m *testing.M) {
+	cleanup, err := startEphemeralPG()
+	if err != nil {
+		pgUnavailable = err.Error()
+		fmt.Fprintf(os.Stderr, "runs: integration tests will skip: %v\n", err)
+		os.Exit(m.Run())
+	}
+	defer cleanup()
+	os.Exit(m.Run())
+}
+
+func startEphemeralPG() (func(), error) {
+	if os.Getenv("TMS_TEST_NO_DOCKER") == "1" {
+		return nil, errors.New("TMS_TEST_NO_DOCKER=1")
+	}
+	if _, err := exec.LookPath("docker"); err != nil {
+		return nil, fmt.Errorf("docker not on PATH: %w", err)
+	}
+	infoCtx, cancelInfo := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelInfo()
+	if out, err := exec.CommandContext(infoCtx, "docker", "info", "--format", "{{.ServerVersion}}").CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("docker daemon unavailable: %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	name := fmt.Sprintf("tms-runs-test-%d", time.Now().UnixNano())
+	runCtx, cancelRun := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancelRun()
+	out, err := exec.CommandContext(runCtx, "docker", "run", "-d", "--rm",
+		"--name", name,
+		"-e", "POSTGRES_USER=tms", "-e", "POSTGRES_PASSWORD=tms", "-e", "POSTGRES_DB=tms",
+		"-p", "127.0.0.1:0:5432",
+		testPGImage).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("docker run: %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	stop := func() {
+		killCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = exec.CommandContext(killCtx, "docker", "kill", name).Run()
+	}
+	port, err := mappedPort(name)
+	if err != nil {
+		stop()
+		return nil, err
+	}
+	cfg := &config.Config{
+		PGHost: "127.0.0.1", PGPort: port, PGUser: "tms", PGPassword: "tms",
+		PGDatabase: "tms", PGSSLMode: "disable", PGMaxConns: 16, PGMinConns: 0,
+	}
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		if err = db.MigrateUp(cfg); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			stop()
+			return nil, fmt.Errorf("postgres not ready after 90s: %w", err)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	poolCtx, cancelPool := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelPool()
+	pool, err := db.NewPool(poolCtx, cfg)
+	if err != nil {
+		stop()
+		return nil, fmt.Errorf("connecting test pool: %w", err)
+	}
+	testPool = pool
+	return func() { pool.Close(); stop() }, nil
+}
+
+func mappedPort(container string) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "docker", "port", container, "5432/tcp").CombinedOutput()
+	if err != nil {
+		return 0, fmt.Errorf("docker port: %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	line := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
+	_, portStr, err := net.SplitHostPort(line)
+	if err != nil {
+		return 0, fmt.Errorf("parsing port %q: %w", line, err)
+	}
+	return strconv.Atoi(portStr)
+}
+
+func requirePG(t *testing.T) {
+	t.Helper()
+	if testPool == nil {
+		t.Skipf("postgres unavailable: %s", pgUnavailable)
+	}
+}
+
+func samplePersist() runs.PersistInput {
+	t0 := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
+	exitTS := time.Date(2024, 1, 4, 0, 0, 0, 0, time.UTC)
+	exitPx := domain.MustPrice("12.00")
+	pnl := domain.MustMoney("200.00")
+	pm := metrics.BacktestMetrics{
+		FinalBalanceUSD: 100200, TotalPnLUSD: 200, Sharpe: 1.2, Calmar: 2.4,
+		MaxDrawdownPct: -1.5, NumOrders: 2, NumFilledOrders: 2, NumPositions: 1,
+	}
+	return runs.PersistInput{
+		RunTS:            "2024-06-13_12-00-00",
+		Kind:             "smoke",
+		Status:           "COMPLETE",
+		StartDate:        calendar.NewDate(2024, 1, 2),
+		EndDate:          calendar.NewDate(2024, 1, 4),
+		StartingBalance:  domain.MustMoney("100000.00"),
+		FinalBalance:     domain.MustMoney("100200.00"),
+		TotalPnL:         domain.MustMoney("200.00"),
+		Strategies:       []string{"Scripted-000"},
+		Config:           json.RawMessage(`{"start":"2024-01-02"}`),
+		PortfolioMetrics: pm,
+		StrategyMetrics:  map[string]metrics.BacktestMetrics{"Scripted-000": pm},
+		PortfolioEquity: []runs.EquityPoint{
+			{TS: t0, BalanceUSD: domain.MustMoney("100000.00")},
+			{TS: exitTS, BalanceUSD: domain.MustMoney("100200.00")},
+		},
+		StrategyEquity: map[string][]runs.EquityPoint{
+			"Scripted-000": {{TS: exitTS, BalanceUSD: domain.MustMoney("200.00")}},
+		},
+		Trades: []runs.Trade{{
+			StrategyID: "Scripted-000", Symbol: "AAPL", Side: "LONG", Qty: 100,
+			EntryTS: t0, ExitTS: &exitTS, EntryPx: domain.MustPrice("10.00"),
+			ExitPx: &exitPx, RealizedPnL: pnl,
+		}},
+		Orders: []domain.Order{
+			domain.NewMarketOrder("c1", "Scripted-000", "AAPL", domain.OrderSideBuy, 100, "buy", t0),
+		},
+	}
+}
+
+func TestStorePersistAndRead(t *testing.T) {
+	requirePG(t)
+	ctx := context.Background()
+	store := runs.NewStore(testPool)
+
+	id, err := store.Persist(ctx, samplePersist())
+	require.NoError(t, err)
+	require.Positive(t, id)
+
+	// Detail.
+	d, err := store.Get(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, "2024-06-13_12-00-00", d.RunTS)
+	assert.Equal(t, "COMPLETE", d.Status)
+	require.NotNil(t, d.FinalBalance)
+	assert.Equal(t, domain.MustMoney("100200.00"), *d.FinalBalance)
+	require.NotNil(t, d.PortfolioMetrics)
+	assert.Equal(t, 1.2, d.PortfolioMetrics.Sharpe)
+	assert.Equal(t, 100200.0, d.PortfolioMetrics.FinalBalanceUSD)
+	assert.Contains(t, d.StrategyMetrics, "Scripted-000")
+
+	// List.
+	list, err := store.List(ctx, runs.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, id, list[0].ID)
+
+	// Equity (portfolio + strategy).
+	pe, err := store.Equity(ctx, id, "")
+	require.NoError(t, err)
+	require.Len(t, pe, 2)
+	assert.True(t, pe[0].TS.Before(pe[1].TS)) // ascending
+	se, err := store.Equity(ctx, id, "Scripted-000")
+	require.NoError(t, err)
+	require.Len(t, se, 1)
+	assert.Equal(t, domain.MustMoney("200.00"), se[0].BalanceUSD)
+
+	// Trades.
+	trs, err := store.Trades(ctx, id)
+	require.NoError(t, err)
+	require.Len(t, trs, 1)
+	assert.Equal(t, "AAPL", trs[0].Symbol)
+	require.NotNil(t, trs[0].RealizedPnL)
+	assert.Equal(t, domain.MustMoney("200.00"), *trs[0].RealizedPnL)
+
+	// Orders (from meta.orders).
+	raw, err := store.Orders(ctx, id)
+	require.NoError(t, err)
+	var orders []map[string]any
+	require.NoError(t, json.Unmarshal(raw, &orders))
+	require.Len(t, orders, 1)
+	assert.Equal(t, "c1", orders[0]["client_order_id"])
+}
+
+func TestStorePersistIdempotent(t *testing.T) {
+	requirePG(t)
+	ctx := context.Background()
+	store := runs.NewStore(testPool)
+
+	in := samplePersist()
+	in.RunTS = "2024-06-13_13-00-00"
+	id1, err := store.Persist(ctx, in)
+	require.NoError(t, err)
+
+	// Re-persist with the same run_ts: replaces, does not duplicate.
+	id2, err := store.Persist(ctx, in)
+	require.NoError(t, err)
+	assert.NotEqual(t, id1, id2, "a replace produces a fresh identity row")
+
+	// Only one run with that ts remains.
+	var count int
+	require.NoError(t, testPool.QueryRow(ctx,
+		`SELECT count(*) FROM tms.runs WHERE run_ts = $1`, in.RunTS).Scan(&count))
+	assert.Equal(t, 1, count)
+
+	// Children of the replaced run were cascaded away.
+	var trades int
+	require.NoError(t, testPool.QueryRow(ctx,
+		`SELECT count(*) FROM tms.trades WHERE run_id = $1`, id1).Scan(&trades))
+	assert.Equal(t, 0, trades)
+}
+
+func TestStoreGetNotFound(t *testing.T) {
+	requirePG(t)
+	_, err := runs.NewStore(testPool).Get(context.Background(), 9_999_999)
+	assert.ErrorIs(t, err, runs.ErrRunNotFound)
+}
+
+func TestStoreEquityNotFound(t *testing.T) {
+	requirePG(t)
+	_, err := runs.NewStore(testPool).Equity(context.Background(), 9_999_999, "")
+	assert.ErrorIs(t, err, runs.ErrRunNotFound)
+}

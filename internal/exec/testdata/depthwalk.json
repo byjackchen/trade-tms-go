@@ -1,0 +1,562 @@
+[
+  {
+    "volume": 8,
+    "close_tick_vol": 2,
+    "side": "BUY",
+    "qty": 1,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 8,
+    "close_tick_vol": 2,
+    "side": "BUY",
+    "qty": 2,
+    "legs": [
+      {
+        "qty": "2",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 8,
+    "close_tick_vol": 2,
+    "side": "BUY",
+    "qty": 3,
+    "legs": [
+      {
+        "qty": "2",
+        "px": "105.00"
+      },
+      {
+        "qty": "1",
+        "px": "105.01"
+      }
+    ]
+  },
+  {
+    "volume": 8,
+    "close_tick_vol": 2,
+    "side": "BUY",
+    "qty": 7,
+    "legs": [
+      {
+        "qty": "2",
+        "px": "105.00"
+      },
+      {
+        "qty": "5",
+        "px": "105.01"
+      }
+    ]
+  },
+  {
+    "volume": 8,
+    "close_tick_vol": 2,
+    "side": "SELL",
+    "qty": 1,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 8,
+    "close_tick_vol": 2,
+    "side": "SELL",
+    "qty": 2,
+    "legs": [
+      {
+        "qty": "2",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 8,
+    "close_tick_vol": 2,
+    "side": "SELL",
+    "qty": 3,
+    "legs": [
+      {
+        "qty": "2",
+        "px": "105.00"
+      },
+      {
+        "qty": "1",
+        "px": "104.99"
+      }
+    ]
+  },
+  {
+    "volume": 8,
+    "close_tick_vol": 2,
+    "side": "SELL",
+    "qty": 7,
+    "legs": [
+      {
+        "qty": "2",
+        "px": "105.00"
+      },
+      {
+        "qty": "5",
+        "px": "104.99"
+      }
+    ]
+  },
+  {
+    "volume": 100,
+    "close_tick_vol": 25,
+    "side": "BUY",
+    "qty": 24,
+    "legs": [
+      {
+        "qty": "24",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 100,
+    "close_tick_vol": 25,
+    "side": "BUY",
+    "qty": 25,
+    "legs": [
+      {
+        "qty": "25",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 100,
+    "close_tick_vol": 25,
+    "side": "BUY",
+    "qty": 26,
+    "legs": [
+      {
+        "qty": "25",
+        "px": "105.00"
+      },
+      {
+        "qty": "1",
+        "px": "105.01"
+      }
+    ]
+  },
+  {
+    "volume": 100,
+    "close_tick_vol": 25,
+    "side": "BUY",
+    "qty": 30,
+    "legs": [
+      {
+        "qty": "25",
+        "px": "105.00"
+      },
+      {
+        "qty": "5",
+        "px": "105.01"
+      }
+    ]
+  },
+  {
+    "volume": 100,
+    "close_tick_vol": 25,
+    "side": "SELL",
+    "qty": 24,
+    "legs": [
+      {
+        "qty": "24",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 100,
+    "close_tick_vol": 25,
+    "side": "SELL",
+    "qty": 25,
+    "legs": [
+      {
+        "qty": "25",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 100,
+    "close_tick_vol": 25,
+    "side": "SELL",
+    "qty": 26,
+    "legs": [
+      {
+        "qty": "25",
+        "px": "105.00"
+      },
+      {
+        "qty": "1",
+        "px": "104.99"
+      }
+    ]
+  },
+  {
+    "volume": 100,
+    "close_tick_vol": 25,
+    "side": "SELL",
+    "qty": 30,
+    "legs": [
+      {
+        "qty": "25",
+        "px": "105.00"
+      },
+      {
+        "qty": "5",
+        "px": "104.99"
+      }
+    ]
+  },
+  {
+    "volume": 7,
+    "close_tick_vol": 4,
+    "side": "BUY",
+    "qty": 3,
+    "legs": [
+      {
+        "qty": "3",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 7,
+    "close_tick_vol": 4,
+    "side": "BUY",
+    "qty": 4,
+    "legs": [
+      {
+        "qty": "4",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 7,
+    "close_tick_vol": 4,
+    "side": "BUY",
+    "qty": 5,
+    "legs": [
+      {
+        "qty": "4",
+        "px": "105.00"
+      },
+      {
+        "qty": "1",
+        "px": "105.01"
+      }
+    ]
+  },
+  {
+    "volume": 7,
+    "close_tick_vol": 4,
+    "side": "BUY",
+    "qty": 9,
+    "legs": [
+      {
+        "qty": "4",
+        "px": "105.00"
+      },
+      {
+        "qty": "5",
+        "px": "105.01"
+      }
+    ]
+  },
+  {
+    "volume": 7,
+    "close_tick_vol": 4,
+    "side": "SELL",
+    "qty": 3,
+    "legs": [
+      {
+        "qty": "3",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 7,
+    "close_tick_vol": 4,
+    "side": "SELL",
+    "qty": 4,
+    "legs": [
+      {
+        "qty": "4",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 7,
+    "close_tick_vol": 4,
+    "side": "SELL",
+    "qty": 5,
+    "legs": [
+      {
+        "qty": "4",
+        "px": "105.00"
+      },
+      {
+        "qty": "1",
+        "px": "104.99"
+      }
+    ]
+  },
+  {
+    "volume": 7,
+    "close_tick_vol": 4,
+    "side": "SELL",
+    "qty": 9,
+    "legs": [
+      {
+        "qty": "4",
+        "px": "105.00"
+      },
+      {
+        "qty": "5",
+        "px": "104.99"
+      }
+    ]
+  },
+  {
+    "volume": 3,
+    "close_tick_vol": 1,
+    "side": "BUY",
+    "qty": 1,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 3,
+    "close_tick_vol": 1,
+    "side": "BUY",
+    "qty": 1,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 3,
+    "close_tick_vol": 1,
+    "side": "BUY",
+    "qty": 2,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      },
+      {
+        "qty": "1",
+        "px": "105.01"
+      }
+    ]
+  },
+  {
+    "volume": 3,
+    "close_tick_vol": 1,
+    "side": "BUY",
+    "qty": 6,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      },
+      {
+        "qty": "5",
+        "px": "105.01"
+      }
+    ]
+  },
+  {
+    "volume": 3,
+    "close_tick_vol": 1,
+    "side": "SELL",
+    "qty": 1,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 3,
+    "close_tick_vol": 1,
+    "side": "SELL",
+    "qty": 1,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 3,
+    "close_tick_vol": 1,
+    "side": "SELL",
+    "qty": 2,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      },
+      {
+        "qty": "1",
+        "px": "104.99"
+      }
+    ]
+  },
+  {
+    "volume": 3,
+    "close_tick_vol": 1,
+    "side": "SELL",
+    "qty": 6,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      },
+      {
+        "qty": "5",
+        "px": "104.99"
+      }
+    ]
+  },
+  {
+    "volume": 1,
+    "close_tick_vol": 1,
+    "side": "BUY",
+    "qty": 1,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 1,
+    "close_tick_vol": 1,
+    "side": "BUY",
+    "qty": 1,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 1,
+    "close_tick_vol": 1,
+    "side": "BUY",
+    "qty": 2,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      },
+      {
+        "qty": "1",
+        "px": "105.01"
+      }
+    ]
+  },
+  {
+    "volume": 1,
+    "close_tick_vol": 1,
+    "side": "BUY",
+    "qty": 6,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      },
+      {
+        "qty": "5",
+        "px": "105.01"
+      }
+    ]
+  },
+  {
+    "volume": 1,
+    "close_tick_vol": 1,
+    "side": "SELL",
+    "qty": 1,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 1,
+    "close_tick_vol": 1,
+    "side": "SELL",
+    "qty": 1,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      }
+    ]
+  },
+  {
+    "volume": 1,
+    "close_tick_vol": 1,
+    "side": "SELL",
+    "qty": 2,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      },
+      {
+        "qty": "1",
+        "px": "104.99"
+      }
+    ]
+  },
+  {
+    "volume": 1,
+    "close_tick_vol": 1,
+    "side": "SELL",
+    "qty": 6,
+    "legs": [
+      {
+        "qty": "1",
+        "px": "105.00"
+      },
+      {
+        "qty": "5",
+        "px": "104.99"
+      }
+    ]
+  }
+]

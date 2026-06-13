@@ -1,0 +1,43 @@
+{
+  "strategy": "sector_rotation",
+  "schema_version": 1,
+  "display": {
+    "description": "Cross-sector momentum: rotate into the top-K sector ETFs by trailing return"
+  },
+  "allocation": {
+    "capital_pct": 0.30,
+    "active": true
+  },
+  "metadata": {
+    "source": "baseline",
+    "created_at": "2026-05-06T00:00:00+00:00",
+    "tuned_from_study": null,
+    "tuned_from_trial": null
+  },
+  "parameters": {
+    "momentum_lookback": {
+      "default": 63,
+      "type": "int",
+      "search": {"low": 42, "high": 126},
+      "description": "Trading-day window for momentum ranking"
+    },
+    "top_k": {
+      "default": 3,
+      "type": "int",
+      "search": {"low": 2, "high": 5},
+      "description": "Number of top sectors to hold each rebalance"
+    },
+    "universe": {
+      "default": ["XLK", "XLF", "XLE", "XLV", "XLY", "XLP", "XLU", "XLB", "XLI", "XLRE", "XLC"],
+      "type": "list",
+      "search": null,
+      "description": "11 SPDR sector ETFs"
+    },
+    "timezone": {
+      "default": "America/New_York",
+      "type": "str",
+      "search": null
+    }
+  },
+  "constraints": []
+}

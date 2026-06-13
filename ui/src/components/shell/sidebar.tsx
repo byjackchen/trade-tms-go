@@ -28,7 +28,7 @@ type Section = {
 
 const SECTIONS: Section[] = [
   { href: "/data", label: "Data", icon: Database, testid: "nav-data", ready: true },
-  { href: "/backtests", label: "Backtests", icon: FlaskConical, testid: "nav-backtests", ready: false },
+  { href: "/backtests", label: "Backtests", icon: FlaskConical, testid: "nav-backtests", ready: true },
   { href: "/hyperopt", label: "Hyperopt", icon: Sparkles, testid: "nav-hyperopt", ready: false },
   { href: "/live", label: "Live", icon: Activity, testid: "nav-live", ready: false },
   { href: "/ops", label: "Ops", icon: Wrench, testid: "nav-ops", ready: false },

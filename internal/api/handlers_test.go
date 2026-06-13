@@ -37,7 +37,7 @@ func TestNewServer_RejectsMissingDeps(t *testing.T) {
 	require.NoError(t, err)
 	base := Deps{
 		Token: testToken, Jobs: newStubJobQueue(),
-		Data: &stubDataStore{}, Universe: &stubUniverseReader{},
+		Data: &stubDataStore{}, Universe: &stubUniverseReader{}, Runs: &stubRunsReader{},
 		Calendar: cal, PingPG: pingOK,
 	}
 	t.Run("empty token", func(t *testing.T) {
@@ -55,6 +55,12 @@ func TestNewServer_RejectsMissingDeps(t *testing.T) {
 	t.Run("nil calendar", func(t *testing.T) {
 		d := base
 		d.Calendar = nil
+		_, err := NewServer(d)
+		require.Error(t, err)
+	})
+	t.Run("nil runs reader", func(t *testing.T) {
+		d := base
+		d.Runs = nil
 		_, err := NewServer(d)
 		require.Error(t, err)
 	})
@@ -131,7 +137,7 @@ func TestHealthz(t *testing.T) {
 		cal, _ := calendar.NewNYSE()
 		srv, err := NewServer(Deps{
 			Log: zerolog.Nop(), Token: testToken, CORSOrigins: []string{testOrigin},
-			Jobs: newStubJobQueue(), Data: &stubDataStore{}, Universe: &stubUniverseReader{},
+			Jobs: newStubJobQueue(), Data: &stubDataStore{}, Universe: &stubUniverseReader{}, Runs: &stubRunsReader{},
 			Calendar: cal, PingPG: pingOK, PingRedis: pingErr,
 			Now: func() time.Time { return fixedNow },
 		})

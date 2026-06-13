@@ -94,3 +94,116 @@ export async function marketDataIsEmpty(c: Client): Promise<boolean> {
   const t = await tableTruth(c, "bars_daily");
   return t.rows === 0;
 }
+
+// ---------------------------------------------------------------------------
+// Backtests ground truth (research.* === tms.runs / run_metrics / equity_curves
+// / trades — P2 locked decision 4: the DB is the source of truth).
+//
+// Money is stored as BIGINT fixed-point at 1e-4 USD (dollars * 10000); the API
+// renders it as float64 USD. These helpers return *USD floats* so a spec can
+// compare them against the rendered metric cards / API payloads directly.
+// ---------------------------------------------------------------------------
+
+/** Number of finished (COMPLETE) backtest runs — gates "is there ground truth". */
+export async function completeRunCount(c: Client): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM tms.runs WHERE status = 'COMPLETE'`,
+  );
+  return Number(rows[0].n);
+}
+
+/** The newest COMPLETE run's id + run_ts, or null when none exists. */
+export async function latestCompleteRun(
+  c: Client,
+): Promise<{ id: number; runTs: string } | null> {
+  const { rows } = await c.query<{ id: string; run_ts: string }>(
+    `SELECT id::text AS id, run_ts
+       FROM tms.runs
+      WHERE status = 'COMPLETE'
+      ORDER BY run_ts DESC
+      LIMIT 1`,
+  );
+  return rows.length ? { id: Number(rows[0].id), runTs: rows[0].run_ts } : null;
+}
+
+/** Portfolio metrics for a run, in USD floats — the ground truth behind the
+ * detail page's metric cards. `null` when the run has no metrics row. */
+export type RunMetricsTruth = {
+  finalBalanceUsd: number;
+  totalPnlUsd: number;
+  sharpe: number;
+  calmar: number;
+  maxDrawdownPct: number;
+  numOrders: number;
+  numFilledOrders: number;
+  numRejectedOrders: number;
+  numPositions: number;
+};
+
+export async function runMetricsTruth(
+  c: Client,
+  runId: number,
+): Promise<RunMetricsTruth | null> {
+  const { rows } = await c.query<{
+    final_balance_usd: string;
+    total_pnl_usd: string;
+    sharpe: string;
+    calmar: string;
+    max_drawdown_pct: string;
+    num_orders: string;
+    num_filled_orders: string;
+    num_rejected_orders: string;
+    num_positions: string;
+  }>(
+    `SELECT final_balance_usd::text,
+            total_pnl_usd::text,
+            sharpe::text,
+            calmar::text,
+            max_drawdown_pct::text,
+            num_orders::text,
+            num_filled_orders::text,
+            num_rejected_orders::text,
+            num_positions::text
+       FROM tms.run_metrics
+      WHERE run_id = $1
+        AND scope = 'portfolio'`,
+    [runId],
+  );
+  if (!rows.length) return null;
+  const r = rows[0];
+  return {
+    finalBalanceUsd: Number(r.final_balance_usd) / 10000,
+    totalPnlUsd: Number(r.total_pnl_usd) / 10000,
+    sharpe: Number(r.sharpe),
+    calmar: Number(r.calmar),
+    maxDrawdownPct: Number(r.max_drawdown_pct),
+    numOrders: Number(r.num_orders),
+    numFilledOrders: Number(r.num_filled_orders),
+    numRejectedOrders: Number(r.num_rejected_orders),
+    numPositions: Number(r.num_positions),
+  };
+}
+
+/** Count of portfolio equity-curve points for a run (the chart's point count). */
+export async function equityPointCount(
+  c: Client,
+  runId: number,
+): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM tms.equity_curves
+      WHERE run_id = $1
+        AND scope = 'portfolio'`,
+    [runId],
+  );
+  return Number(rows[0].n);
+}
+
+/** Count of round-trip trades for a run (the trades table's row count). */
+export async function tradeCount(c: Client, runId: number): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM tms.trades WHERE run_id = $1`,
+    [runId],
+  );
+  return Number(rows[0].n);
+}

@@ -28,8 +28,25 @@ E2E_ENV := TMS_API_TOKEN=$(TMS_API_TOKEN) \
 	TMS_E2E_API_URL=http://localhost:18080 \
 	$(ITEST_ENV)
 
+# ---------------------------------------------------------------------------
+# Golden parity gate (Go engine vs reference Nautilus BacktestEngine).
+# ---------------------------------------------------------------------------
+# The reference Python repo (read-only) supplies Nautilus + the Sharadar cache.
+# MS_REPO points at it; MS_PY is its venv interpreter. Override on the CLI if
+# your checkout lives elsewhere. The harness, comparator and probe live under
+# tmp/parity/ (throwaway, gitignored); the canonical script + golden fixtures
+# are committed under testdata/.
+MS_REPO        ?= /Users/byjackchen/codespace/trade-multi-strategies
+MS_PY          ?= $(MS_REPO)/.venv/bin/python
+PARITY_DIR     := tmp/parity
+PARITY_SCRIPT  ?= testdata/parity/script_canonical.json
+PARITY_NAU_OUT := $(PARITY_DIR)/nautilus_out
+PARITY_GO_OUT  := $(PARITY_DIR)/go_out
+PARITY_RUN_TS  := 2021-01-04_00-00-00
+
 .PHONY: all build test vet fmt-check itest compose-up compose-down docker-build clean \
-	e2e-install e2e itest-full e2e-seed
+	e2e-install e2e itest-full e2e-seed \
+	parity parity-nautilus parity-go parity-compare parity-depthwalk
 
 all: fmt-check vet build test
 
@@ -118,3 +135,44 @@ docker-build:
 
 clean:
 	rm -rf $(BIN_DIR)
+
+# ---------------------------------------------------------------------------
+# Golden parity targets.
+# ---------------------------------------------------------------------------
+
+# Run the reference Nautilus harness over the canonical script: loads the SAME
+# Sharadar bars, dumps bars.json (the shared inputs) + orders/positions/account/
+# equity to PARITY_NAU_OUT. Run with the reference repo's venv, cwd = MS_REPO so
+# its `src` + nautilus_trader import.
+parity-nautilus:
+	@mkdir -p $(PARITY_NAU_OUT)
+	cd $(MS_REPO) && $(MS_PY) $(CURDIR)/$(PARITY_DIR)/nautilus_parity.py \
+		--script $(CURDIR)/$(PARITY_SCRIPT) \
+		--out $(CURDIR)/$(PARITY_NAU_OUT)
+
+# Run the Go engine over the canonical script + the SAME bars.json the Nautilus
+# harness dumped, ZERO-COST (nautilus-compat), into PARITY_GO_OUT/<run-ts>.
+parity-go:
+	go run ./cmd/tms parity-backtest \
+		--script $(PARITY_SCRIPT) \
+		--bars $(PARITY_NAU_OUT)/bars.json \
+		--runs-root $(PARITY_GO_OUT) \
+		--run-ts $(PARITY_RUN_TS)
+
+# Diff the Go run against the Nautilus dump field-by-field (prices exact after
+# fixed-point, pnl/equity within a cent, counts + ordering exact).
+parity-compare:
+	$(MS_PY) $(PARITY_DIR)/compare_engine.py \
+		--go $(PARITY_GO_OUT)/$(PARITY_RUN_TS) \
+		--nautilus $(PARITY_NAU_OUT)
+
+# Regenerate the depth-walk golden table (the small-volume fill rule the Go
+# unit test asserts) by probing the Nautilus matching engine directly.
+parity-depthwalk:
+	cd $(MS_REPO) && $(MS_PY) $(CURDIR)/$(PARITY_DIR)/probe_depthwalk.py
+	cp $(PARITY_NAU_OUT)/depthwalk.json internal/exec/testdata/depthwalk.json
+
+# Full golden-parity gate: Nautilus side + Go side + comparator. Non-zero exit
+# if the engines diverge beyond tolerance.
+parity: parity-nautilus parity-go parity-compare
+	@echo "[parity] golden-parity gate passed"

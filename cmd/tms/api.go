@@ -17,6 +17,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 	"github.com/byjackchen/trade-tms-go/internal/db"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
+	"github.com/byjackchen/trade-tms-go/internal/runs"
 )
 
 // newAPICmd implements `tms api`: the HTTP/WebSocket API for the UI
@@ -113,6 +114,7 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		Jobs:        queue,
 		Data:        api.NewPGStore(pool),
 		Universe:    universe.NewStore(pool),
+		Runs:        runs.NewStore(pool),
 		Calendar:    cal,
 		PingPG:      pool.Ping,
 		PingRedis:   func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },

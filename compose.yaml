@@ -176,10 +176,14 @@ services:
       TMS_WORKER_CONCURRENCY: ${TMS_WORKER_CONCURRENCY:-4}
       TMS_WORKER_HEALTH_ADDR: 127.0.0.1:8081
       TMS_SHARADAR_CACHE_DIR: /data/sharadar
+      TMS_RUNS_DIR: /data/runs
       TMS_LOG_LEVEL: ${TMS_LOG_LEVEL:-info}
       TMS_LOG_FORMAT: json
     volumes:
       - ${TMS_SHARADAR_CACHE_DIR:-./cache/sharadar}:/data/sharadar:ro
+      # legacy backtest artifacts (runs/{ts}/*.json) written alongside the DB
+      # source of truth (backtest.run) — read-write, shared with the API.
+      - ${TMS_RUNS_DIR:-./runs}:/data/runs
     depends_on:
       postgres:
         condition: service_healthy

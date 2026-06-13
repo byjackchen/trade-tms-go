@@ -1,0 +1,122 @@
+[
+  {
+    "ticker": "AAPL",
+    "side": "BUY",
+    "qty": "100",
+    "px": "129.41",
+    "ts": "2021-01-04T00:00:00+00:00",
+    "ts_ns": 1609718400000000000,
+    "client_order_id": "O-20210104-000000-001-000-1",
+    "venue_order_id": "SIM-1-001",
+    "trade_id": "T-92fa9490879f322d-005",
+    "commission": "0.00 USD"
+  },
+  {
+    "ticker": "KO",
+    "side": "SELL",
+    "qty": "200",
+    "px": "52.76",
+    "ts": "2021-01-04T00:00:00+00:00",
+    "ts_ns": 1609718400000000000,
+    "client_order_id": "O-20210104-000000-001-000-2",
+    "venue_order_id": "SIM-2-001",
+    "trade_id": "T-c8c4f5117119107c-005",
+    "commission": "0.00 USD"
+  },
+  {
+    "ticker": "NVDA",
+    "side": "BUY",
+    "qty": "300",
+    "px": "13.11",
+    "ts": "2021-01-04T00:00:00+00:00",
+    "ts_ns": 1609718400000000000,
+    "client_order_id": "O-20210104-000000-001-000-3",
+    "venue_order_id": "SIM-3-001",
+    "trade_id": "T-eb7b5de7a029793f-005",
+    "commission": "0.00 USD"
+  },
+  {
+    "ticker": "AAPL",
+    "side": "SELL",
+    "qty": "100",
+    "px": "134.14",
+    "ts": "2021-02-01T00:00:00+00:00",
+    "ts_ns": 1612137600000000000,
+    "client_order_id": "O-20210201-000000-001-000-4",
+    "venue_order_id": "SIM-1-002",
+    "trade_id": "T-4421fd96fabb08d3-082",
+    "commission": "0.00 USD"
+  },
+  {
+    "ticker": "AAPL",
+    "side": "BUY",
+    "qty": "100",
+    "px": "127.79",
+    "ts": "2021-03-01T00:00:00+00:00",
+    "ts_ns": 1614556800000000000,
+    "client_order_id": "O-20210301-000000-001-000-5",
+    "venue_order_id": "SIM-1-003",
+    "trade_id": "T-ea8c55c7c86a14e1-159",
+    "commission": "0.00 USD"
+  },
+  {
+    "ticker": "KO",
+    "side": "BUY",
+    "qty": "200",
+    "px": "49.90",
+    "ts": "2021-03-01T00:00:00+00:00",
+    "ts_ns": 1614556800000000000,
+    "client_order_id": "O-20210301-000000-001-000-6",
+    "venue_order_id": "SIM-2-002",
+    "trade_id": "T-502cfe7011dca774-157",
+    "commission": "0.00 USD"
+  },
+  {
+    "ticker": "NVDA",
+    "side": "SELL",
+    "qty": "500",
+    "px": "13.84",
+    "ts": "2021-03-01T00:00:00+00:00",
+    "ts_ns": 1614556800000000000,
+    "client_order_id": "O-20210301-000000-001-000-7",
+    "venue_order_id": "SIM-3-002",
+    "trade_id": "T-8488f1855e60bb17-156",
+    "commission": "0.00 USD"
+  },
+  {
+    "ticker": "AAPL",
+    "side": "SELL",
+    "qty": "40",
+    "px": "123.00",
+    "ts": "2021-04-01T00:00:00+00:00",
+    "ts_ns": 1617235200000000000,
+    "client_order_id": "O-20210401-000000-001-000-8",
+    "venue_order_id": "SIM-1-004",
+    "trade_id": "T-ec56f31059f1ddf8-252",
+    "commission": "0.00 USD"
+  },
+  {
+    "ticker": "NVDA",
+    "side": "BUY",
+    "qty": "200",
+    "px": "14.84",
+    "ts": "2021-05-03T00:00:00+00:00",
+    "ts_ns": 1620000000000000000,
+    "client_order_id": "O-20210503-000000-001-000-9",
+    "venue_order_id": "SIM-3-003",
+    "trade_id": "T-ef945be6f4279465-330",
+    "commission": "0.00 USD"
+  },
+  {
+    "ticker": "AAPL",
+    "side": "SELL",
+    "qty": "60",
+    "px": "124.28",
+    "ts": "2021-06-01T00:00:00+00:00",
+    "ts_ns": 1622505600000000000,
+    "client_order_id": "O-20210601-000000-001-000-10",
+    "venue_order_id": "SIM-1-005",
+    "trade_id": "T-750b779e6de1aed3-417",
+    "commission": "0.00 USD"
+  }
+]

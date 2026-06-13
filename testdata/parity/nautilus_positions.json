@@ -1,0 +1,29 @@
+[
+  {
+    "position_id": "AAPL.SIM-Scripted-000",
+    "strategy_id": "Scripted-000",
+    "ticker": "AAPL",
+    "side": "FLAT",
+    "signed_qty": 0.0,
+    "realized_pnl": 70.8,
+    "unrealized_pnl": 0.0
+  },
+  {
+    "position_id": "KO.SIM-Scripted-000",
+    "strategy_id": "Scripted-000",
+    "ticker": "KO",
+    "side": "FLAT",
+    "signed_qty": 0.0,
+    "realized_pnl": 572.0,
+    "unrealized_pnl": 0.0
+  },
+  {
+    "position_id": "NVDA.SIM-Scripted-000",
+    "strategy_id": "Scripted-000",
+    "ticker": "NVDA",
+    "side": "FLAT",
+    "signed_qty": 0.0,
+    "realized_pnl": 19.0,
+    "unrealized_pnl": 0.0
+  }
+]

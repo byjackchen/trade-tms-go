@@ -7,11 +7,13 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
+	"github.com/byjackchen/trade-tms-go/internal/runs"
 )
 
 // JobQueue is the queue surface the API needs (satisfied by *jobs.Queue).
@@ -26,6 +28,17 @@ type JobQueue interface {
 // *universe.Store). kind "" matches any kind.
 type UniverseReader interface {
 	LatestSnapshot(ctx context.Context, kind string) (*universe.Snapshot, error)
+}
+
+// RunsReader reads persisted backtest runs (satisfied by *runs.Store). It backs
+// the GET /api/v1/backtests* endpoints (DB source of truth). All readers return
+// runs.ErrRunNotFound for an unknown id.
+type RunsReader interface {
+	List(ctx context.Context, f runs.ListFilter) ([]runs.RunSummary, error)
+	Get(ctx context.Context, id int64) (*runs.RunDetail, error)
+	Equity(ctx context.Context, id int64, scope string) ([]runs.EquitySample, error)
+	Trades(ctx context.Context, id int64) ([]runs.TradeRow, error)
+	Orders(ctx context.Context, id int64) (json.RawMessage, error)
 }
 
 // TableCoverage is one market-data table's aggregate coverage. Zero dates

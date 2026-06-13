@@ -208,6 +208,133 @@ export type UniverseRebuildRequest = {
   actor?: string;
 };
 
+// ---- Backtests ----
+
+export type BacktestStatus = "RUNNING" | "COMPLETE" | "INTERRUPTED" | "FAIL";
+
+export type FillProfile = "nautilus-compat" | "realistic";
+
+/** A run summary, as returned in the list and the detail `backtest` field. */
+export type BacktestSummary = {
+  id: number;
+  run_ts: string;
+  kind: string;
+  status: BacktestStatus;
+  start_date: string;
+  end_date: string;
+  starting_balance_usd: number;
+  final_balance_usd: number;
+  total_pnl_usd: number;
+  strategies: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type BacktestsResponse = { backtests: BacktestSummary[] };
+
+/** Portfolio / per-strategy metrics block. */
+export type BacktestMetrics = {
+  final_balance_usd: number;
+  total_pnl_usd: number;
+  sharpe: number;
+  calmar: number;
+  max_drawdown_pct: number;
+  num_orders: number;
+  num_filled_orders: number;
+  num_rejected_orders: number;
+  num_positions: number;
+};
+
+export type BacktestDetailResponse = {
+  backtest: BacktestSummary;
+  config: Record<string, unknown>;
+  metrics: BacktestMetrics;
+  strategy_metrics: Record<string, BacktestMetrics>;
+};
+
+export type EquityPoint = { ts: string; balance_usd: number };
+
+export type EquityResponse = {
+  scope: string;
+  points: EquityPoint[];
+};
+
+export type BacktestTrade = {
+  id: number;
+  strategy_id: string;
+  symbol: string;
+  side: string;
+  qty: number;
+  entry_ts: string;
+  exit_ts: string | null;
+  entry_px: number;
+  exit_px: number | null;
+  realized_pnl_usd: number;
+};
+
+export type BacktestTradesResponse = { trades: BacktestTrade[] };
+
+/**
+ * Orders are an opaque pass-through array (api-ws-redis §7.2): quantities are
+ * strings, prices numbers, plus engine-defined fields. We type the keys we
+ * render and keep the rest open.
+ */
+export type BacktestOrder = {
+  client_order_id?: string;
+  order_id?: string;
+  instrument_id?: string;
+  symbol?: string;
+  side?: string;
+  type?: string;
+  order_type?: string;
+  quantity?: string | number;
+  qty?: string | number;
+  price?: number | string;
+  avg_px?: number | string;
+  status?: string;
+  ts_init?: string;
+  ts_last?: string;
+  [k: string]: unknown;
+};
+
+/** A scripted-strategy trade intent (POST /backtests body element). */
+export type BacktestIntent = {
+  date: string;
+  ticker: string;
+  side: "LONG" | "SHORT" | "FLAT";
+  qty: number;
+};
+
+export type BacktestUniverseSpec = {
+  start: string;
+  end: string;
+  table?: string;
+};
+
+export type RealisticParams = {
+  slippage_bps?: number;
+  commission_bps?: number;
+  commission_per_share?: number;
+};
+
+export type CreateBacktestRequest = {
+  start: string;
+  end: string;
+  tickers?: string[];
+  universe?: BacktestUniverseSpec;
+  starting_balance?: number;
+  fill_profile?: FillProfile;
+  strategy?: string;
+  intents?: BacktestIntent[];
+  kind?: string;
+  seed?: number;
+  run_ts?: string;
+  realistic?: RealisticParams;
+  actor?: string;
+  max_attempts?: number;
+  dedupe_key?: string;
+};
+
 // ---- WebSocket envelope ----
 
 export type WsEventType = "hello" | "job" | "sync";

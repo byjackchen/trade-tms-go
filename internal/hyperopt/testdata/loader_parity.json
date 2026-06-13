@@ -1,0 +1,165 @@
+{
+  "suggest": {
+    "sepa": {
+      "sampled": {
+        "risk_pct": 2.5,
+        "market_cap_min_usd": 625000000.0,
+        "hard_stop_pct": 8.0,
+        "pivot_buffer_pct": 1.75,
+        "breakout_volume_multiple": 1.75,
+        "vcp_lookback": 6
+      },
+      "trial_params": {
+        "sepa.risk_pct": 2.5,
+        "sepa.market_cap_min_usd": 625000000.0,
+        "sepa.hard_stop_pct": 8.0,
+        "sepa.pivot_buffer_pct": 1.75,
+        "sepa.breakout_volume_multiple": 1.75,
+        "sepa.vcp_lookback": 6
+      },
+      "defaults": {
+        "risk_pct": 1.0,
+        "market_cap_min_usd": 500000000.0,
+        "hard_stop_pct": 7.5,
+        "pivot_buffer_pct": 1.5,
+        "breakout_volume_multiple": 1.5,
+        "vcp_lookback": 5,
+        "history_max_bars": 1000,
+        "timezone": "America/New_York"
+      }
+    },
+    "sector_rotation": {
+      "sampled": {
+        "momentum_lookback": 84,
+        "top_k": 3
+      },
+      "trial_params": {
+        "sector_rotation.momentum_lookback": 84,
+        "sector_rotation.top_k": 3
+      },
+      "defaults": {
+        "momentum_lookback": 63,
+        "top_k": 3,
+        "universe": [
+          "XLK",
+          "XLF",
+          "XLE",
+          "XLV",
+          "XLY",
+          "XLP",
+          "XLU",
+          "XLB",
+          "XLI",
+          "XLRE",
+          "XLC"
+        ],
+        "timezone": "America/New_York"
+      }
+    },
+    "pairs": {
+      "sampled": {
+        "lookback": 75,
+        "entry_z": 2.25,
+        "exit_z": 0.55,
+        "capital_per_pair_pct": 0.275
+      },
+      "trial_params": {
+        "pairs.lookback": 75,
+        "pairs.entry_z": 2.25,
+        "pairs.exit_z": 0.55,
+        "pairs.capital_per_pair_pct": 0.275
+      },
+      "defaults": {
+        "lookback": 60,
+        "entry_z": 2.0,
+        "exit_z": 0.5,
+        "capital_per_pair_pct": 0.3,
+        "pairs": [
+          [
+            "KO",
+            "PEP"
+          ],
+          [
+            "MA",
+            "V"
+          ],
+          [
+            "XOM",
+            "CVX"
+          ]
+        ],
+        "timezone": "America/New_York"
+      }
+    },
+    "pairs_frac_0.0": {
+      "sampled": {
+        "lookback": 30,
+        "entry_z": 1.5,
+        "exit_z": 0.1,
+        "capital_per_pair_pct": 0.1
+      },
+      "trial_params": {
+        "pairs.lookback": 30,
+        "pairs.entry_z": 1.5,
+        "pairs.exit_z": 0.1,
+        "pairs.capital_per_pair_pct": 0.1
+      }
+    },
+    "pairs_frac_0.25": {
+      "sampled": {
+        "lookback": 52,
+        "entry_z": 1.875,
+        "exit_z": 0.325,
+        "capital_per_pair_pct": 0.1875
+      },
+      "trial_params": {
+        "pairs.lookback": 52,
+        "pairs.entry_z": 1.875,
+        "pairs.exit_z": 0.325,
+        "pairs.capital_per_pair_pct": 0.1875
+      }
+    },
+    "pairs_frac_0.9": {
+      "sampled": {
+        "lookback": 111,
+        "entry_z": 2.85,
+        "exit_z": 0.91,
+        "capital_per_pair_pct": 0.41500000000000004
+      },
+      "trial_params": {
+        "pairs.lookback": 111,
+        "pairs.entry_z": 2.85,
+        "pairs.exit_z": 0.91,
+        "pairs.capital_per_pair_pct": 0.41500000000000004
+      }
+    },
+    "pairs_frac_1.0": {
+      "sampled": {
+        "lookback": 120,
+        "entry_z": 3.0,
+        "exit_z": 1.0,
+        "capital_per_pair_pct": 0.44999999999999996
+      },
+      "trial_params": {
+        "pairs.lookback": 120,
+        "pairs.entry_z": 3.0,
+        "pairs.exit_z": 1.0,
+        "pairs.capital_per_pair_pct": 0.44999999999999996
+      }
+    }
+  },
+  "safe_eval": {
+    "min(1.0, entry_z - 0.1)": 1.0,
+    "max(0.1, exit_z)": 0.1,
+    "abs(-3.5)": 3.5,
+    "1+2*3-4/2": 5.0,
+    "-x": -5.0,
+    "min(a,b,c)": 1.0,
+    "(entry_z - 0.1)": 2.4
+  },
+  "safe_eval_errors": {
+    "foo + 1": "NameError: undefined: foo",
+    "pow(2,3)": "ValueError: unsupported function: \"Name(id='pow', ctx=Load())\"",
+    "1/0": "ZeroDivisionError: division by zero"
+  }
+}

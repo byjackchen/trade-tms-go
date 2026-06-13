@@ -24,6 +24,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
+	"github.com/byjackchen/trade-tms-go/internal/runs"
 )
 
 // testToken is the bearer token every contract test authenticates with.
@@ -214,6 +215,72 @@ func (s *stubUniverseReader) LatestSnapshot(ctx context.Context, kind string) (*
 	return s.snap, nil
 }
 
+// stubRunsReader is an in-memory RunsReader for the backtest endpoint contract
+// tests. Each field can be set per test; err short-circuits every method.
+type stubRunsReader struct {
+	list     []runs.RunSummary
+	detail   *runs.RunDetail
+	equity   []runs.EquitySample
+	trades   []runs.TradeRow
+	orders   json.RawMessage
+	notFound bool
+	err      error
+
+	lastListFilter  runs.ListFilter
+	lastEquityID    int64
+	lastEquityScope string
+}
+
+func (s *stubRunsReader) List(_ context.Context, f runs.ListFilter) ([]runs.RunSummary, error) {
+	s.lastListFilter = f
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.list, nil
+}
+
+func (s *stubRunsReader) Get(_ context.Context, id int64) (*runs.RunDetail, error) {
+	if s.notFound {
+		return nil, runs.ErrRunNotFound
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.detail, nil
+}
+
+func (s *stubRunsReader) Equity(_ context.Context, id int64, scope string) ([]runs.EquitySample, error) {
+	s.lastEquityID = id
+	s.lastEquityScope = scope
+	if s.notFound {
+		return nil, runs.ErrRunNotFound
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.equity, nil
+}
+
+func (s *stubRunsReader) Trades(_ context.Context, id int64) ([]runs.TradeRow, error) {
+	if s.notFound {
+		return nil, runs.ErrRunNotFound
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.trades, nil
+}
+
+func (s *stubRunsReader) Orders(_ context.Context, id int64) (json.RawMessage, error) {
+	if s.notFound {
+		return nil, runs.ErrRunNotFound
+	}
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.orders, nil
+}
+
 // ---------------------------------------------------------------------------
 // test harness
 // ---------------------------------------------------------------------------
@@ -224,6 +291,7 @@ type testServer struct {
 	jobs *stubJobQueue
 	data *stubDataStore
 	uni  *stubUniverseReader
+	runs *stubRunsReader
 }
 
 // pingOK / pingErr are reusable PingFuncs.
@@ -241,6 +309,7 @@ func newTestServer(t *testing.T) *testServer {
 	jq := newStubJobQueue()
 	ds := &stubDataStore{barDates: map[string][]calendar.Date{}, tickers: map[string]bool{}}
 	ur := &stubUniverseReader{}
+	rr := &stubRunsReader{}
 
 	srv, err := NewServer(Deps{
 		Log:         zerolog.Nop(),
@@ -249,13 +318,14 @@ func newTestServer(t *testing.T) *testServer {
 		Jobs:        jq,
 		Data:        ds,
 		Universe:    ur,
+		Runs:        rr,
 		Calendar:    cal,
 		PingPG:      pingOK,
 		PingRedis:   pingOK,
 		Now:         func() time.Time { return fixedNow },
 	})
 	require.NoError(t, err)
-	return &testServer{srv: srv, jobs: jq, data: ds, uni: ur}
+	return &testServer{srv: srv, jobs: jq, data: ds, uni: ur, runs: rr}
 }
 
 // do issues a request against the wired router and returns the recorder.

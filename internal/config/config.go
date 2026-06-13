@@ -93,6 +93,12 @@ type Config struct {
 	// baseline), matching the Python reference.
 	StrategyParamsDir string // TMS_STRATEGY_PARAMS_DIR
 
+	// --- Run artifacts ---
+	// RunsDir is the base directory for the legacy runs/{ts}/*.json artifact
+	// set written alongside the DB source of truth (P2 locked decision 4).
+	// Defaults to "runs" (matching the Python reference's TMS_RUNS_DIR).
+	RunsDir string // TMS_RUNS_DIR
+
 	// DotenvPath records where .env was loaded from ("" if none found),
 	// so error messages can point at the file that was (not) used.
 	DotenvPath string
@@ -163,6 +169,7 @@ func Load() (*Config, error) {
 		NasdaqDataLinkAPIKey: envStr("TMS_NASDAQ_DATA_LINK_API_KEY", envStr("NASDAQ_DATA_LINK_API_KEY", "")),
 		SharadarCacheDir:     envStr("TMS_SHARADAR_CACHE_DIR", ""),
 		StrategyParamsDir:    envStr("TMS_STRATEGY_PARAMS_DIR", ""),
+		RunsDir:              envStr("TMS_RUNS_DIR", "runs"),
 
 		WorkerConcurrency: workerConcurrency,
 		WorkerHealthAddr:  envStr("TMS_WORKER_HEALTH_ADDR", "127.0.0.1:8081"),

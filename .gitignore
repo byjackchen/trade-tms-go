@@ -33,3 +33,6 @@ go.work.sum
 /tms
 # playwright-mcp tool cruft
 .playwright-mcp/
+
+# backtest run artifact output (DB is source of truth)
+/runs/

@@ -418,6 +418,114 @@ Validation `400`s: unknown `kind`, negative `top_k`, unknown JSON field.
 
 ---
 
+## Backtests
+
+The result + control plane over the DB source of truth (`research.runs` /
+`run_metrics` / `equity_curves` / `trades`, P2 locked decision 4). A backtest is
+run by the `backtest.run` job handler (engine → DB persist + legacy
+`runs/{ts}/*.json` artifacts). Money is rendered as float64 USD (the legacy
+artifact shape); `sharpe`/`calmar`/`max_drawdown_pct` are float64 exactly as the
+metrics package computes them (population std-dev, 252 periods/yr — see
+`docs/spec/hyperopt-metrics.md §1`).
+
+### `POST /api/v1/backtests`
+
+Enqueue a `backtest.run` job (audited; the actor is stamped `api[:<actor>]`).
+
+Request body:
+
+```json
+{
+  "start": "2024-01-02",          // required (YYYY-MM-DD)
+  "end":   "2024-12-31",          // required
+  "tickers": ["AAPL","KO"],        // explicit list, OR
+  "universe": {"start":"...","end":"...","table":"SF1"}, // survivor-bias-free window
+  "starting_balance": 100000.0,    // USD; default 100000
+  "fill_profile": "nautilus-compat", // or "realistic"; default nautilus-compat
+  "strategy": "scripted",          // only "scripted" implemented
+  "intents": [ {"date":"2024-01-03","ticker":"AAPL","side":"LONG","qty":100} ],
+  "kind": "multi-strategy",        // run-kind badge
+  "seed": 0,                       // reserved for stochastic models
+  "run_ts": "2026-..._..-..-..",  // optional idempotency key
+  "realistic": {"slippage_bps":1.0,"commission_bps":0.0,"commission_per_share":0.0},
+  "actor": "alice",                // audit
+  "max_attempts": 1,               // queue retry budget (0..10; 0 -> 1)
+  "dedupe_key": ""                 // optional: at most one active job per key
+}
+```
+
+Response `202 Accepted`: `{ "job": { /* job object */ }, "deduped": false }`.
+Track progress via the `job` object (`progress` carries
+`{phase, bars_processed, bars_total, percent}`) and the WebSocket job stream;
+the job `result` carries `{run_id, run_ts, final_balance, sharpe, ...}` on
+success.
+
+Validation `400`s: missing `start`/`end`; neither `tickers` nor `universe`;
+unknown `fill_profile`; unsupported `strategy`; `max_attempts` out of `[0,10]`;
+unknown JSON field.
+
+### `GET /api/v1/backtests`
+
+List runs newest-first by `run_ts`. Query: `?status=` (`RUNNING|COMPLETE|
+INTERRUPTED|FAIL`), `?kind=`, `?limit=` (1..500, default 50).
+
+```json
+{ "backtests": [ {
+  "id": 7, "run_ts": "2026-...", "kind": "multi-strategy", "status": "COMPLETE",
+  "start_date": "2024-01-02", "end_date": "2024-12-31",
+  "starting_balance_usd": 100000.0, "final_balance_usd": 105000.0,
+  "total_pnl_usd": 5000.0, "strategies": ["Scripted-000"],
+  "created_at": "...", "updated_at": "..." } ] }
+```
+
+### `GET /api/v1/backtests/{id}`
+
+Run detail: summary + portfolio `metrics` + per-strategy `strategy_metrics` +
+the run `config`. `404` `{"error":{"code":"not_found",...}}` for an unknown id.
+
+```json
+{
+  "backtest": { /* summary, as in the list */ },
+  "config": { /* the backtest.run payload, verbatim */ },
+  "metrics": {
+    "final_balance_usd": 105000.0, "total_pnl_usd": 5000.0,
+    "sharpe": 1.5, "calmar": 2.5, "max_drawdown_pct": -3.2,
+    "num_orders": 4, "num_filled_orders": 4, "num_rejected_orders": 0,
+    "num_positions": 2
+  },
+  "strategy_metrics": { "Scripted-000": { /* same shape */ } }
+}
+```
+
+### `GET /api/v1/backtests/{id}/equity[?strategy=<id>]`
+
+Equity-curve points, ascending by `ts`. Default scope is `portfolio` (account
+equity); `?strategy=<id>` selects that strategy's cumulative-PnL curve.
+
+```json
+{ "scope": "portfolio", "points": [ {"ts":"...","balance_usd":100000.0}, ... ] }
+```
+
+### `GET /api/v1/backtests/{id}/trades`
+
+Round-trip trades, ordered by `(strategy_id, symbol, entry_ts)`. `exit_ts` /
+`exit_px` are `null` for positions still open at run end.
+
+```json
+{ "trades": [ {
+  "id": 1, "strategy_id": "Scripted-000", "symbol": "AAPL", "side": "LONG",
+  "qty": 100, "entry_ts": "...", "exit_ts": "...", "entry_px": 10.0,
+  "exit_px": 12.0, "realized_pnl_usd": 200.0 } ] }
+```
+
+### `GET /api/v1/backtests/{id}/orders`
+
+The submitted orders, as a JSON **array** (opaque pass-through of the engine's
+order list; quantities are strings, prices numbers — api-ws-redis §7.2). `[]`
+when none. `404` for an unknown id.
+
+---
+
 ## `GET /api/v1/ws` — WebSocket event stream
 
 A fan-out of live **job** and **dataset-sync** events, bridged from Redis

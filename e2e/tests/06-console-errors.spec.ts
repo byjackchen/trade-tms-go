@@ -21,6 +21,7 @@
  */
 
 import { test, expect } from "../fixtures/test";
+import { withDb, latestCompleteRun } from "../lib/db";
 
 /** Bounded best-effort settle: lets late XHRs + a render tick flush without
  * ever hanging on the perpetually-open SSE connection. */
@@ -34,17 +35,37 @@ async function settle(page: import("@playwright/test").Page): Promise<void> {
 
 type Route = {
   path: string;
-  /** A stable testid that proves the page's main content mounted. */
-  ready: string;
+  /** Stable testids; the page is "mounted" once ANY of them is visible (the
+   * Backtests section may render either the coming-soon placeholder or the real
+   * workspace root, depending on build order). */
+  ready: string[];
 };
 
 const ROUTES: Route[] = [
-  { path: "/data", ready: "data-page" },
-  { path: "/backtests", ready: "backtests-placeholder" },
-  { path: "/hyperopt", ready: "hyperopt-placeholder" },
-  { path: "/live", ready: "live-placeholder" },
-  { path: "/ops", ready: "ops-placeholder" },
+  { path: "/data", ready: ["data-page"] },
+  { path: "/backtests", ready: ["backtests-placeholder", "backtests-page"] },
+  { path: "/hyperopt", ready: ["hyperopt-placeholder"] },
+  { path: "/live", ready: ["live-placeholder"] },
+  { path: "/ops", ready: ["ops-placeholder"] },
 ];
+
+/** Wait for the first of the candidate readiness testids to become visible. */
+async function waitReady(
+  page: import("@playwright/test").Page,
+  ready: string[],
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        for (const id of ready) {
+          if (await page.getByTestId(id).first().isVisible()) return true;
+        }
+        return false;
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(true);
+}
 
 test.describe("no severe console errors", () => {
   for (const route of ROUTES) {
@@ -58,7 +79,7 @@ test.describe("no severe console errors", () => {
 
       // Confirm the app shell and the page's main content mounted.
       await expect(page.getByTestId("app-shell")).toBeVisible();
-      await expect(page.getByTestId(route.ready)).toBeVisible();
+      await waitReady(page, route.ready);
 
       // Let async data fetches + a render tick flush so any late error fires.
       await settle(page);
@@ -71,6 +92,42 @@ test.describe("no severe console errors", () => {
       ).toHaveLength(0);
     });
   }
+
+  // (5) The backtest DETAIL route must also be free of severe console errors,
+  // for a real persisted run. Self-skips until there is a COMPLETE run and the
+  // detail page is implemented.
+  test("/backtests/{id} renders without severe console errors", async ({
+    page,
+    consoleErrors,
+  }) => {
+    const run = await withDb((c) => latestCompleteRun(c));
+    test.skip(!run, "no COMPLETE run to open a detail page for yet.");
+    if (!run) return;
+
+    await page.goto(`/backtests/${run.id}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("app-shell")).toBeVisible();
+
+    const detail = page.getByTestId("backtest-detail");
+    const placeholder = page.getByTestId("backtests-placeholder");
+    await expect
+      .poll(
+        async () => (await detail.count()) + (await placeholder.count()),
+        { timeout: 15_000 },
+      )
+      .toBeGreaterThan(0);
+    test.skip(
+      (await detail.count()) === 0,
+      "Backtests detail page not yet implemented.",
+    );
+
+    await settle(page);
+    await page.waitForTimeout(1_500);
+    expect(
+      consoleErrors,
+      `severe console/page errors on /backtests/${run.id}:\n` +
+        consoleErrors.map((e) => `  [${e.kind}] ${e.text}`).join("\n"),
+    ).toHaveLength(0);
+  });
 
   test("root redirects to /data without severe console errors", async ({
     page,

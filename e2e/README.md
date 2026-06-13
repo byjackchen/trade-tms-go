@@ -17,8 +17,11 @@ e2e/
   lib/
     env.ts               single source of truth for ports/creds (all overridable)
     db.ts                direct postgres client: DB-truth counts + seed helpers
-    api.ts               direct API client (auth-rejection test + health probe)
+                         (Data coverage AND research.* backtest ground truth)
+    api.ts               direct API client (auth probe + GET/POST /api/v1 helpers)
     format.ts            mirrors the UI's Intl integer formatting for DB-truth
+    backtests.ts         scripted-launch builder: picks tradable tickers + a
+                         covered window from postgres, builds the POST body
   seed/
     seed.sql             idempotent deterministic market-data + sync seed
     seed.ts              runner (`--if-empty` skips when bars_daily is non-empty)
@@ -29,8 +32,31 @@ e2e/
                          Recent jobs gains the row, jobs table grows
     04-cancel-flow       cancel a job through the UI; DB confirms terminal
     05-auth              token-less /api/* = 401; valid token = 200; /healthz public
-    06-console-errors    zero severe console errors across every route
+    06-console-errors    zero severe console errors across every route +
+                         the /backtests/{id} detail route
+    07-backtest-launch   open New-backtest dialog, scripted run (2 tickers, ~3mo,
+                         nautilus-compat), job running -> succeeded via the UI,
+                         detail link targets the persisted run id (DB-checked)
+    08-backtest-detail   detail metric cards + equity points + trades/orders MATCH
+                         tms.run_metrics/equity_curves/trades AND the API payloads;
+                         equity chart (canvas/svg) + trades + orders tables render
+    09-backtest-cancel   launch a long-ish backtest (widest window), cancel mid-run
+                         from the UI -> status canceled (race-tolerant, DB-checked)
 ```
+
+### Backtests specs and build order
+
+The Backtests workspace ships after the P1 Data workspace. Specs 07-09 (and the
+new detail console-errors case) are **permanent** and assert the documented
+contract (`docs/api.md` Backtests, conventional `data-testid`s mirroring the
+Data workspace: `open-backtest-dialog` / `backtest-form` / `backtest-submit`,
+the shared `job-progress` panel, `/backtests/{id}` `backtest-detail` with
+`metric-*` cards, `equity-chart`, `trades-table`, `orders-table`). While the UI
+is still the `coming-soon` placeholder, or the stack has no tradable bars / no
+COMPLETE run, they **self-skip** cleanly so the gate stays green; once the UI is
+wired the assertions bind and never weaken. Every rendered number is compared to
+ground truth queried independently from postgres (`research.*`) and the API — no
+fabricated values.
 
 ## Running
 

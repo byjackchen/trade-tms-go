@@ -36,6 +36,7 @@ func wsTestServer(t *testing.T) (*httptest.Server, *Server) {
 		Jobs:        newStubJobQueue(),
 		Data:        &stubDataStore{},
 		Universe:    &stubUniverseReader{},
+		Runs:        &stubRunsReader{},
 		Calendar:    cal,
 		PingPG:      pingOK,
 		PingRedis:   pingOK,
