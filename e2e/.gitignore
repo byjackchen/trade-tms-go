@@ -1,0 +1,8 @@
+# Playwright install + run artifacts (the suite + config are committed; outputs are not).
+node_modules/
+report/
+test-results/
+playwright/.cache/
+*.log
+.env
+.env.local

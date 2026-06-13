@@ -634,3 +634,54 @@ itself is another spec's scope).
    machine-local date, while catch-up freshness uses UTC (`catchup.py:68-69,
    114`). On a US-evening start these can differ. Confirm Go should preserve
    the inconsistency (parity) or normalize both to one zone behind a flag.
+
+---
+
+## 7. Go implementation addendum (P1, internal/data/universe)
+
+Decisions locked for the Go port; each either resolves an open question
+above or documents a sanctioned deviation.
+
+1. **Trading-date normalization (resolves Q8) [IMPROVE].** All "today"
+   logic in universe assembly uses the **America/New_York calendar date**
+   of the injected clock (`calendar.DateOf(now, NY)` via
+   `internal/data/calendar`), not the machine-local date of
+   `live_runner.py:257` and not the UTC date of `catchup.py:114`. The
+   reference's local/UTC mix is intentionally NOT preserved; on a US
+   trading evening the NY date equals the local US date, so reference
+   comparisons on historical fixtures are unaffected (the golden tests pin
+   `as_of` explicitly).
+2. **Market-cap datekey tie-break (resolves Q2).** The Go lookup is
+   `ORDER BY datekey DESC, dimension DESC LIMIT 1` over all six SF1
+   dimensions. This is byte-equivalent to the reference: SF1 parquet rows
+   are sorted by `(ticker, datekey, dimension)` (`writer_sf1.py:24,31`),
+   so the stable `sort_values("datekey").iloc[-1]` selects the greatest
+   dimension among max-datekey rows.
+3. **Default limit stays 85 verbatim (resolves Q1, Q3).** No dynamic
+   headroom computation; pair legs remain NOT excluded from the SEPA
+   universe — `KO/PEP/MA/V/XOM/CVX` may rank inside the top-N (overlap
+   accepted, dedup happens at subscription time).
+4. **Data source.** The universe tier reads the P0-imported TimescaleDB
+   tables (`tms.tickers`, `tms.bars_daily`, `tms.fundamentals_sf1`)
+   instead of the parquet cache; the SF1-driven flow's filter/sort
+   semantics (§2.2, §2.3) are replicated in SQL. Fixed-point 1e-4 price
+   storage round-trips losslessly for all observed Sharadar OHLC values
+   (golden-verified bit-identical scores through PG).
+5. **Snapshots [IMPROVE].** Every computed universe is persisted to
+   `tms.universe_snapshots` (migration 000007 adds a ranked `members`
+   JSONB array: rank, score, trend_template_count, breakout_proximity,
+   market_cap_usd, passing-rule reasons) with reader APIs
+   (`SnapshotByID`, `LatestSnapshot`, `SnapshotAsOf`). The reference keeps
+   no such record.
+6. **Float parity notes.** The trend-template MAs replicate the pandas 2.x
+   `roll_mean` kernel (Kahan add/remove compensation, same-value short
+   circuit, sign-count clamps) and the screener score forces per-term IEEE
+   rounding (no FMA contraction) — both required for bit-identical scores
+   on arm64. Verified by `internal/data/universe/testdata/
+   universe_golden.json`, generated from the real Python screener by
+   `tmp/gen_universe_ref.py` over the 48-ticker P0 subset
+   (as_of 2026-05-27).
+7. **Error policy.** Infrastructure failures (DB/query errors) return
+   errors to the caller; the reference's warn-and-continue (§4.1) is
+   applied to per-ticker warmup failures only (logged, recorded in the
+   build result, ticker skipped).

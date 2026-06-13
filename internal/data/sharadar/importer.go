@@ -47,6 +47,32 @@ type Options struct {
 	BatchSize int
 	// ProgressEvery logs progress every N source rows (<=0: default).
 	ProgressEvery int64
+	// OnProgress, when non-nil, receives progress callbacks at the same
+	// cadence as the progress log lines (every ProgressEvery source rows)
+	// plus one DatasetDone event per completed dataset. Callbacks run
+	// synchronously on the import goroutine — keep them fast; consumers
+	// (e.g. the data.refresh job handler) forward them to the jobs
+	// progress column / Redis.
+	OnProgress func(ProgressEvent)
+}
+
+// ProgressEvent is one OnProgress callback payload.
+type ProgressEvent struct {
+	// Dataset is the spec dataset name (TICKERS/SEP/SFP/SF1/EVENTS).
+	Dataset string
+	// File is the source file currently being scanned ("" on DatasetDone).
+	File string
+	// Rows* mirror the running TableStats counters for this dataset.
+	RowsRead     int64
+	RowsSkipped  int64
+	RowsFailed   int64
+	RowsUpserted int64
+	// DatasetDone marks the completion callback for Dataset.
+	DatasetDone bool
+	// DatasetsDone / DatasetsTotal locate the run within its dataset list
+	// (done counts fully completed datasets).
+	DatasetsDone  int
+	DatasetsTotal int
 }
 
 // TableStats is the per-dataset outcome.
@@ -118,6 +144,9 @@ type Importer struct {
 	opts      Options
 	tickerSet map[string]struct{} // nil = no filter
 	datasets  []string
+	// datasetsDone counts fully completed datasets within Run (drives the
+	// DatasetsDone field of OnProgress events; single goroutine, no lock).
+	datasetsDone int
 }
 
 // New validates options and builds an Importer.
@@ -242,6 +271,8 @@ func (im *Importer) Run(ctx context.Context) (*Summary, error) {
 			}
 			stats.recordError(err.Error())
 			im.log.Warn().Err(err).Str("dataset", ds).Msg("dataset import failed; continuing")
+			im.datasetsDone++
+			im.emitProgress(stats, "", stats.RowsUpserted, true)
 			continue
 		}
 
@@ -264,6 +295,9 @@ func (im *Importer) Run(ctx context.Context) (*Summary, error) {
 			Int64("fields_nulled", stats.FieldsNulled).
 			Int64("rows_upserted", stats.RowsUpserted).
 			Msg("dataset import complete")
+
+		im.datasetsDone++
+		im.emitProgress(stats, "", stats.RowsUpserted, true)
 	}
 
 	sum.Finished = time.Now()
@@ -283,17 +317,19 @@ func (im *Importer) recordSync(ctx context.Context, dataset string, rows int64) 
 
 // loader owns one pooled connection with a session temp staging table and
 // flushes buffered rows through CopyFrom + merge in bounded batches.
+// Shared by the parquet importer and the API sync (sync.go).
 type loader struct {
 	conn      *pgxpool.Conn
 	plan      stagingPlan
 	batchSize int
 	buf       [][]any
 	seq       int64
-	upserted  int64
+	upserted  int64 // total rows affected (inserts + conflict updates)
+	inserted  int64 // net-new keys only (Python writers' `added` semantics)
 }
 
-func (im *Importer) newLoader(ctx context.Context, plan stagingPlan) (*loader, error) {
-	conn, err := im.pool.Acquire(ctx)
+func newLoader(ctx context.Context, pool *pgxpool.Pool, plan stagingPlan, batchSize int) (*loader, error) {
+	conn, err := pool.Acquire(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sharadar: acquiring connection: %w", err)
 	}
@@ -306,7 +342,7 @@ func (im *Importer) newLoader(ctx context.Context, plan stagingPlan) (*loader, e
 		conn.Release()
 		return nil, fmt.Errorf("sharadar: truncating staging %s: %w", plan.staging, err)
 	}
-	return &loader{conn: conn, plan: plan, batchSize: im.opts.BatchSize, buf: make([][]any, 0, im.opts.BatchSize)}, nil
+	return &loader{conn: conn, plan: plan, batchSize: batchSize, buf: make([][]any, 0, batchSize)}, nil
 }
 
 // add buffers one converted row (loader prepends the staging sequence) and
@@ -339,8 +375,8 @@ func (l *loader) flush(ctx context.Context) error {
 	if _, err := tx.CopyFrom(ctx, pgx.Identifier{l.plan.staging}, cols, pgx.CopyFromRows(l.buf)); err != nil {
 		return fmt.Errorf("sharadar: copy into %s: %w", l.plan.staging, err)
 	}
-	ct, err := tx.Exec(ctx, l.plan.upsertSQL)
-	if err != nil {
+	var total, netNew int64
+	if err := tx.QueryRow(ctx, l.plan.mergeCountSQL).Scan(&total, &netNew); err != nil {
 		return fmt.Errorf("sharadar: merging %s: %w", l.plan.staging, err)
 	}
 	if _, err := tx.Exec(ctx, "TRUNCATE "+l.plan.staging); err != nil {
@@ -349,7 +385,8 @@ func (l *loader) flush(ctx context.Context) error {
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("sharadar: committing flush: %w", err)
 	}
-	l.upserted += ct.RowsAffected()
+	l.upserted += total
+	l.inserted += netNew
 	l.buf = l.buf[:0]
 	return nil
 }
@@ -384,7 +421,28 @@ func (im *Importer) progress(stats *TableStats, file string, upserted int64) {
 			Int64("rows_read", stats.RowsRead).
 			Int64("rows_upserted_so_far", upserted).
 			Msg("import progress")
+		im.emitProgress(stats, file, upserted, false)
 	}
+}
+
+// emitProgress forwards one OnProgress callback when configured. The
+// upserted argument overrides stats.RowsUpserted mid-dataset (the stat is
+// only finalized at dataset end).
+func (im *Importer) emitProgress(stats *TableStats, file string, upserted int64, done bool) {
+	if im.opts.OnProgress == nil {
+		return
+	}
+	im.opts.OnProgress(ProgressEvent{
+		Dataset:       stats.Dataset,
+		File:          file,
+		RowsRead:      stats.RowsRead,
+		RowsSkipped:   stats.RowsSkipped,
+		RowsFailed:    stats.RowsFailed,
+		RowsUpserted:  upserted,
+		DatasetDone:   done,
+		DatasetsDone:  im.datasetsDone,
+		DatasetsTotal: len(im.datasets),
+	})
 }
 
 // importBars loads SEP or SFP year partitions into tms.bars_daily.
@@ -398,7 +456,7 @@ func (im *Importer) importBars(ctx context.Context, dataset string, stats *Table
 		return nil
 	}
 
-	ld, err := im.newLoader(ctx, barsPlan())
+	ld, err := newLoader(ctx, im.pool, barsPlan(), im.opts.BatchSize)
 	if err != nil {
 		return err
 	}
@@ -488,7 +546,7 @@ func (im *Importer) importPerTicker(ctx context.Context, dataset string, stats *
 		return fmt.Errorf("sharadar: importPerTicker called with %q", dataset)
 	}
 
-	ld, err := im.newLoader(ctx, plan)
+	ld, err := newLoader(ctx, im.pool, plan, im.opts.BatchSize)
 	if err != nil {
 		return err
 	}
@@ -547,7 +605,7 @@ func (im *Importer) importPerTicker(ctx context.Context, dataset string, stats *
 // it derives a degraded universe from the cache structure itself (see
 // deriveTickerRows).
 func (im *Importer) importTickers(ctx context.Context, stats *TableStats) error {
-	ld, err := im.newLoader(ctx, tickersPlan())
+	ld, err := newLoader(ctx, im.pool, tickersPlan(), im.opts.BatchSize)
 	if err != nil {
 		return err
 	}

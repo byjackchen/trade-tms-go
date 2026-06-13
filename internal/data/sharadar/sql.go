@@ -16,6 +16,12 @@ type stagingPlan struct {
 	columns   []string // copy columns (without seq; the loader prepends seq)
 	createSQL string
 	upsertSQL string
+	// mergeCountSQL wraps upsertSQL to report (total affected, net-new
+	// inserts). The xmax = 0 predicate distinguishes fresh inserts from
+	// conflict updates, giving the Python writers' `added = len(merged) -
+	// len(existing)` net-new-keys semantics (spec §6 step 3) — revised rows
+	// are applied but not counted, exactly like the original.
+	mergeCountSQL string
 }
 
 func quoteJoin(cols []string) string { return strings.Join(cols, ", ") }
@@ -84,7 +90,16 @@ func newStagingPlan(target, staging string, colDefs []string, keyCols []string, 
 		target, quoteJoin(cols), prefixJoin("staged.", cols), dedup, conflict,
 	)
 
-	return stagingPlan{staging: staging, columns: cols, createSQL: createSQL, upsertSQL: upsertSQL}
+	mergeCountSQL := fmt.Sprintf(
+		"WITH merged AS (%s RETURNING (xmax = 0) AS inserted) "+
+			"SELECT count(*)::bigint, count(*) FILTER (WHERE inserted)::bigint FROM merged",
+		upsertSQL,
+	)
+
+	return stagingPlan{
+		staging: staging, columns: cols,
+		createSQL: createSQL, upsertSQL: upsertSQL, mergeCountSQL: mergeCountSQL,
+	}
 }
 
 func barsPlan() stagingPlan {

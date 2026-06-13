@@ -13,6 +13,10 @@
 //	000005_live        — sessions, orders, fills, positions, signal_intents,
 //	                     risk_events, halts, reconciliation_reports
 //	000006_ops         — jobs, commands, audit_log, app_config
+//	000007_universe_members — universe_snapshots.members JSONB (ranked
+//	                     members with score diagnostics + reasons)
+//	000008_jobs_p1     — jobs P1 columns: dedupe_key (+ active-unique
+//	                     index), progress JSONB, cancel_requested
 //
 // Money convention (see docs/spec/domain-types-money.md): all USD price and
 // balance columns are BIGINT fixed-point at 1e-4 scale

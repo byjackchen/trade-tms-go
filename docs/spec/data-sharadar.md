@@ -427,3 +427,95 @@ From `cache/sharadar/.meta.json` as of 2026-05-28: TICKERS 21,362 rows; SEP 8,74
 6. **Concurrent writers** — nothing guards two simultaneous syncs (CLI update + live-node catchup both rewrite year partitions and `.meta.json`). Python relies on operator discipline. Should Go add a lock file under the cache root ([IMPROVE]), or preserve the unguarded behavior?
 7. **SEP `dividends` column** — Sharadar's current SEP table documentation also lists a `dividends` column; the production cache (last full bootstrap) does not contain it. If a fresh bootstrap returns extra columns, the store-verbatim rule (§2) admits them automatically, but cross-language schema goldens should pin the observed 10-column set or tolerate supersets — which?
 8. **Per-call row cap** — chunk sizing assumes a ~900k–1M row response cap of the *Python SDK's* `paginate=True` (which stops at 1M rows with a warning). A native Go pagination loop has no such cap. Keep quarterly chunks for parity and quota friendliness (spec'd), but confirm whether the Go client should also emit a warning when a single logical call exceeds 1M rows.
+
+---
+
+## 14. P1 addendum — API sync implementation decisions (Go, `internal/data/sharadar`)
+
+The P1 builder implemented the Nasdaq Data Link client (`client.go`/`wire.go`)
+and the API → PostgreSQL incremental sync (`sync.go`, pure layers in
+`syncplan.go`/`syncconvert.go`). This addendum records the locked decisions
+that resolve the open questions above and the sanctioned deviations taken.
+
+### 14.1 Resolved open questions
+
+- **Q1 (cache/data dir discovery)** — *locked*: explicit env wins
+  (`TMS_SHARADAR_CACHE_DIR` etc.); the repo-root walk-up
+  (`go.mod`/`pyproject.toml`) remains a dev-only fallback in
+  `ResolveCacheDir`. Containerized deployments must set the env var. [IMPROVE]
+- **Q2 (`delistedate` keep-column)** — *locked, deviation*: the source repo's
+  `delistedate` keep-list entry (`writer_tickers.py:47`) is a typo for a column
+  the live API never returns; the dead spelling is **dropped**. The Go API sync
+  reads `delistdate` (`syncconvert.go convertTickerAPIRow`) into
+  `tms.tickers.delist_date`; if the API does not return it either, the column
+  is NULL — observably identical to the original on current API output.
+- **Q3 (local-vs-UTC "today")** — *locked, deviation* [IMPROVE]: all
+  "today"/trading-date logic in the Go sync is normalized to the
+  **America/New_York trading date** via `internal/data/calendar`
+  (`catchupWindow` in `syncplan.go`), replacing the original's mix of UTC
+  (`catchup.py:109`) and host-local dates (`sync_sharadar_universe.py:147`,
+  `live_runner.py:258`). The watermark start date is likewise interpreted as
+  the NY date of the previous sync; combined with the overlap-by-one-day
+  repull and idempotent merges, no data can be skipped or duplicated.
+- **Q8 (per-call row cap)** — the Go client paginates natively without a cap
+  and logs a warning when one logical call exceeds 1,000,000 rows; quarterly
+  chunking for SEP/SFP bootstrap is kept (parity + quota friendliness).
+
+### 14.2 Sanctioned deviations in the Go API sync
+
+- **Retry schedule** (spec §3.1): 4 attempts on HTTP 429/5xx with 2/4/8 s
+  waits between attempts, classified on the real status code
+  (`resp.StatusCode == 429 || >= 500`), `Retry-After` honored when longer
+  than the backoff, context-aware sleeps. The original's final 16 s sleep
+  computed before giving up is dropped (no observable data effect). Terminal
+  error message keeps the `failed after 4 retries` shape.
+- **Trading-day enumeration** (spec §8.2 step 4): NYSE holidays are skipped
+  via `internal/data/calendar` instead of issuing zero-row weekday calls
+  (explicitly allowed by §8's final [IMPROVE]); outside the calendar's
+  covered year range the Mon–Fri rule is the fallback.
+- **SF1/EVENTS incremental refresh** (spec §6.6 [IMPROVE]): catchup adds
+  `lastupdated.gte=<NY date of previous sync>` to the 500-ticker batch calls;
+  on-disk/merge results are identical to a full refetch.
+  `WithFullRefetch()` restores the original full-history behavior.
+- **Net-new counting** (spec §6 step 3): `added` = net-new keys, computed
+  relationally via `INSERT ... ON CONFLICT ... RETURNING (xmax = 0)`; revised
+  rows are applied but not counted, exactly like
+  `len(merged) - len(existing)`.
+- **Streaming ingestion**: rows stream from the API through bounded staging
+  batches; an API failure mid-dataset can leave earlier batches committed
+  (the original wrote nothing on failure). The merge is idempotent, so the
+  next run converges; the watermark only advances on full success.
+- **Audit trail** (additive): every bootstrap/catchup run inserts one row per
+  dataset into `tms.dataset_sync_runs`
+  (started/finished/rows_added/status/error, migration
+  `000009_dataset_sync_runs`). `tms.dataset_sync` remains the
+  CacheMeta-parity watermark.
+- **API key env name**: canonical Go-side name is
+  `TMS_NASDAQ_DATA_LINK_API_KEY`; the Python reference's bare
+  `NASDAQ_DATA_LINK_API_KEY` is accepted as a fallback. Missing key fails
+  loud at client construction with the account-profile hint (spec §1).
+
+### 14.3 Production entry points for the API sync engine
+
+The `Syncer` (EnsureFresh/Bootstrap) is reachable two ways in production;
+both build it from `config.NasdaqDataLinkAPIKey`, the NYSE calendar and the
+live `pgStore`, and both honor context cancellation (cooperative cancel /
+graceful drain):
+
+- **Worker job `data.refresh source=api`** → `EnsureFresh` (catchup).
+  `cmd/tms/worker.go` constructs a `*sharadar.Syncer`, wraps it in
+  `handlers.SharadarAPISyncer` (the `handlers.APISyncer` implementation) and
+  injects it into `NewDataRefresh`. When `TMS_NASDAQ_DATA_LINK_API_KEY` is
+  unset the worker still starts (parquet refreshes and every other job kind
+  unaffected) and `source=api` jobs fail fast with a "key not set" message —
+  the same best-effort-degradation pattern as the Redis notifier. Because
+  catchup is whole-universe + watermark-driven, a `source=api` job carrying
+  `tables`/`tickers`/`since` is rejected with a pointer to
+  `tms sync bootstrap` rather than silently ignoring the scope.
+- **CLI `tms sync`** → `bootstrap` (bounded backfill, `--start/--end/
+  --ticker`) and `catchup` (the same `EnsureFresh`). The operator twin of
+  the worker path and the relational counterpart of `make sync-universe`
+  (spec §9). The API key is required up front (fail-loud before any work).
+
+Both paths write `tms.dataset_sync_runs` audit rows and advance
+`tms.dataset_sync`.

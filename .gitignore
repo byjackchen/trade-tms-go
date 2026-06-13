@@ -28,3 +28,8 @@ go.work.sum
 .idea/
 .vscode/
 .DS_Store
+
+# built binary at repo root
+/tms
+# playwright-mcp tool cruft
+.playwright-mcp/

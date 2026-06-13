@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    // ESNext + Bundler resolution matches how tsx/Playwright actually load these
+    // files (as ES modules, with extensionless relative imports), and unblocks
+    // `import.meta` in the seed runner. CommonJS+Node mis-described the runtime
+    // and is why the ESM-only `__dirname` bug went unnoticed at typecheck.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "noImplicitAny": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "types": ["node"]
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules", "report"]
+}

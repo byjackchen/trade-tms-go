@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // MissingConfig is returned when a required configuration value is unset.
@@ -56,12 +57,35 @@ type Config struct {
 	LogFormat string // TMS_LOG_FORMAT ("auto"|"console"|"json")
 	APIAddr   string // TMS_API_ADDR (listen address for `tms api`)
 
+	// --- API (P1) ---
+	// APIToken is the bearer token protecting every /api/* route of
+	// `tms api`. No default: the api subcommand enforces it via
+	// Require("TMS_API_TOKEN") and refuses to start unauthenticated.
+	APIToken string // TMS_API_TOKEN
+	// APICORSOrigins is the browser-origin allowlist for the API
+	// (comma-separated). Defaults to the project's reserved UI port 13000
+	// on localhost, per docs/spec/api-ws-redis.md §1.2 [IMPROVE].
+	APICORSOrigins []string // TMS_API_CORS_ORIGINS
+
 	// --- Data vendors ---
-	// NasdaqDataLinkAPIKey has no safe default; use Require("NASDAQ_DATA_LINK_API_KEY").
-	NasdaqDataLinkAPIKey string // NASDAQ_DATA_LINK_API_KEY
+	// NasdaqDataLinkAPIKey has no safe default; use
+	// Require("TMS_NASDAQ_DATA_LINK_API_KEY"). The TMS_-prefixed name is the
+	// canonical Go-side spelling; the Python reference's bare
+	// NASDAQ_DATA_LINK_API_KEY is accepted as a fallback so a shared .env
+	// keeps working.
+	NasdaqDataLinkAPIKey string // TMS_NASDAQ_DATA_LINK_API_KEY (fallback NASDAQ_DATA_LINK_API_KEY)
 	// SharadarCacheDir: "" means "use repo-root default ./cache/sharadar"
 	// (resolved by the data layer), matching the Python reference.
 	SharadarCacheDir string // TMS_SHARADAR_CACHE_DIR
+
+	// --- Worker (P1) ---
+	// WorkerConcurrency is the number of parallel job executors run by
+	// `tms worker` (must be >= 1).
+	WorkerConcurrency int // TMS_WORKER_CONCURRENCY
+	// WorkerHealthAddr is the liveness HTTP listen address of `tms worker`
+	// (`tms worker --health` probes GET /healthz on it; loopback by
+	// default — the container healthcheck runs in the same netns).
+	WorkerHealthAddr string // TMS_WORKER_HEALTH_ADDR
 
 	// --- Strategy params resolution ---
 	// StrategyParamsDir: "" means "use embedded baseline params"; set to e.g.
@@ -107,6 +131,13 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	workerConcurrency, err := envInt("TMS_WORKER_CONCURRENCY", 4)
+	if err != nil {
+		return nil, err
+	}
+	if workerConcurrency < 1 {
+		return nil, fmt.Errorf("config: TMS_WORKER_CONCURRENCY must be >= 1, got %d", workerConcurrency)
+	}
 
 	cfg := &Config{
 		PGHost:     envStr("TMS_PG_HOST", "127.0.0.1"),
@@ -126,9 +157,15 @@ func Load() (*Config, error) {
 		LogFormat: envStr("TMS_LOG_FORMAT", "auto"),
 		APIAddr:   envStr("TMS_API_ADDR", ":8080"),
 
-		NasdaqDataLinkAPIKey: envStr("NASDAQ_DATA_LINK_API_KEY", ""),
+		APIToken:       envStr("TMS_API_TOKEN", ""),
+		APICORSOrigins: splitOrigins(envStr("TMS_API_CORS_ORIGINS", "")),
+
+		NasdaqDataLinkAPIKey: envStr("TMS_NASDAQ_DATA_LINK_API_KEY", envStr("NASDAQ_DATA_LINK_API_KEY", "")),
 		SharadarCacheDir:     envStr("TMS_SHARADAR_CACHE_DIR", ""),
 		StrategyParamsDir:    envStr("TMS_STRATEGY_PARAMS_DIR", ""),
+
+		WorkerConcurrency: workerConcurrency,
+		WorkerHealthAddr:  envStr("TMS_WORKER_HEALTH_ADDR", "127.0.0.1:8081"),
 
 		DotenvPath: dotenvPath,
 	}
@@ -151,8 +188,10 @@ func (c *Config) Require(key string, hint string) (string, error) {
 		v = c.PGDatabase
 	case "TMS_REDIS_ADDR":
 		v = c.RedisAddr
-	case "NASDAQ_DATA_LINK_API_KEY":
+	case "NASDAQ_DATA_LINK_API_KEY", "TMS_NASDAQ_DATA_LINK_API_KEY":
 		v = c.NasdaqDataLinkAPIKey
+	case "TMS_API_TOKEN":
+		v = c.APIToken
 	default:
 		// Unknown keys fall back to the live environment so newly added
 		// adapters can adopt Require before a typed field exists.
@@ -188,6 +227,25 @@ func (c *Config) PostgresDSN() string { return c.PostgresURL("postgres") }
 
 // MigrateURL is the golang-migrate database URL (pgx/v5 driver).
 func (c *Config) MigrateURL() string { return c.PostgresURL("pgx5") }
+
+// DefaultCORSOrigins is the browser-origin allowlist used when
+// TMS_API_CORS_ORIGINS is unset: the project's reserved UI host port 13000.
+var DefaultCORSOrigins = []string{"http://localhost:13000", "http://127.0.0.1:13000"}
+
+// splitOrigins parses a comma-separated origin list; blank entries are
+// dropped, an empty result falls back to DefaultCORSOrigins.
+func splitOrigins(raw string) []string {
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return append([]string(nil), DefaultCORSOrigins...)
+	}
+	return out
+}
 
 func envStr(key, def string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {

@@ -7,8 +7,8 @@
 # Base services (no profile): postgres, redis, migrate.
 #   docker compose up -d --wait        # brings up DB + cache, runs migrations
 #
-# App services are commented placeholders until their build phases land;
-# they will use the `app` profile:
+# App services use the `app` profile as their build phases land
+# (tms-api and tms-worker are live; live/ui remain commented placeholders):
 #   docker compose --profile app up -d
 
 name: tms
@@ -80,47 +80,120 @@ services:
   # use the `tmsgo-` prefix to never collide with the reference stack.
   # ---------------------------------------------------------------------
 
-  # tms-api:
-  #   image: tms:dev
-  #   container_name: tmsgo-api
-  #   profiles: ["app"]
-  #   command: ["api"]
-  #   ports:
-  #     - "18080:8080"
-  #   environment:
-  #     TMS_PG_HOST: postgres
-  #     TMS_PG_PORT: "5432"
-  #     TMS_PG_USER: ${TMS_PG_USER:-tms}
-  #     TMS_PG_PASSWORD: ${TMS_PG_PASSWORD:-tms}
-  #     TMS_PG_DATABASE: ${TMS_PG_DATABASE:-tms}
-  #     TMS_REDIS_ADDR: redis:6379
-  #     TMS_API_ADDR: ":8080"
-  #     TMS_LOG_LEVEL: ${TMS_LOG_LEVEL:-info}
-  #     TMS_LOG_FORMAT: json
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #     migrate:
-  #       condition: service_completed_successfully
-  #   restart: unless-stopped
+  # UI-facing HTTP + WebSocket API (P1; contract: docs/api.md). REST for data
+  # coverage/freshness/gaps, ticker search, dataset-sync history, job
+  # enqueue/inspect/cancel and universe snapshots, plus a WebSocket fan-out of
+  # job/sync events bridged from Redis pub/sub. Start with:
+  #   docker compose --profile app up -d --wait tms-api
+  #
+  # Every /api/* route requires the TMS_API_TOKEN bearer token; /healthz and
+  # /version are public. env_file pulls TMS_API_TOKEN (and any other secrets)
+  # from .env — the API refuses to start without it. The explicit environment
+  # block overrides .env's host-oriented values (in-network postgres:5432 /
+  # redis:6379) and sets the container-internal listen addr.
+  #
+  # Healthcheck: the runtime image is distroless (no shell), so the check execs
+  # the binary itself — `tms api --health` GETs the server's own loopback
+  # /healthz (probe and server share the container netns) and exits 0/1.
+  tms-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tms:dev
+    container_name: tmsgo-api
+    profiles: ["app"]
+    command: ["api"]
+    ports:
+      - "18080:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TMS_PG_HOST: postgres
+      TMS_PG_PORT: "5432"
+      TMS_PG_USER: ${TMS_PG_USER:-tms}
+      TMS_PG_PASSWORD: ${TMS_PG_PASSWORD:-tms}
+      TMS_PG_DATABASE: ${TMS_PG_DATABASE:-tms}
+      TMS_PG_SSLMODE: disable
+      TMS_REDIS_ADDR: redis:6379
+      TMS_API_ADDR: ":8080"
+      TMS_API_CORS_ORIGINS: ${TMS_API_CORS_ORIGINS:-http://localhost:13000,http://127.0.0.1:13000}
+      TMS_LOG_LEVEL: ${TMS_LOG_LEVEL:-info}
+      TMS_LOG_FORMAT: json
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/tms", "api", "--health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
 
-  # tms-worker:
-  #   image: tms:dev
-  #   container_name: tmsgo-worker
-  #   profiles: ["app"]
-  #   command: ["eod"]   # EOD workflow / batch jobs
-  #   environment:
-  #     TMS_PG_HOST: postgres
-  #     TMS_REDIS_ADDR: redis:6379
-  #     TMS_LOG_FORMAT: json
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #   restart: unless-stopped
+  # Background job worker (P1): durable tms.jobs queue — FOR UPDATE SKIP
+  # LOCKED claiming, heartbeats + stale-claim recovery, cooperative cancel,
+  # per-job panic isolation, graceful drain on SIGTERM. Start with:
+  #   docker compose --profile app up -d --wait tms-worker
+  #
+  # Healthcheck: the runtime image is distroless (no shell, so no
+  # `test -f` health file), therefore the check execs the binary itself —
+  # `tms worker --health` GETs the worker's loopback /healthz endpoint
+  # (TMS_WORKER_HEALTH_ADDR; probe and server share the container netns)
+  # and exits 0/1.
+  #
+  # env_file pulls secrets (NASDAQ key, ...) from .env when present; the
+  # explicit environment block overrides .env's host-oriented values
+  # (127.0.0.1:55432 → in-network postgres:5432, etc.).
+  #
+  # The Sharadar parquet cache is mounted read-only at /data/sharadar for
+  # 'data.refresh' source=parquet backfills; point TMS_SHARADAR_CACHE_DIR
+  # (in .env) at the cache root produced by the Python reference, else the
+  # default ./cache/sharadar is used (auto-created empty if absent).
+  tms-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tms:dev
+    container_name: tmsgo-worker
+    profiles: ["app"]
+    command: ["worker"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TMS_PG_HOST: postgres
+      TMS_PG_PORT: "5432"
+      TMS_PG_USER: ${TMS_PG_USER:-tms}
+      TMS_PG_PASSWORD: ${TMS_PG_PASSWORD:-tms}
+      TMS_PG_DATABASE: ${TMS_PG_DATABASE:-tms}
+      TMS_PG_SSLMODE: disable
+      TMS_REDIS_ADDR: redis:6379
+      TMS_WORKER_CONCURRENCY: ${TMS_WORKER_CONCURRENCY:-4}
+      TMS_WORKER_HEALTH_ADDR: 127.0.0.1:8081
+      TMS_SHARADAR_CACHE_DIR: /data/sharadar
+      TMS_LOG_LEVEL: ${TMS_LOG_LEVEL:-info}
+      TMS_LOG_FORMAT: json
+    volumes:
+      - ${TMS_SHARADAR_CACHE_DIR:-./cache/sharadar}:/data/sharadar:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/tms", "worker", "--health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
 
   # tms-live:
   #   image: tms:dev
@@ -140,16 +213,49 @@ services:
   #       condition: service_healthy
   #   restart: unless-stopped
 
-  # ui:
-  #   build:
-  #     context: ./ui
-  #   container_name: tmsgo-ui
-  #   profiles: ["app"]
-  #   ports:
-  #     - "13000:3000"
-  #   depends_on:
-  #     - tms-api
-  #   restart: unless-stopped
+  # Next.js control-plane UI (P1). Server-side renders the Data workspace
+  # (coverage / freshness / gap heatmap / sync history) and server-side proxies
+  # every API call so the TMS_API_TOKEN bearer token NEVER reaches the browser
+  # (injected by the UI's /api/proxy/* and /api/stream SSE routes). Start with:
+  #   docker compose --profile app up -d --wait ui
+  #
+  # The image is a multi-stage Next.js standalone bundle running as a non-root
+  # user (ui/Dockerfile). env_file pulls TMS_API_TOKEN from .env (must equal the
+  # API's token); the explicit environment block points the UI at the API over
+  # the compose network (tmsgo-api:8080) and overrides the host-oriented default.
+  #
+  # Healthcheck: hits the UI's own /api/healthz (always 200 when the process
+  # serves HTTP), execed via node fetch inside the container netns.
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    image: tms-ui:dev
+    container_name: tmsgo-ui
+    profiles: ["app"]
+    ports:
+      - "13000:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TMS_API_URL: http://tmsgo-api:8080
+      # TMS_API_TOKEN comes from .env (same value as the API). The proxy returns
+      # 500 "ui server is not configured" if it is missing.
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+    depends_on:
+      tms-api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
 
 volumes:
   tms-pgdata:

@@ -46,11 +46,14 @@ func newRootCmd() *cobra.Command {
 		newVersionCmd(),
 		newMigrateCmd(env),
 		newImportCmd(env),
+		newSyncCmd(env),
+		newWorkerCmd(env),
+		newJobsCmd(env),
 		newStubCmd(env, "backtest", "Run a multi-strategy backtest over the historical universe"),
 		newStubCmd(env, "hyperopt", "Run hyper-parameter optimization studies over the backtest engine"),
 		newStubCmd(env, "live", "Run the live trading node (signal / paper / live modes)"),
 		newStubCmd(env, "eod", "Run the end-of-day workflow (data sync, signals, watchlist, reports)"),
-		newStubCmd(env, "api", "Serve the HTTP/WebSocket API for the UI"),
+		newAPICmd(env),
 	)
 	return root
 }
