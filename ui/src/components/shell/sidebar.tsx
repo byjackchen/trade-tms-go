@@ -32,7 +32,7 @@ const SECTIONS: Section[] = [
   { href: "/strategies", label: "Strategies", icon: Boxes, testid: "nav-strategies", ready: true },
   { href: "/backtests", label: "Backtests", icon: FlaskConical, testid: "nav-backtests", ready: true },
   { href: "/hyperopt", label: "Hyperopt", icon: Sparkles, testid: "nav-hyperopt", ready: true },
-  { href: "/live", label: "Live", icon: Activity, testid: "nav-live", ready: false },
+  { href: "/live", label: "Live", icon: Activity, testid: "nav-live", ready: true },
   { href: "/ops", label: "Ops", icon: Wrench, testid: "nav-ops", ready: false },
 ];
 

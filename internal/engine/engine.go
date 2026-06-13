@@ -747,4 +747,6 @@ var (
 	_ exec.FillSink  = fillSink{}
 	_ PositionReader = accountPositionReader{}
 	_ core.Clock     = (*core.SimClock)(nil)
+	_ core.Clock     = core.WallClock{}
+	_ core.Clock     = (*core.VirtualClock)(nil)
 )

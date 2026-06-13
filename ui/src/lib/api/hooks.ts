@@ -32,7 +32,14 @@ import type {
   CreateStudyRequest,
   PromoteRequest,
   PromoteResponse,
+  LiveSessionResponse,
+  LiveIntentsResponse,
+  LiveHealth,
+  WatchlistResponse,
+  LiveCommandRequest,
+  LiveCommandResponse,
 } from "./types";
+import { ApiError } from "./client";
 
 export function useCoverage(): UseQueryResult<CoverageResponse, Error> {
   return useQuery({
@@ -315,6 +322,123 @@ export function usePromoteTrial(studyTS: string | null) {
       void qc.invalidateQueries({ queryKey: ["strategies"] });
       void qc.invalidateQueries({ queryKey: ["strategy"] });
       void qc.invalidateQueries({ queryKey: ["hyperopt", "trials", studyTS] });
+    },
+  });
+}
+
+// ---- Live (P5 cockpit) ----
+//
+// All live reads are PG-backed snapshots; the WS push (useLiveStream) layers
+// real-time deltas on top of them. A 503 from these endpoints means the API was
+// started without a live reader (or the producer has not run) — that is an
+// expected degraded state, NOT an error to retry into, so we surface the 503
+// rather than spinning.
+
+/** Don't retry deterministic 4xx/503 (degraded-but-expected) live responses. */
+function liveRetry(count: number, err: Error): boolean {
+  const status = err instanceof ApiError ? err.status : undefined;
+  if (status === 503 || (status !== undefined && status < 500)) return false;
+  return count < 2;
+}
+
+export function useLiveSession(): UseQueryResult<LiveSessionResponse, Error> {
+  return useQuery({
+    queryKey: ["live", "session"],
+    queryFn: () => apiGet<LiveSessionResponse>("live/session"),
+    // Session state changes via commands; a short poll keeps mode/halt/status
+    // current even if a WS frame is missed (the WS carries deltas, not session).
+    refetchInterval: 5000,
+    retry: liveRetry,
+  });
+}
+
+export function useLiveIntents(
+  strategyId?: string,
+): UseQueryResult<LiveIntentsResponse, Error> {
+  return useQuery({
+    queryKey: ["live", "intents", strategyId ?? "all"],
+    queryFn: () =>
+      apiGet<LiveIntentsResponse>("live/intents", {
+        strategy_id: strategyId,
+        limit: 200,
+      }),
+    // WS pushes new intents live; this poll is the reconnect-reconciliation
+    // backstop and the initial hydrate.
+    refetchInterval: 15000,
+    retry: liveRetry,
+  });
+}
+
+export function useLiveHealth(): UseQueryResult<LiveHealth, Error> {
+  return useQuery({
+    queryKey: ["live", "health"],
+    queryFn: () => apiGet<LiveHealth>("live/health"),
+    // Minute cadence on the producer; poll at 20s so the strip stays fresh
+    // between WS pushes without hammering.
+    refetchInterval: 20000,
+    retry: liveRetry,
+  });
+}
+
+export function useWatchlist(): UseQueryResult<WatchlistResponse, Error> {
+  return useQuery({
+    queryKey: ["live", "watchlist"],
+    queryFn: () => apiGet<WatchlistResponse>("watchlist"),
+    refetchInterval: 30000,
+    retry: liveRetry,
+  });
+}
+
+/** Normalized upstream-health shape from the UI server's /api/system-health route. */
+export type SystemHealth = {
+  status: "ok" | "degraded" | string;
+  reachable: boolean;
+  version: string | null;
+  deps: Record<string, { ok: boolean; error?: string }>;
+  error?: string;
+};
+
+/**
+ * Poll the UI server's system-health route (which proxies the upstream public
+ * /healthz). Lives on the UI origin, so it bypasses the /api/proxy bearer path.
+ */
+export function useSystemHealth(): UseQueryResult<SystemHealth, Error> {
+  return useQuery({
+    queryKey: ["system-health"],
+    queryFn: async () => {
+      const resp = await fetch("/api/system-health", {
+        headers: { Accept: "application/json" },
+      });
+      // The route is contractually 200; treat a non-200 as a degraded read.
+      if (!resp.ok) {
+        return {
+          status: "degraded",
+          reachable: false,
+          version: null,
+          deps: {},
+          error: `health probe failed (HTTP ${resp.status})`,
+        } as SystemHealth;
+      }
+      return (await resp.json()) as SystemHealth;
+    },
+    refetchInterval: 10000,
+  });
+}
+
+/**
+ * Enqueue an audited live command. On success we invalidate the session query
+ * so the cockpit converges to the new mode/halt/status without waiting for the
+ * next poll (the command applies asynchronously in tms-live, so the session
+ * reflects it within a poll cycle regardless).
+ */
+export function useLiveCommand() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: LiveCommandRequest) =>
+      apiPost<LiveCommandResponse>("live/commands", body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["live", "session"] });
+      void qc.invalidateQueries({ queryKey: ["live", "health"] });
     },
   });
 }

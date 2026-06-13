@@ -54,3 +54,22 @@ export async function getHealthz(): Promise<ApiResult> {
   });
   return { status: res.status, body: await parse(res), headers: res.headers };
 }
+
+/** POST a JSON body to an /api/v1 path WITH the bearer token. Used by helpers
+ * that probe the live command surface directly (e.g. to confirm the
+ * confirmation guard on set_mode without going through the browser). */
+export async function postAuthed(
+  path: string,
+  body: unknown,
+): Promise<ApiResult> {
+  const res = await fetch(`${API_BASE_URL}/api/v1/${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${API_TOKEN}`,
+    },
+    body: JSON.stringify(body),
+  });
+  return { status: res.status, body: await parse(res), headers: res.headers };
+}

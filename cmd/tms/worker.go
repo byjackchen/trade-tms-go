@@ -201,6 +201,19 @@ func runWorker(ctx context.Context, env *runtimeEnv, healthAddr string, opts job
 		return err
 	}
 
+	// eod.refresh: idempotent EOD engine-replay (P5 decision 4). Replays
+	// [as_of-window, as_of] bars through the SAME engine as backtest and UPSERTs
+	// each strategy's evaluate_intent into tms.signal_intents idempotently on
+	// (strategy_id, symbol, as_of) (a re-run overwrites, no dupes) + publishes to
+	// Redis. Enqueued by the API / `tms eod --as-of <date> --enqueue`.
+	eodRefresh, err := handlers.NewEODRefresh(pool, redisClient, env.cfg.StrategyParamsDir, log)
+	if err != nil {
+		return err
+	}
+	if err := registry.Register(eodRefresh); err != nil {
+		return err
+	}
+
 	worker, err := jobs.NewWorker(queue, registry, log, opts)
 	if err != nil {
 		return err

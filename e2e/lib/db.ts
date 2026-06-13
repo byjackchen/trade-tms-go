@@ -306,3 +306,130 @@ export async function storedStrategyCount(c: Client): Promise<number> {
   );
   return Number(rows[0].n);
 }
+
+// ---------------------------------------------------------------------------
+// Live cockpit ground truth (tms.sessions / tms.signal_intents / tms.halts —
+// migrations/000005_live). The live read endpoints (docs/api.md "Live (P5)")
+// project these tables; the cockpit renders the API's proxy of them. The DB is
+// the durable truth (Redis is transport-only), so the cockpit specs compare
+// what the UI renders / streams against these queries — no fabricated numbers.
+//
+// Money columns are BIGINT fixed-point 1e-4 USD; these helpers are count- and
+// identity-oriented (intent counts, session mode/status, halt rows), so no
+// money decoding is needed here.
+// ---------------------------------------------------------------------------
+
+/** The most recent trading session (any trader), or null when none has run.
+ * Mirrors GET /api/v1/live/session's "most recent session" selection. */
+export type LiveSessionTruth = {
+  id: number;
+  traderId: string;
+  mode: "signal" | "paper" | "live";
+  status: "RUNNING" | "STOPPED" | "CRASHED";
+};
+
+export async function latestSession(
+  c: Client,
+): Promise<LiveSessionTruth | null> {
+  const { rows } = await c.query<{
+    id: string;
+    trader_id: string;
+    mode: string;
+    status: string;
+  }>(
+    `SELECT id::text AS id, trader_id, mode, status
+       FROM tms.sessions
+      ORDER BY started_at DESC, id DESC
+      LIMIT 1`,
+  );
+  if (!rows.length) return null;
+  const r = rows[0];
+  return {
+    id: Number(r.id),
+    traderId: r.trader_id,
+    mode: r.mode as LiveSessionTruth["mode"],
+    status: r.status as LiveSessionTruth["status"],
+  };
+}
+
+/** Total streaming signal-intent rows (the append-only live path: as_of IS
+ * NULL; EOD-replay rows carry as_of and are excluded — migration 000010). This
+ * is the count the cockpit's live-intent stream grows, and the count that must
+ * stop growing once a halt stops new-intent emission. */
+export async function streamingIntentCount(c: Client): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM tms.signal_intents
+      WHERE as_of IS NULL`,
+  );
+  return Number(rows[0].n);
+}
+
+/** A recent streaming intent row's identity, newest first — the same row the
+ * cockpit's live-intent table shows at the top. `intent` ground truth is keyed
+ * (strategy_id, symbol) newest-wins, matching the UI's dedupe (api spec §3.9). */
+export type IntentRowTruth = {
+  strategyId: string;
+  symbol: string;
+  state: string;
+  strength: number;
+  generation: number;
+};
+
+/** Up to `limit` newest streaming intents (as_of IS NULL), newest first — used
+ * to assert the rows the cockpit shows MATCH the DB (identity, not fabricated). */
+export async function recentStreamingIntents(
+  c: Client,
+  limit = 50,
+): Promise<IntentRowTruth[]> {
+  const { rows } = await c.query<{
+    strategy_id: string;
+    symbol: string;
+    state: string;
+    strength: string;
+    generation: string;
+  }>(
+    `SELECT strategy_id, symbol, state,
+            strength::text   AS strength,
+            generation::text AS generation
+       FROM tms.signal_intents
+      WHERE as_of IS NULL
+      ORDER BY ts DESC, id DESC
+      LIMIT $1`,
+    [limit],
+  );
+  return rows.map((r) => ({
+    strategyId: r.strategy_id,
+    symbol: r.symbol,
+    state: r.state,
+    strength: Number(r.strength),
+    generation: Number(r.generation),
+  }));
+}
+
+/** The set of distinct symbols the recent sessions emitted intents for — the
+ * tracked universe behind GET /api/v1/watchlist. */
+export async function watchlistSymbols(c: Client): Promise<string[]> {
+  const { rows } = await c.query<{ symbol: string }>(
+    `SELECT DISTINCT symbol FROM tms.signal_intents ORDER BY symbol ASC`,
+  );
+  return rows.map((r) => r.symbol);
+}
+
+/** Count of currently-active (uncleared) halts. The kill-switch / halt command
+ * the cockpit fires writes a tms.halts row; an active halt has cleared_at NULL. */
+export async function activeHaltCount(c: Client): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM tms.halts WHERE cleared_at IS NULL`,
+  );
+  return Number(rows[0].n);
+}
+
+/** Total halt rows ever (active or cleared) — used to assert the halt command
+ * wrote exactly one new row regardless of any later auto-clear. */
+export async function haltRowCount(c: Client): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM tms.halts`,
+  );
+  return Number(rows[0].n);
+}

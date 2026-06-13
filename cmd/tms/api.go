@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/byjackchen/trade-tms-go/internal/api"
 	"github.com/byjackchen/trade-tms-go/internal/app"
+	"github.com/byjackchen/trade-tms-go/internal/commands"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 	"github.com/byjackchen/trade-tms-go/internal/db"
@@ -123,17 +126,37 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		Calendar:    cal,
 		PingPG:      pool.Ping,
 		PingRedis:   func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },
+		Live:        api.NewLiveStore(pool),
+		// The audited command enqueuer is the ONLY write path of the live API.
+		// A live/paper mode switch requires the confirmation token; "" means the
+		// presence of any non-empty confirm_token suffices (the API gates by
+		// presence — a stronger token can be wired later via app_config).
+		Commands: commands.NewEnqueuer(pool, redisClient, ""),
 	})
 	if err != nil {
 		return err
 	}
 
-	// Redis -> WS bridge: retries internally with backoff; it follows ctx
-	// and needs no explicit shutdown step beyond hub close.
+	// Redis -> WS bridge: job/sync pub-sub events. Retries internally with
+	// backoff; follows ctx, no explicit shutdown beyond hub close.
 	bridgeDone := make(chan struct{})
 	go func() {
 		defer close(bridgeDone)
 		api.RunEventBridge(ctx, redisClient, srv.Hub(), log)
+	}()
+
+	// Live-stream bridge: tails the per-trader Redis streams
+	// (trader-{id}:stream:{topic}) and fans live cockpit updates to the hub. The
+	// trader id is TMS_LIVE_TRADER_ID (or the default signal trader); the bridge
+	// is a no-op without Redis. Follows ctx.
+	liveTrader := strings.TrimSpace(os.Getenv("TMS_LIVE_TRADER_ID"))
+	if liveTrader == "" {
+		liveTrader = "SIGNAL-001"
+	}
+	liveBridgeDone := make(chan struct{})
+	go func() {
+		defer close(liveBridgeDone)
+		api.RunLiveStreamBridge(ctx, redisClient, srv.Hub(), liveTrader, log)
 	}()
 
 	httpSrv := &http.Server{
@@ -179,6 +202,14 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		app.ShutdownFunc{Name: "event-bridge", Fn: func(c context.Context) error {
 			select {
 			case <-bridgeDone:
+				return nil
+			case <-c.Done():
+				return c.Err()
+			}
+		}},
+		app.ShutdownFunc{Name: "live-bridge", Fn: func(c context.Context) error {
+			select {
+			case <-liveBridgeDone:
 				return nil
 			case <-c.Done():
 				return c.Err()

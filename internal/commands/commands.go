@@ -1,0 +1,116 @@
+package commands
+
+// Package commands is the live control plane: the ops.commands consumer that
+// the tms-live node runs (P5 locked decision 6). Operators / the API enqueue
+// commands into tms.commands (target = "live") with a Redis notify; this
+// consumer claims them idempotently, applies them to the running node via a
+// Controller, and writes a full tms.audit_log trail.
+//
+// Command set (decision 6):
+//
+//	start          — (re)start emitting intents (clears a manual halt)
+//	stop           — stop the node gracefully (drain + exit)
+//	set_mode       — switch signal|paper|live (paper/live deferred to P6: the
+//	                 consumer records the request + audits, but the node rejects
+//	                 the switch until P6 wires order submission)
+//	halt           — stop emitting NEW intents + set halt state (FLATTEN deferred
+//	                 to P6; in signal mode there are no positions to flatten)
+//	resume         — clear a manual halt, resume emitting intents
+//	kill           — kill switch: halt + stop the node (hard stop)
+//
+// The trading mutation surface stays OUT of the HTTP API (api spec §1.1 —
+// read-only forever); commands are the audited side channel. The API only
+// ENQUEUES (POST /api/v1/live/commands); this consumer is the ONLY executor.
+
+import (
+	"fmt"
+	"strings"
+)
+
+// Target is the component a command is addressed to. The live node consumes
+// target == TargetLive.
+const TargetLive = "live"
+
+// Name is a control command name.
+type Name string
+
+const (
+	NameStart   Name = "start"
+	NameStop    Name = "stop"
+	NameSetMode Name = "set_mode"
+	NameHalt    Name = "halt"
+	NameResume  Name = "resume"
+	NameKill    Name = "kill"
+)
+
+// IsValid reports whether n is a known command.
+func (n Name) IsValid() bool {
+	switch n {
+	case NameStart, NameStop, NameSetMode, NameHalt, NameResume, NameKill:
+		return true
+	default:
+		return false
+	}
+}
+
+// RequiresConfirmation reports whether a command needs an operator confirmation
+// token at the API boundary. set_mode to paper/live mutates real risk, so it is
+// gated; halt/resume/kill/stop/start are always allowed (kill/halt are
+// safety actions that must never be blocked — api task requirement).
+//
+// The argument is the resolved mode for set_mode ("" for other commands). Only
+// set_mode->paper|live requires confirmation; set_mode->signal does not.
+func RequiresConfirmation(n Name, mode string) bool {
+	if n != NameSetMode {
+		return false
+	}
+	m := strings.ToLower(strings.TrimSpace(mode))
+	return m == "paper" || m == "live"
+}
+
+// Command is one decoded control-plane request from tms.commands.
+type Command struct {
+	// ID is the tms.commands primary key.
+	ID int64
+	// Source is api|cli|ui|system.
+	Source string
+	// Target is the component id (TargetLive for the live node).
+	Target string
+	// Name is the control command.
+	Name Name
+	// Args is the decoded args (e.g. {"mode":"signal"} for set_mode,
+	// {"reason":"..."} for halt/kill).
+	Args CommandArgs
+	// RequestedBy is the actor that enqueued the command (audit).
+	RequestedBy string
+}
+
+// CommandArgs is the typed args of a command (a superset; only the relevant
+// fields are populated per command).
+type CommandArgs struct {
+	// Mode is the target mode for set_mode (signal|paper|live).
+	Mode string `json:"mode,omitempty"`
+	// Reason is the operator note for halt/kill/stop (audit).
+	Reason string `json:"reason,omitempty"`
+	// ConfirmToken is the confirmation token for live/paper set_mode.
+	ConfirmToken string `json:"confirm_token,omitempty"`
+	// TraderID optionally scopes the command to a specific node; empty means the
+	// consuming node applies it (single-node-per-target is the common case).
+	TraderID string `json:"trader_id,omitempty"`
+}
+
+// Validate checks a command's args are well-formed for its name.
+func (c Command) Validate() error {
+	if !c.Name.IsValid() {
+		return fmt.Errorf("commands: unknown command %q", c.Name)
+	}
+	if c.Name == NameSetMode {
+		m := strings.ToLower(strings.TrimSpace(c.Args.Mode))
+		switch m {
+		case "signal", "paper", "live":
+		default:
+			return fmt.Errorf("commands: set_mode requires mode in {signal,paper,live}, got %q", c.Args.Mode)
+		}
+	}
+	return nil
+}

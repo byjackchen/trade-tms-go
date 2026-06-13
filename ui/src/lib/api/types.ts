@@ -387,7 +387,15 @@ export type BacktestStrategy = (typeof BACKTEST_STRATEGIES)[number];
 
 // ---- WebSocket envelope ----
 
-export type WsEventType = "hello" | "job" | "sync";
+export type WsEventType =
+  | "hello"
+  | "job"
+  | "sync"
+  | "signal_intent"
+  | "strategy_state"
+  | "portfolio_health"
+  | "watchlist"
+  | "position";
 
 export type WsEnvelope = {
   type: WsEventType;
@@ -578,4 +586,155 @@ export type PromoteResponse = {
   study_ts: string;
   trial_id: number;
   promoted: PromotedEntry[];
+};
+
+// ---- Live (P5 cockpit) ----
+//
+// The live read surface (docs/api.md §Live). All reads come from PostgreSQL
+// (the durable truth); Redis only powers the WS push deltas. The only write is
+// the audited command-enqueue endpoint. Timestamps are RFC3339 UTC; `ts_event`
+// is an epoch-nanosecond engine clock (api-ws-redis §5.x).
+
+/** Live session lifecycle status (DB source of truth). */
+export type LiveStatus = "RUNNING" | "STOPPED" | "CRASHED" | string;
+
+/** Trading mode. paper/live are deferred to P6 but the contract carries them. */
+export type LiveMode = "signal" | "paper" | "live" | string;
+
+/** Halt kind (live.halts.kind). */
+export type HaltKind =
+  | "manual"
+  | "daily_loss"
+  | "reconciliation"
+  | "data"
+  | "broker"
+  | "other"
+  | string;
+
+export type LiveHalt = {
+  kind: HaltKind;
+  reason: string;
+  triggered_at: string;
+};
+
+export type LiveSession = {
+  id: number;
+  trader_id: string;
+  mode: LiveMode;
+  status: LiveStatus;
+  started_at: string;
+  ended_at: string | null;
+  config: Record<string, unknown>;
+  /** Active halt, or null when not halted. */
+  halt: LiveHalt | null;
+};
+
+/** GET /api/v1/live/session — `{ session: null }` before any session ran. */
+export type LiveSessionResponse = LiveSession | { session: null };
+
+/** Narrows the union: true when a session exists. */
+export function hasSession(
+  r: LiveSessionResponse | undefined,
+): r is LiveSession {
+  return !!r && (r as LiveSession).id !== undefined;
+}
+
+/**
+ * One recent signal intent (tms.signal_intents). `state` is the per-strategy
+ * decision token (buy|forming|hold|exit|flat|…, strategy-defined). `intent` is
+ * the unwrapped SignalIntentUnion variant (open shape).
+ */
+export type LiveIntent = {
+  strategy_id: string;
+  symbol: string;
+  state: string;
+  strength: number;
+  generation: number;
+  intent: Record<string, unknown>;
+  ts: string;
+  ts_event: number;
+};
+
+export type LiveIntentsResponse = { intents: LiveIntent[] };
+
+/**
+ * Latest portfolio-health snapshot. In signal mode this is the flat-book
+ * informational NAV (day P&L 0, no halt — decision 6). Values are percent units
+ * already (e.g. halt_headroom_pct 0.04 means a 4-point fraction; see formatter).
+ */
+export type LiveHealth = {
+  day_pnl: number;
+  day_pnl_pct: number;
+  daily_loss_halt: boolean;
+  halt_headroom_pct: number;
+  concentration_pct: number;
+  ts: string;
+};
+
+export type WatchlistResponse = { symbols: string[] };
+
+/** Live control command names (commands.Name; docs/api.md §POST live/commands). */
+export type CommandName =
+  | "start"
+  | "stop"
+  | "set_mode"
+  | "halt"
+  | "resume"
+  | "kill";
+
+/** POST /api/v1/live/commands body. confirm_token is consumed, never persisted. */
+export type LiveCommandRequest = {
+  name: CommandName;
+  mode?: LiveMode;
+  reason?: string;
+  confirm_token?: string;
+};
+
+export type LiveCommandResponse = {
+  command_id: number;
+  status: "pending";
+};
+
+// ---- Live WS push payloads (bridged Redis streams; docs/api.md §ws table) ----
+
+/** `signal_intent` frame payload. */
+export type WsSignalIntent = {
+  strategy_id: string;
+  symbol: string;
+  intent_json: Record<string, unknown>;
+  ts_event: number;
+  ts_init: number;
+};
+
+/** `strategy_state` frame payload (`state_json` is a JSON string). */
+export type WsStrategyState = {
+  strategy_id: string;
+  state_json: string;
+  ts_event: number;
+  ts_init: number;
+};
+
+/** `portfolio_health` frame payload. */
+export type WsPortfolioHealth = {
+  day_pnl: number;
+  day_pnl_pct: number;
+  daily_loss_halt: boolean;
+  halt_headroom_pct: number;
+  concentration_pct: number;
+  ts_event: number;
+  ts_init: number;
+};
+
+/** `watchlist` frame payload. */
+export type WsWatchlist = {
+  symbols: string[];
+  ts_event: number;
+  ts_init: number;
+};
+
+/** `position` frame payload (positions empty in signal mode). */
+export type WsPosition = {
+  positions: unknown[];
+  ts_event: number;
+  ts_init: number;
 };

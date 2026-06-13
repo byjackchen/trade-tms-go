@@ -78,6 +78,16 @@ type Config struct {
 	// (resolved by the data layer), matching the Python reference.
 	SharadarCacheDir string // TMS_SHARADAR_CACHE_DIR
 
+	// --- moomoo OpenD (P5) ---
+	// MoomooAddr is the OpenD endpoint host:port (the real-vs-mock switch,
+	// P5 locked decision 2). For a real local OpenD this is 127.0.0.1:11111;
+	// from a container, host.docker.internal:11111; for the in-repo mock, the
+	// mock's listen address. Default 127.0.0.1:11111 (real local OpenD).
+	MoomooAddr string // TMS_MOOMOO_ADDR
+	// MoomooMaxSub caps the per-connection subscription count (FutuOpenD's
+	// documented 100-quota limit). Default 100.
+	MoomooMaxSub int // TMS_MOOMOO_MAX_SUB
+
 	// --- Worker (P1) ---
 	// WorkerConcurrency is the number of parallel job executors run by
 	// `tms worker` (must be >= 1).
@@ -144,6 +154,13 @@ func Load() (*Config, error) {
 	if workerConcurrency < 1 {
 		return nil, fmt.Errorf("config: TMS_WORKER_CONCURRENCY must be >= 1, got %d", workerConcurrency)
 	}
+	moomooMaxSub, err := envInt("TMS_MOOMOO_MAX_SUB", 100)
+	if err != nil {
+		return nil, err
+	}
+	if moomooMaxSub < 1 {
+		return nil, fmt.Errorf("config: TMS_MOOMOO_MAX_SUB must be >= 1, got %d", moomooMaxSub)
+	}
 
 	cfg := &Config{
 		PGHost:     envStr("TMS_PG_HOST", "127.0.0.1"),
@@ -170,6 +187,9 @@ func Load() (*Config, error) {
 		SharadarCacheDir:     envStr("TMS_SHARADAR_CACHE_DIR", ""),
 		StrategyParamsDir:    envStr("TMS_STRATEGY_PARAMS_DIR", ""),
 		RunsDir:              envStr("TMS_RUNS_DIR", "runs"),
+
+		MoomooAddr:   envStr("TMS_MOOMOO_ADDR", "127.0.0.1:11111"),
+		MoomooMaxSub: moomooMaxSub,
 
 		WorkerConcurrency: workerConcurrency,
 		WorkerHealthAddr:  envStr("TMS_WORKER_HEALTH_ADDR", "127.0.0.1:8081"),

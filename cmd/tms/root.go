@@ -52,8 +52,8 @@ func newRootCmd() *cobra.Command {
 		newBacktestCmd(env),
 		newParityBacktestCmd(env),
 		newHyperoptCmd(env),
-		newStubCmd(env, "live", "Run the live trading node (signal / paper / live modes)"),
-		newStubCmd(env, "eod", "Run the end-of-day workflow (data sync, signals, watchlist, reports)"),
+		newLiveCmd(env),
+		newEODCmd(env),
 		newAPICmd(env),
 	)
 	return root

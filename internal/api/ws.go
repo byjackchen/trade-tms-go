@@ -198,7 +198,11 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Hello frame: confirms the subscription contract to the client.
-	hello, _ := json.Marshal(map[string]any{"channels": []string{WSTypeJob, WSTypeSync}})
+	hello, _ := json.Marshal(map[string]any{"channels": []string{
+		WSTypeJob, WSTypeSync,
+		WSTypeSignalIntent, WSTypeStrategyState, WSTypePortfolioHealth,
+		WSTypeWatchlist, WSTypePosition,
+	}})
 	if err := writeFrame(ctx, conn, mustEnvelope(WSTypeHello, hello)); err != nil {
 		_ = conn.Close(websocket.StatusInternalError, "hello write failed")
 		return

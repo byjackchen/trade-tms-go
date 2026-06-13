@@ -199,23 +199,94 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # tms-live:
-  #   image: tms:dev
-  #   container_name: tmsgo-live
-  #   profiles: ["app"]
-  #   command: ["live"]  # signal/paper/live trading node
-  #   environment:
-  #     TMS_PG_HOST: postgres
-  #     TMS_REDIS_ADDR: redis:6379
-  #     MOOMOO_OPEND_HOST: host.docker.internal  # OpenD runs on the host
-  #     MOOMOO_OPEND_PORT: "11111"
-  #     TMS_LOG_FORMAT: json
-  #   extra_hosts:
-  #     - "host.docker.internal:host-gateway"
-  #   depends_on:
-  #     redis:
-  #       condition: service_healthy
-  #   restart: unless-stopped
+  # Live trading node (P5): the SAME internal/core engine + strategy / portfolio
+  # / warmup code as backtest, driven by a wall clock and a streaming moomoo
+  # OpenD bar feed. In signal mode it records a SignalIntent per strategy per bar
+  # (tms.signal_intents + Redis streams) and submits NO orders (paper/live
+  # deferred to P6). Under the `live` profile (NOT `app`) so it never starts by
+  # accident — a trading node is started deliberately:
+  #   docker compose --profile live up -d tms-live
+  #
+  # OpenD switch (TMS_MOOMOO_ADDR, P5 decision 2):
+  #   - GATE / CI:  point at the in-repo mock OpenD (protocol-faithful, driven
+  #                 from our Postgres bars). Set TMS_MOOMOO_ADDR=<mock-host>:<port>.
+  #   - REAL OpenD: TMS_MOOMOO_ADDR=host.docker.internal:11111 (OpenD runs on the
+  #                 host; extra_hosts maps host.docker.internal to the gateway).
+  #                 The real-OpenD smoke is DEFERRED to market hours with a
+  #                 user-confirmed OpenD login — see docs/runbooks/live-smoke.md.
+  #
+  # Secrets: moomoo credentials (if any) are read from a secrets FILE
+  # (/run/secrets/moomoo, mounted from ./secrets/moomoo.env) — NEVER baked into
+  # the image and NEVER logged. For market-data + signal mode on localhost OpenD,
+  # no credentials are required (encrypt=off); the file is optional.
+  #
+  # Healthcheck: the distroless image execs `tms live --health`, which GETs the
+  # node's own loopback /healthz (TMS_WORKER_HEALTH_ADDR, shared netns) and exits
+  # 0/1. The node also exposes that endpoint on host port 18090.
+  tms-live:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tms:dev
+    container_name: tmsgo-live
+    profiles: ["live"]
+    # Default strategy is sector_rotation: it derives its ETF universe entirely
+    # from params and needs NO --tickers, so the shipped default runs a working
+    # signal session on a fresh stack regardless of whether a stock universe has
+    # been loaded yet. (SEPA / multi DO need stocks; the runner now resolves a
+    # default SF1 universe when --tickers is empty, but that universe is empty on
+    # a stack with no bars — so the safe shipped default avoids SEPA.) Override
+    # via TMS_LIVE_STRATEGY (+ pass --tickers for sepa/multi) when bars are loaded.
+    command:
+      - "live"
+      - "--mode"
+      - "signal"
+      - "--strategy"
+      - "${TMS_LIVE_STRATEGY:-sector_rotation}"
+      - "--trader-id"
+      - "${TMS_LIVE_TRADER_ID:-SIGNAL-001}"
+    ports:
+      - "18090:18090"
+    env_file:
+      - path: .env
+        required: false
+      # moomoo credentials (optional; localhost market-data needs none). Never
+      # baked into the image — sourced from a gitignored secrets file at runtime.
+      - path: ./secrets/moomoo.env
+        required: false
+    environment:
+      TMS_PG_HOST: postgres
+      TMS_PG_PORT: "5432"
+      TMS_PG_USER: ${TMS_PG_USER:-tms}
+      TMS_PG_PASSWORD: ${TMS_PG_PASSWORD:-tms}
+      TMS_PG_DATABASE: ${TMS_PG_DATABASE:-tms}
+      TMS_PG_SSLMODE: disable
+      TMS_REDIS_ADDR: redis:6379
+      # The real-vs-mock OpenD switch. Default targets real host OpenD; override
+      # to the mock address in the gate / CI.
+      TMS_MOOMOO_ADDR: ${TMS_MOOMOO_ADDR:-host.docker.internal:11111}
+      TMS_LIVE_TRADER_ID: ${TMS_LIVE_TRADER_ID:-SIGNAL-001}
+      TMS_WORKER_HEALTH_ADDR: 0.0.0.0:18090
+      TMS_LOG_LEVEL: ${TMS_LOG_LEVEL:-info}
+      TMS_LOG_FORMAT: json
+    extra_hosts:
+      # Reach the host's OpenD (127.0.0.1:11111 on the host) from inside the
+      # container as host.docker.internal:11111 (real-OpenD path).
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/tms", "live", "--health", "--health-addr", "127.0.0.1:18090"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
 
   # Next.js control-plane UI (P1). Server-side renders the Data workspace
   # (coverage / freshness / gap heatmap / sync history) and server-side proxies

@@ -707,6 +707,108 @@ has no tunable params (`validation` code); `400` for a missing `trial_id`.
 
 ---
 
+## Live (P5)
+
+The live cockpit read surface plus the audited command-enqueue endpoint. The
+**trading mutation surface stays out of the HTTP API** (read-only forever); the
+ONLY write here enqueues an `ops.commands` row that the `tms-live` node executes
+under full audit. Reads come from PostgreSQL (the durable truth); Redis is
+transport-only. The live read endpoints return `503` when the API was started
+without a live reader.
+
+### `GET /api/v1/live/session`
+
+The most recent trading session with its active halt (if any):
+
+```json
+{
+  "id": 12,
+  "trader_id": "SIGNAL-001",
+  "mode": "signal",          // signal | paper | live (paper/live deferred to P6)
+  "status": "RUNNING",       // RUNNING | STOPPED | CRASHED
+  "started_at": "2026-06-12T13:30:00Z",
+  "ended_at": null,
+  "config": { },
+  "halt": {                  // null when not halted
+    "kind": "manual",        // manual | daily_loss | reconciliation | data | broker | other
+    "reason": "operator stop",
+    "triggered_at": "2026-06-12T14:05:00Z"
+  }
+}
+```
+
+When no session has ever run: `{ "session": null }`.
+
+### `GET /api/v1/live/intents?strategy_id=<id>&limit=<n>`
+
+Recent signal intents from `tms.signal_intents`, newest first. `strategy_id`
+(`sepa` | `pairs` | `sector_rotation` | `intraday_breakout`) is optional;
+`limit` defaults to 100, max 1000.
+
+```json
+{ "intents": [
+  { "strategy_id": "sepa", "symbol": "AAPL", "state": "buy", "strength": 75.0,
+    "generation": 7, "intent": { }, "ts": "2026-06-12T20:00:00Z",
+    "ts_event": 1781812800000000000 }
+] }
+```
+
+`intent` is the unwrapped `SignalIntentUnion` variant (the full per-strategy
+payload, snake_case — api-ws-redis.md §5.9).
+
+### `GET /api/v1/live/health`
+
+The latest portfolio-health snapshot. In signal mode there are no positions, so
+the snapshot is the flat-book informational NAV (day P&L 0, no halt — decision
+6). Returns `503 {"error":{"code":"no_health",...}}` when no session exists.
+
+```json
+{ "day_pnl": 0, "day_pnl_pct": 0, "daily_loss_halt": false,
+  "halt_headroom_pct": 0, "concentration_pct": 0, "ts": "2026-06-12T13:30:00Z" }
+```
+
+### `GET /api/v1/watchlist`
+
+The distinct symbols the recent sessions emitted intents for (the tracked
+universe): `{ "symbols": ["AAPL", "MSFT", ...] }`.
+
+### `POST /api/v1/live/commands`
+
+Enqueue an **audited** control command (the audited side channel for the trading
+mutation surface). Body:
+
+```json
+{ "name": "halt", "reason": "operator stop" }
+```
+
+| `name` | args | confirmation |
+|---|---|---|
+| `start` / `resume` | — | none |
+| `stop` | `reason` | none |
+| `halt` | `reason` | none (safety action — never blocked) |
+| `kill` | `reason` | none (kill switch — never blocked) |
+| `set_mode` | `mode` (`signal`\|`paper`\|`live`) | `confirm_token` required for `paper`/`live` |
+
+- `202 { "command_id": 7, "status": "pending" }` on enqueue.
+- `412 {"error":{"code":"confirmation_required",...}}` for a `set_mode` to
+  `paper`/`live` without `confirm_token`.
+- `400` for an unknown command or invalid mode.
+
+The `confirm_token` is consumed at the boundary and is **never persisted** (no
+secrets in the durable `ops.commands` row). The `tms-live` consumer applies the
+command idempotently (halt/resume/kill stop or resume **new-intent emission** +
+set/clear halt state; FLATTEN is deferred to P6) and writes a `tms.audit_log`
+row for every applied/rejected command.
+
+### CLI twins
+
+`tms eod --as-of <YYYY-MM-DD> [--strategy multi --tickers ... --trader-id ...
+--window-days 400 --enqueue]` runs (or enqueues) the idempotent EOD
+engine-replay refresh. `tms live --mode signal --trader-id <id> [--strategy ...
+--tickers ... --moomoo-addr ... --bar-seconds 86400]` runs the live node.
+
+---
+
 ## `GET /api/v1/ws` — WebSocket event stream
 
 A fan-out of live **job** and **dataset-sync** events, bridged from Redis
@@ -727,9 +829,22 @@ Every frame is one JSON text message with the envelope:
 
 | `type` | `payload` | Source |
 |---|---|---|
-| `hello` | `{ "channels": ["job", "sync"] }` | Sent once on connect — confirms the subscription. |
+| `hello` | `{ "channels": [...] }` | Sent once on connect — confirms the subscription. |
 | `job` | a job `Event` object (below) | Redis channel `tms:jobs:events`. |
 | `sync` | a dataset-sync event object | Redis channel `tms:data:sync`. |
+| `signal_intent` | `{strategy_id, symbol, intent_json, ts_event, ts_init}` | Redis stream `trader-{id}:stream:data.SignalIntentUpdate`. |
+| `strategy_state` | `{strategy_id, state_json, ts_event, ts_init}` | Redis stream `…:data.StrategyStateUpdate`. |
+| `portfolio_health` | `{day_pnl, day_pnl_pct, daily_loss_halt, halt_headroom_pct, concentration_pct, ts_event, ts_init}` | Redis stream `…:data.PortfolioHealthUpdate`. |
+| `watchlist` | `{symbols, ts_event, ts_init}` | Redis stream `…:data.WatchlistUpdate`. |
+| `position` | `{positions, ts_event, ts_init}` (empty in signal mode) | Redis stream `…:data.PositionUpdate`. |
+
+The live-stream channels bridge the per-trader Redis **streams**
+(`trader-{id}:stream:{topic}`, the reference key shape — api-ws-redis.md
+§2.1/§4.1) into the same WS hub: the server tails each topic with `XREAD BLOCK`
+from `$` (only new entries, no history replay), and forwards each entry's
+`payload` JSON under the matching `type`. The bridged trader id is
+`TMS_LIVE_TRADER_ID` (default `SIGNAL-001`). A missing-`payload` or invalid-JSON
+entry is skipped; a Redis read failure keeps the WS open and retries.
 
 The client sends nothing meaningful; the server only reads to detect
 disconnects and service control frames.

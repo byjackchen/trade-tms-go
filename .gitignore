@@ -23,6 +23,9 @@ go.work.sum
 # Env & secrets
 .env
 .env.local
+# moomoo OpenD credentials (mounted into tms-live at runtime; never committed)
+/secrets/*
+!/secrets/*.example
 
 # Editor / OS
 .idea/
@@ -39,3 +42,6 @@ go.work.sum
 
 # stray gate/e2e screenshots at repo root
 /*.png
+
+# keep secret templates, never real secrets
+!secrets/*.example

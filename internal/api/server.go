@@ -38,6 +38,12 @@ type Deps struct {
 	Calendar    *calendar.Calendar
 	PingPG      PingFunc
 	PingRedis   PingFunc
+	// Live is the live cockpit read surface (PG-backed). Optional: when nil the
+	// /api/v1/live/* read endpoints return 503.
+	Live LiveReader
+	// Commands enqueues audited control commands. Optional: when nil
+	// POST /api/v1/live/commands returns 503.
+	Commands CommandEnqueuer
 	// Now overrides the clock (tests); nil = time.Now.
 	Now func() time.Time
 }
@@ -57,6 +63,8 @@ type Server struct {
 	cal         *calendar.Calendar
 	pingPG      PingFunc
 	pingRedis   PingFunc
+	live        LiveReader
+	commands    CommandEnqueuer
 	hub         *Hub
 	now         func() time.Time
 }
@@ -98,6 +106,8 @@ func NewServer(d Deps) (*Server, error) {
 		cal:         d.Calendar,
 		pingPG:      d.PingPG,
 		pingRedis:   d.PingRedis,
+		live:        d.Live,
+		commands:    d.Commands,
 		hub:         NewHub(log, d.CORSOrigins),
 		now:         now,
 	}, nil
@@ -163,6 +173,15 @@ func (s *Server) Routes() *chi.Mux {
 			r.Get("/hyperopt/{id}", s.handleHyperoptGet)
 			r.Get("/hyperopt/{id}/trials", s.handleHyperoptTrials)
 			r.Post("/hyperopt/{id}/promote", s.handleHyperoptPromote)
+
+			// Live cockpit (P5): read surface from PG + the audited command
+			// enqueue endpoint. The trading mutation surface stays out of the
+			// HTTP API (read-only forever); commands are the audited side channel.
+			r.Get("/live/session", s.handleLiveSession)
+			r.Get("/live/intents", s.handleLiveIntents)
+			r.Get("/live/health", s.handleLiveHealth)
+			r.Get("/watchlist", s.handleWatchlist)
+			r.Post("/live/commands", s.handleLiveCommand)
 		})
 	})
 	return r
