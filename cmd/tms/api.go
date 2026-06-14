@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/byjackchen/trade-tms-go/internal/api"
+	"github.com/byjackchen/trade-tms-go/internal/apistore"
 	"github.com/byjackchen/trade-tms-go/internal/app"
 	"github.com/byjackchen/trade-tms-go/internal/commands"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
@@ -21,7 +22,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/db"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt/study"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
-	"github.com/byjackchen/trade-tms-go/internal/params"
+	"github.com/byjackchen/trade-tms-go/internal/params/paramsdb"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
 )
 
@@ -112,7 +113,7 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		return err
 	}
 
-	pgStore := api.NewPGStore(pool)
+	pgStore := apistore.NewPGStore(pool)
 	srv, err := api.NewServer(api.Deps{
 		Log:         log,
 		Token:       token,
@@ -121,13 +122,13 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		Data:        pgStore,
 		Universe:    universe.NewStore(pool),
 		Runs:        runs.NewStore(pool),
-		Strategies:  api.NewStrategyReader(params.DBPayloadReader{Q: pool}, env.cfg.StrategyParamsDir),
+		Strategies:  api.NewStrategyReader(paramsdb.NewReader(pool), env.cfg.StrategyParamsDir),
 		Hyperopt:    study.NewStore(pool),
 		Promoter:    study.NewPromoter(pool),
 		Calendar:    cal,
 		PingPG:      pool.Ping,
 		PingRedis:   func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },
-		Live:        api.NewLiveStore(pool),
+		Live:        apistore.NewLiveStore(pool),
 		// SystemReader backs GET /api/v1/system (queue depth, active sessions,
 		// data freshness); the same PGStore satisfies it.
 		System: pgStore,

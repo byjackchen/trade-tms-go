@@ -21,16 +21,25 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt"
 )
 
+// ErrNoActivePayload is the sentinel a PayloadReader MAY return to signal "no
+// active_params row for this strategy" — the "no promotion = baseline" case
+// (migrations/000003_strategy.up.sql: "No row = baseline"). It exists so the
+// DB-backed reader (internal/params/paramsdb) can surface pgx.ErrNoRows through
+// the PayloadReader seam without leaking the pgx package into the params core.
+//
+// Resolve treats this sentinel identically to a (nil, nil) result: it falls
+// through to the file/baseline sources rather than erroring. The canonical
+// no-row signal remains (nil, nil); the sentinel is the equivalent error form.
+var ErrNoActivePayload = errors.New("params: no active payload")
+
 // PayloadReader reads the active param document payload for a strategy from the
-// DB (tms.active_params -> tms.param_sets.payload). It returns (nil, nil) when
-// no active_params row exists for the strategy — that is the "no promotion =
-// baseline" case (migrations/000003_strategy.up.sql: "No row = baseline"), and
-// must fall through to the file/baseline sources rather than error.
+// DB (tms.active_params -> tms.param_sets.payload). It returns (nil, nil) — or
+// (nil, ErrNoActivePayload) — when no active_params row exists for the strategy;
+// both are the "no promotion = baseline" case and must fall through to the
+// file/baseline sources rather than error.
 type PayloadReader interface {
 	ActivePayload(ctx context.Context, strategy string) (json.RawMessage, error)
 }
@@ -54,10 +63,12 @@ func (r *Resolver) Resolve(ctx context.Context, strategy string) (*Document, err
 	// 1. DB active_params -> param_sets.payload.
 	if r.DB != nil {
 		raw, err := r.DB.ActivePayload(ctx, strategy)
-		if err != nil {
+		// ErrNoActivePayload is the error form of the (nil, nil) "no promotion"
+		// signal — fall through to file/baseline rather than error.
+		if err != nil && !errors.Is(err, ErrNoActivePayload) {
 			return nil, fmt.Errorf("params: db resolve %q: %w", strategy, err)
 		}
-		if raw != nil {
+		if err == nil && raw != nil {
 			doc, err := ParseDocument(raw, strategy)
 			if err != nil {
 				return nil, fmt.Errorf("params: db payload for %q: %w", strategy, err)
@@ -99,38 +110,4 @@ func (r *Resolver) Resolve(ctx context.Context, strategy string) (*Document, err
 	}
 	doc.Source = OriginBaseline
 	return doc, nil
-}
-
-// ---------------------------------------------------------------------------
-// DB-backed PayloadReader (tms.active_params -> tms.param_sets).
-// ---------------------------------------------------------------------------
-
-// Querier is the subset of pgx used by DBPayloadReader (satisfied by *pgxpool.Pool
-// and pgx.Tx), so the reader works inside or outside a transaction.
-type Querier interface {
-	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
-}
-
-// DBPayloadReader reads the active param payload from the P0 schema.
-type DBPayloadReader struct {
-	Q Querier
-}
-
-// ActivePayload returns the JSONB payload of the param_set currently promoted
-// for strategy, or (nil, nil) when there is no active_params row.
-func (d DBPayloadReader) ActivePayload(ctx context.Context, strategy string) (json.RawMessage, error) {
-	const q = `
-		SELECT ps.payload
-		FROM tms.active_params ap
-		JOIN tms.param_sets ps ON ps.id = ap.param_set_id
-		WHERE ap.strategy = $1`
-	var payload json.RawMessage
-	err := d.Q.QueryRow(ctx, q, strategy).Scan(&payload)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return payload, nil
 }

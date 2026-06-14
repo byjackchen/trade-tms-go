@@ -1,15 +1,3 @@
-// Package sepaadapter bridges the PURE SEPA SignalGenerator
-// (internal/strategy/sepa) to the engine-facing Strategy seam
-// (internal/engine), translating domain.Bar -> sepa.Bar, injecting per-bar
-// portfolio context (regime / market-cap / earnings) via the engine's
-// ContextConsumer seam, and translating emitted sepa.Signal target-position
-// signals into market orders exactly as the reference NautilusRunner's
-// _submit_for_signal (spec §10): LONG -> BUY target_qty; FLAT -> reverse the
-// live net position to flat (no-op when already flat); SHORT unsupported.
-//
-// This package — NOT the pure sepa package — is the only place that imports
-// engine/domain, preserving the [MUST-MATCH] layering constraint (spec §0):
-// the core SEPA package never imports broker/engine code.
 package sepaadapter
 
 import (
@@ -32,8 +20,14 @@ type Strategy struct {
 }
 
 // New wraps a constructed sepa.Generator under the engine strategy id.
-func New(id string, gen *sepa.Generator) *Strategy {
-	return &Strategy{id: id, gen: gen, sym: gen.Symbol()}
+func New(id string, gen *sepa.Generator) (*Strategy, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: sepa adapter needs a non-empty id", domain.ErrInvalidArgument)
+	}
+	if gen == nil {
+		return nil, fmt.Errorf("%w: sepa adapter needs a signal generator", domain.ErrInvalidArgument)
+	}
+	return &Strategy{id: id, gen: gen, sym: gen.Symbol()}, nil
 }
 
 // Compile-time capability assertions.
@@ -117,51 +111,30 @@ func (s *Strategy) submit(sub engine.OrderSubmitter, sig sepa.Signal, ts time.Ti
 	case sepa.SideFlat:
 		// Reverse the strategy's live net position to flat. The reference reads
 		// the venue net position and submits a closing market order; a flat
-		// book is a no-op. We delegate close-sizing to the engine by reading
-		// the net through the submitter's position reader when available.
-		net := s.netPosition(sub, sig.Symbol)
-		side, ok := domain.CloseSideFor(net)
-		if !ok {
-			return nil // already flat
-		}
-		qty := net
-		if qty < 0 {
-			qty = -qty
-		}
-		reason := fmt.Sprintf("SEPA FLAT (close %d) %s", net, sig.Symbol)
-		if _, err := sub.SubmitMarket(s.id, sig.Symbol, side, qty, reason, ts); err != nil {
-			return err
-		}
-		return nil
+		// book is a no-op. Close-sizing is delegated to the shared engine helper
+		// (reads the net through the submitter's PositionReader when available).
+		_, err := engine.CloseToFlat(sub, s.id, sig.Symbol, ts, func(net domain.Qty) string {
+			return fmt.Sprintf("SEPA FLAT (close %d) %s", net, sig.Symbol)
+		})
+		return err
 	default:
 		// SHORT unsupported (long-only SEPA); reference logs + skips.
 		return nil
 	}
 }
 
-// netPosition reads the strategy's live net position if the submitter exposes a
-// PositionReader; otherwise 0 (the FLAT path then no-ops, matching a book the
-// engine has already flattened).
-func (s *Strategy) netPosition(sub engine.OrderSubmitter, sym string) domain.Qty {
-	if pr, ok := sub.(engine.PositionReader); ok {
-		return pr.NetPosition(s.id, sym)
-	}
-	return 0
-}
-
-// EvaluateIntentJSON returns the per-symbol SignalIntent for asOf
+// EvaluateIntentJSON returns the per-symbol SEPA intent for asOf, already
+// bridged to the canonical domain.SEPASignalIntent wire shape
 // (engine.IntentEvaluator). Pure read.
 //
-// It returns the RAW sepa.SignalIntent generator value — exactly like the
-// other three adapters (orb/pairs/sector) return their own generator types —
-// so publish.NormalizeIntent's `case sepa.SignalIntent` converts it to the
-// canonical domain.SEPASignalIntent wire shape. Returning a private adapter
-// struct here (the old behaviour) had no NormalizeIntent case and aborted every
-// SEPA/multi intent in the signal/paper/live/EOD modes with
-// "unsupported intent type"; keeping the raw type is the single source of the
-// SEPA wire shape and restores the five-modes-one-engine thesis for SEPA.
+// The adapter is the SANCTIONED domain bridge (modularization-review.md §E3): it
+// is the one place that imports both the pure sepa package (which must stay
+// zero-domain for byte-for-byte golden parity) AND domain. The local→domain
+// normalization (formerly publish.normalizeSEPA) now lives in NormalizeIntent
+// here, so publish switches only on domain intent types and no longer imports
+// strategy/sepa. The pure sepa.SignalIntent never escapes the adapter.
 func (s *Strategy) EvaluateIntentJSON(asOf time.Time) any {
-	return s.gen.EvaluateIntent(asOf)
+	return NormalizeIntent(s.gen.EvaluateIntent(asOf))
 }
 
 // StateSummaryJSON returns the light per-bar UI summary (engine.StateSummarizer).

@@ -1,23 +1,3 @@
-// Package strategyassembly is the Go port of the Python multi-strategy wiring
-// (scripts/multi_strategy_backtest.py + src/runner/strategy_assembly.py): it
-// constructs the real strategy adapters (SEPA / SectorRotation / Pairs / ORB)
-// from resolved params, the Allocator capital split + RiskConstraints portfolio
-// gate, and the per-bar look-ahead-safe context provider, returning everything
-// the engine assembler needs as a single Assembly.
-//
-// It is the ONLY package that imports both the engine seam and every strategy
-// adapter, so the per-strategy adapter packages stay decoupled from each other.
-// No cycle: adapters import engine; this package imports adapters + engine +
-// params + portfolio; engine imports portfolio (not this).
-//
-// Equity-provider late binding: the strategy SignalGenerators need an
-// EquityProvider closure that reads the LIVE account equity, but the account is
-// created inside engine.New AFTER the strategies are constructed. We resolve the
-// ordering with a LiveEquity holder: generators are built over holder.Get
-// (which returns the starting balance until bound), then the caller binds the
-// holder to the engine's account via Assembly.BindEquity(eng) before Run. This
-// mirrors the Python equity_provider that pulls engine.portfolio.account(VENUE)
-// .balance_total at sizing time.
 package strategyassembly
 
 import (
@@ -32,8 +12,8 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/strategy/orbadapter"
 	"github.com/byjackchen/trade-tms-go/internal/strategy/pairs"
 	"github.com/byjackchen/trade-tms-go/internal/strategy/pairsadapter"
-	sr "github.com/byjackchen/trade-tms-go/internal/strategy/sector_rotation"
 	"github.com/byjackchen/trade-tms-go/internal/strategy/sectoradapter"
+	"github.com/byjackchen/trade-tms-go/internal/strategy/sectorrotation"
 	"github.com/byjackchen/trade-tms-go/internal/strategy/sepa"
 	"github.com/byjackchen/trade-tms-go/internal/strategy/sepaadapter"
 )
@@ -215,7 +195,7 @@ func buildSEPA(p params.SEPAParams, stocks []string, eq *LiveEquity) ([]engine.S
 	}
 	out := make([]engine.Strategy, 0, len(stocks))
 	for _, sym := range stocks {
-		gen, err := sepa.NewGenerator(sepa.Config{
+		gen, err := sepa.New(sepa.Config{
 			Symbol:                 sym,
 			EquityProvider:         eq.Get,
 			RiskPct:                p.RiskPct,
@@ -230,13 +210,17 @@ func buildSEPA(p params.SEPAParams, stocks []string, eq *LiveEquity) ([]engine.S
 		if err != nil {
 			return nil, fmt.Errorf("strategyassembly: sepa generator %s: %w", sym, err)
 		}
-		out = append(out, sepaadapter.New(IDSEPA, gen))
+		adapter, err := sepaadapter.New(IDSEPA, gen)
+		if err != nil {
+			return nil, fmt.Errorf("strategyassembly: sepa adapter %s: %w", sym, err)
+		}
+		out = append(out, adapter)
 	}
 	return out, nil
 }
 
 func buildSector(p params.SectorRotationParams, eq *LiveEquity) (engine.Strategy, []string, error) {
-	gen, err := sr.New(sr.Config{
+	gen, err := sectorrotation.New(sectorrotation.Config{
 		EquityProvider:   eq.Get,
 		Universe:         p.Universe,
 		MomentumLookback: int(p.MomentumLookback),

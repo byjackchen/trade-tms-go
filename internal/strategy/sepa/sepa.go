@@ -67,11 +67,11 @@ type Generator struct {
 	catalyst         bool
 }
 
-// NewGenerator constructs a SEPA generator, validating the config exactly as
+// New constructs a SEPA generator, validating the config exactly as
 // SEPASignalGeneratorConfig.__post_init__ (signal.py:155-164). Returns
 // ErrInvalidConfig-wrapped errors on invalid risk_pct / hard_stop_pct / nil
 // equity provider.
-func NewGenerator(cfg Config) (*Generator, error) {
+func New(cfg Config) (*Generator, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}

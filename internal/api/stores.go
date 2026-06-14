@@ -2,8 +2,9 @@ package api
 
 // stores.go declares the persistence seams of the HTTP layer. Handlers
 // depend on these small interfaces so contract tests run against in-memory
-// stubs; pgstore.go provides the production PostgreSQL implementation and
-// *jobs.Queue satisfies JobQueue directly.
+// stubs; the production PostgreSQL implementations live in the sibling
+// internal/apistore package (keeping jackc/pgx out of this package's direct
+// imports), and *jobs.Queue satisfies JobQueue directly.
 
 import (
 	"context"

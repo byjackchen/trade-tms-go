@@ -31,7 +31,7 @@ import (
 const systemFeedFreshWindow = 5 * time.Minute
 
 // SystemReader supplies the aggregate counts + freshness the system endpoint
-// needs beyond the existing ping/live readers (satisfied by *PGStore). All
+// needs beyond the existing ping/live readers (satisfied by *apistore.PGStore). All
 // methods are best-effort point-in-time reads.
 type SystemReader interface {
 	// QueueDepth returns the number of durable jobs not yet terminal, split into

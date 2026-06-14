@@ -320,18 +320,7 @@ func (e *Engine) handleBar(_ context.Context, ev core.Event) error {
 // value, so a consumer for a symbol without context keeps its prior value
 // (matching the Actors only calling set_* on transitions).
 func (e *Engine) injectContext(asOf time.Time) {
-	if len(e.ctxCons) == 0 || e.ctxStat == nil {
-		return
-	}
-	ctx := StrategyContext{
-		Regime:           e.ctxStat.Regime(),
-		AsOf:             asOf,
-		MarketCapUSD:     e.ctxStat.MarketCapFloats(),
-		EarningsBlackout: e.ctxStat.EarningsBlackouts(),
-	}
-	for _, cc := range e.ctxCons {
-		cc.InjectContext(ctx)
-	}
+	InjectContextInto(e.ctxCons, asOf, e.ctxStat)
 }
 
 // primeWarmup feeds the out-of-band pre-window history into every
@@ -346,22 +335,16 @@ func (e *Engine) primeWarmup() {
 	if e.cfg.Warmup == nil || len(e.cfg.Warmup.Bars) == 0 {
 		return
 	}
-	// Deterministic order over the warmup symbols (priming is per-symbol
-	// independent, but a stable order keeps any future logging reproducible).
 	syms := make([]string, 0, len(e.cfg.Warmup.Bars))
 	for sym := range e.cfg.Warmup.Bars {
 		syms = append(syms, sym)
 	}
-	sort.Strings(syms)
-	for _, st := range e.strategies {
-		wc, ok := st.(WarmupConsumer)
-		if !ok {
-			continue
-		}
-		for _, sym := range syms {
-			wc.WarmupBars(sym, e.cfg.Warmup.Bars[sym])
-		}
-	}
+	// barsFor reads the preloaded warmup map; it never errors (the batch path has
+	// the full history in memory). PrimeWarmup sorts the symbols + self-filters
+	// each consumer, so the per-symbol fan-out is shared with the live session.
+	_ = PrimeWarmup(e.strategies, syms, func(sym string) ([]domain.Bar, error) {
+		return e.cfg.Warmup.Bars[sym], nil
+	})
 }
 
 // liquidateOpenPositions flattens every open net position at end-of-run,
@@ -603,18 +586,11 @@ func (s orderSubmitter) SubmitMarketSignal(strategyID, symbol string, signalSide
 		if err != nil {
 			return "", false, fmt.Errorf("engine: gate snapshot for %s/%s: %w", strategyID, symbol, err)
 		}
+		// Shared portfolio-side gate wrapper (E1); the engine's sink appends to
+		// its in-memory RejectedOrder slice. FLAT/qty<=0 are bypassed above.
 		proposed := portfolio.NewProposedOrder(strategyID, symbol, signalSide, qty, price, ts)
-		decision := s.eng.gate.Check(proposed, portfolio.SnapshotFromDomain(snap))
+		decision := portfolio.GateSignal(s.eng.gate, proposed, portfolio.SnapshotFromDomain(snap), price, engineRejectionSink{eng: s.eng})
 		if !decision.Approved {
-			s.eng.rejected = append(s.eng.rejected, RejectedOrder{
-				StrategyID: strategyID,
-				Symbol:     symbol,
-				SignalSide: signalSide,
-				Qty:        qty,
-				RuleName:   decision.RuleName,
-				Reason:     decision.Reason,
-				TS:         ts,
-			})
 			return "", false, nil
 		}
 	}
@@ -623,6 +599,24 @@ func (s orderSubmitter) SubmitMarketSignal(strategyID, symbol string, signalSide
 		return "", false, err
 	}
 	return coid, true, nil
+}
+
+// engineRejectionSink is the engine's portfolio.RejectionRecorder: it appends a
+// gate rejection to the engine's in-memory RejectedOrder slice (which feeds
+// Result.RejectedOrders / num_rejected_orders). Price is dropped (the backtest
+// result does not carry the estimated price), preserving the exact pre-E1 shape.
+type engineRejectionSink struct{ eng *Engine }
+
+func (s engineRejectionSink) RecordRejection(r portfolio.Rejection) {
+	s.eng.rejected = append(s.eng.rejected, RejectedOrder{
+		StrategyID: r.StrategyID,
+		Symbol:     r.Symbol,
+		SignalSide: r.Side,
+		Qty:        r.Qty,
+		RuleName:   r.RuleName,
+		Reason:     r.Reason,
+		TS:         r.TS,
+	})
 }
 
 // fillSink settles executor fills synchronously on the loop goroutine: the

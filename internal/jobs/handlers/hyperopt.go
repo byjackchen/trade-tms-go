@@ -28,6 +28,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt/study"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
 	"github.com/byjackchen/trade-tms-go/internal/params"
+	"github.com/byjackchen/trade-tms-go/internal/params/paramsdb"
 )
 
 // KindHyperoptRun is the dispatch key served by Hyperopt.
@@ -78,7 +79,7 @@ func NewHyperopt(pool *pgxpool.Pool, runsDir, paramsDir string, log zerolog.Logg
 		pool:      pool,
 		uni:       universe.NewStore(pool),
 		store:     study.NewStore(pool),
-		loader:    params.NewLoader(params.DBPayloadReader{Q: pool}, paramsDir),
+		loader:    params.NewLoader(paramsdb.NewReader(pool), paramsDir),
 		runsDir:   runsDir,
 		paramsDir: paramsDir,
 		log:       log.With().Str("component", "hyperopt-run").Logger(),

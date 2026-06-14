@@ -1,3 +1,5 @@
+//go:build integration
+
 package runner_test
 
 // live_health_test.go covers the two fixer-round-2 findings against a REAL

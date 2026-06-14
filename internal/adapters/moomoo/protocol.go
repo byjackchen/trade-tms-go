@@ -82,7 +82,6 @@ const (
 	ProtoTrdGetPositionList  ProtoID = 2102 // broker positions
 	ProtoTrdGetOrderList     ProtoID = 2201 // order list
 	ProtoTrdPlaceOrder       ProtoID = 2202 // place order
-	ProtoTrdModifyOrder      ProtoID = 2205 // modify/cancel order
 	ProtoTrdUpdateOrder      ProtoID = 2208 // PUSH: order status change
 	ProtoTrdGetOrderFillList ProtoID = 2211 // order fills
 	ProtoTrdUpdateOrderFill  ProtoID = 2218 // PUSH: fill notification
@@ -124,8 +123,6 @@ func (p ProtoID) String() string {
 		return "Trd_GetOrderList(2201)"
 	case ProtoTrdPlaceOrder:
 		return "Trd_PlaceOrder(2202)"
-	case ProtoTrdModifyOrder:
-		return "Trd_ModifyOrder(2205)"
 	case ProtoTrdUpdateOrder:
 		return "Trd_UpdateOrder(2208)"
 	case ProtoTrdGetOrderFillList:

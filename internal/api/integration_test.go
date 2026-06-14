@@ -1,6 +1,6 @@
 //go:build integration
 
-package api
+package api_test
 
 // integration_test.go runs the API against a REAL migrated PostgreSQL: the
 // PGStore SQL (AT TIME ZONE 'UTC' date math, ILIKE search, sync-run joins)
@@ -15,11 +15,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -29,144 +27,52 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/byjackchen/trade-tms-go/internal/config"
+	"github.com/byjackchen/trade-tms-go/internal/api"
+	"github.com/byjackchen/trade-tms-go/internal/apistore"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
-	"github.com/byjackchen/trade-tms-go/internal/db"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
+	"github.com/byjackchen/trade-tms-go/internal/testutil/pgtest"
 )
 
-const testPGImage = "timescale/timescaledb:latest-pg16"
+func TestMain(m *testing.M) { os.Exit(pgtest.Run(m, "api")) }
 
-var (
-	itestPool     *pgxpool.Pool
-	pgUnavailable = "harness not initialized"
+// Local copies of the package-internal test constants/helpers (this file is an
+// external test package — package api_test — so it cannot see stub_test.go's
+// unexported identifiers; it must avoid the api -> apistore -> api import cycle
+// that an in-package integration test would create).
+const (
+	testToken  = "secret-test-token"
+	testOrigin = "http://localhost:13000"
 )
 
-func TestMain(m *testing.M) {
-	cleanup, err := startEphemeralPG()
-	if err != nil {
-		pgUnavailable = err.Error()
-		fmt.Fprintf(os.Stderr, "api: integration tests will skip: %v\n", err)
-		os.Exit(m.Run())
-	}
-	defer cleanup()
-	os.Exit(m.Run())
-}
+var fixedNow = time.Date(2024, time.June, 12, 15, 30, 0, 0, time.UTC)
 
-func startEphemeralPG() (cleanup func(), err error) {
-	if os.Getenv("TMS_TEST_NO_DOCKER") == "1" {
-		return nil, fmt.Errorf("TMS_TEST_NO_DOCKER=1")
-	}
-	if _, err := exec.LookPath("docker"); err != nil {
-		return nil, fmt.Errorf("docker not on PATH: %w", err)
-	}
-	infoCtx, cancelInfo := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancelInfo()
-	if out, err := exec.CommandContext(infoCtx, "docker", "info", "--format", "{{.ServerVersion}}").CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("docker daemon unavailable: %v (%s)", err, strings.TrimSpace(string(out)))
-	}
-
-	name := fmt.Sprintf("tmsgo-api-test-%d", time.Now().UnixNano())
-	runCtx, cancelRun := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancelRun()
-	out, err := exec.CommandContext(runCtx, "docker", "run", "-d", "--rm",
-		"--name", name,
-		"-e", "POSTGRES_USER=tms",
-		"-e", "POSTGRES_PASSWORD=tms",
-		"-e", "POSTGRES_DB=tms",
-		"-p", "127.0.0.1:0:5432", // random loopback port; never the reserved 55432
-		testPGImage).CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("docker run %s: %v (%s)", testPGImage, err, strings.TrimSpace(string(out)))
-	}
-	stop := func() {
-		killCtx, cancelKill := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancelKill()
-		_ = exec.CommandContext(killCtx, "docker", "kill", name).Run()
-	}
-
-	port, err := mappedPort(name)
-	if err != nil {
-		stop()
-		return nil, err
-	}
-	cfg := &config.Config{
-		PGHost: "127.0.0.1", PGPort: port,
-		PGUser: "tms", PGPassword: "tms", PGDatabase: "tms",
-		PGSSLMode: "disable", PGMaxConns: 16, PGMinConns: 0,
-	}
-
-	deadline := time.Now().Add(90 * time.Second)
-	for {
-		if err = db.MigrateUp(cfg); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			stop()
-			return nil, fmt.Errorf("postgres not ready after 90s: %w", err)
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	poolCtx, cancelPool := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancelPool()
-	pool, err := db.NewPool(poolCtx, cfg)
-	if err != nil {
-		stop()
-		return nil, fmt.Errorf("connecting test pool: %w", err)
-	}
-	itestPool = pool
-	return func() {
-		pool.Close()
-		stop()
-	}, nil
-}
-
-func mappedPort(container string) (int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "docker", "port", container, "5432/tcp").CombinedOutput()
-	if err != nil {
-		return 0, fmt.Errorf("docker port: %v (%s)", err, strings.TrimSpace(string(out)))
-	}
-	line := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
-	_, portStr, err := net.SplitHostPort(line)
-	if err != nil {
-		return 0, fmt.Errorf("parsing docker port output %q: %w", line, err)
-	}
-	var port int
-	if _, err := fmt.Sscanf(portStr, "%d", &port); err != nil {
-		return 0, fmt.Errorf("parsing port %q: %w", portStr, err)
-	}
-	return port, nil
-}
+func pingOK(context.Context) error { return nil }
 
 // itestServer truncates state, seeds fixtures and returns a live httptest
 // server wired to the real PGStore + a real Queue. Skips without docker.
 func itestServer(t *testing.T) (*httptest.Server, *pgxpool.Pool) {
 	t.Helper()
-	if itestPool == nil {
-		t.Skipf("skipping: ephemeral postgres unavailable (%s)", pgUnavailable)
-	}
+	itestPool := pgtest.RequirePG(t)
 	ctx := context.Background()
 	_, err := itestPool.Exec(ctx, `TRUNCATE tms.bars_daily, tms.tickers, tms.fundamentals_sf1,
 		tms.events, tms.dataset_sync, tms.dataset_sync_runs, tms.jobs, tms.audit_log RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
-	seedFixtures(t, ctx)
+	seedFixtures(t, ctx, itestPool)
 
 	cal, err := calendar.NewNYSE()
 	require.NoError(t, err)
 	queue, err := jobs.NewQueue(itestPool, zerolog.Nop())
 	require.NoError(t, err)
 
-	srv, err := NewServer(Deps{
+	srv, err := api.NewServer(api.Deps{
 		Log:         zerolog.Nop(),
 		Token:       testToken,
 		CORSOrigins: []string{testOrigin},
 		Jobs:        queue,
-		Data:        NewPGStore(itestPool),
+		Data:        apistore.NewPGStore(itestPool),
 		Universe:    universe.NewStore(itestPool),
 		Runs:        runs.NewStore(itestPool),
 		Calendar:    cal,
@@ -182,7 +88,7 @@ func itestServer(t *testing.T) (*httptest.Server, *pgxpool.Pool) {
 
 // seedFixtures inserts two tickers and a small bars_daily series with a known
 // gap (BAC missing 2024-06-07) so coverage/gap detection has signal.
-func seedFixtures(t *testing.T, ctx context.Context) {
+func seedFixtures(t *testing.T, ctx context.Context, itestPool *pgxpool.Pool) {
 	t.Helper()
 	_, err := itestPool.Exec(ctx, `
 		INSERT INTO tms.tickers (ticker, table_name, name, exchange, is_delisted,

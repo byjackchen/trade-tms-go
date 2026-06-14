@@ -29,6 +29,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
 	"github.com/byjackchen/trade-tms-go/internal/params"
+	"github.com/byjackchen/trade-tms-go/internal/params/paramsdb"
 	"github.com/byjackchen/trade-tms-go/internal/portfolio"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
 )
@@ -100,7 +101,7 @@ func NewBacktestWithParamsDir(pool *pgxpool.Pool, runsDir, paramsDir string, log
 		pool:      pool,
 		store:     runs.NewStore(pool),
 		uni:       universe.NewStore(pool),
-		loader:    params.NewLoader(params.DBPayloadReader{Q: pool}, paramsDir),
+		loader:    params.NewLoader(paramsdb.NewReader(pool), paramsDir),
 		runsDir:   runsDir,
 		paramsDir: paramsDir,
 		log:       log.With().Str("component", "backtest-run").Logger(),

@@ -1,0 +1,131 @@
+# golangci-lint v2 configuration.
+#
+# Purpose (F4 — layering enforcement): encode the inner -> outer layering the
+# architecture depends on as machine-checkable depguard rules, so the import
+# contracts declared in each package's doc.go cannot silently drift. Only the
+# depguard linter is enabled here; this config is the layering gate, NOT a
+# general style sweep (gofmt/vet stay in their own `make` targets).
+#
+# The rules below mirror the "May import: ..." contracts in the doc.go files and
+# are calibrated to PASS on the current layering (no false positives). Each rule
+# forbids an OUTER package from being imported by an INNER one (cycle / leak),
+# never the legitimate inner<-outer direction.
+version: "2"
+
+run:
+  build-tags:
+    - integration
+    - parity
+
+linters:
+  default: none
+  enable:
+    - depguard
+  settings:
+    depguard:
+      rules:
+        # domain is the innermost layer: pure value types, no internal deps.
+        domain:
+          files:
+            - "**/internal/domain/**"
+          deny:
+            - pkg: github.com/byjackchen/trade-tms-go/internal
+              desc: >-
+                internal/domain is the innermost layer and must import nothing
+                from internal/ (see internal/domain/doc.go). Move shared types
+                down into domain, or the dependency up into a higher layer.
+
+        # core sits just above domain: may import domain only.
+        core:
+          files:
+            - "**/internal/core/**"
+          deny:
+            - pkg: github.com/byjackchen/trade-tms-go/internal/engine
+              desc: "internal/core may import internal/domain only (core/doc.go); engine is an outer layer."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/strategy
+              desc: "internal/core may import internal/domain only (core/doc.go)."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/runner
+              desc: "internal/core may import internal/domain only (core/doc.go)."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/livengine
+              desc: "internal/core may import internal/domain only (core/doc.go)."
+
+        # Pure strategy packages (orb / sepa / pairs / sectorrotation) are the
+        # two-layer [MUST-MATCH] constraint: bars in, signals out. They must NOT
+        # import the engine / portfolio / runner — that bridge lives in the
+        # *adapter packages (see each strategy's doc.go and Eng-D2).
+        strategy-pure:
+          files:
+            - "**/internal/strategy/orb/**"
+            - "**/internal/strategy/sepa/**"
+            - "**/internal/strategy/pairs/**"
+            - "**/internal/strategy/sectorrotation/**"
+          deny:
+            - pkg: github.com/byjackchen/trade-tms-go/internal/engine
+              desc: >-
+                Pure strategy packages must not import internal/engine (the
+                two-layer Eng-D2 constraint). The engine bridge lives in the
+                matching *adapter package (e.g. internal/strategy/orbadapter).
+            - pkg: github.com/byjackchen/trade-tms-go/internal/portfolio
+              desc: "Pure strategy packages must not import internal/portfolio; the adapter/assembly layer owns sizing/gating."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/runner
+              desc: "Pure strategy packages must not import the composition root internal/runner."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/livengine
+              desc: "Pure strategy packages must not import internal/livengine."
+
+        # Strategy adapters bridge a pure strategy to the engine seam. They are
+        # the sole importers of internal/engine on their path, but must not reach
+        # UP into the composition / live layers, nor sideways into siblings.
+        strategy-adapters:
+          files:
+            - "**/internal/strategy/orbadapter/**"
+            - "**/internal/strategy/sepaadapter/**"
+            - "**/internal/strategy/pairsadapter/**"
+            - "**/internal/strategy/sectoradapter/**"
+          deny:
+            - pkg: github.com/byjackchen/trade-tms-go/internal/runner
+              desc: "Strategy adapters must not import the composition root internal/runner (adapter/doc.go)."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/livengine
+              desc: "Strategy adapters must not import internal/livengine; assembly wires them in."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/publish
+              desc: "Strategy adapters must not import internal/publish (the egress layer)."
+
+        # publish is the live-telemetry egress layer: domain + the pure intent
+        # types only. It must not import engine / runner / adapters (publish/doc.go).
+        publish:
+          files:
+            - "**/internal/publish/**"
+          deny:
+            - pkg: github.com/byjackchen/trade-tms-go/internal/engine
+              desc: "internal/publish is transport-only and must not import internal/engine (publish/doc.go)."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/runner
+              desc: "internal/publish must not import the composition root internal/runner (publish/doc.go)."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/livengine
+              desc: "internal/publish must not import internal/livengine."
+
+        # The live control plane defines the Controller seam the live node
+        # implements; it must not depend on engine / strategy / runner
+        # (commands/doc.go).
+        commands:
+          files:
+            - "**/internal/commands/**"
+          deny:
+            - pkg: github.com/byjackchen/trade-tms-go/internal/engine
+              desc: "internal/commands is the control plane and must not import internal/engine (commands/doc.go)."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/runner
+              desc: "internal/commands must not import internal/runner; the node depends on commands, not vice versa."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/livengine
+              desc: "internal/commands must not import internal/livengine (commands/doc.go)."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/strategy
+              desc: "internal/commands carries no strategy logic (commands/doc.go)."
+
+        # calendar is a leaf utility: standard library only.
+        calendar:
+          files:
+            - "**/internal/data/calendar/**"
+          deny:
+            - pkg: github.com/byjackchen/trade-tms-go/internal
+              desc: "internal/data/calendar is a leaf utility (calendar/doc.go): stdlib only, no internal/ imports."
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

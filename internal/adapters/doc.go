@@ -4,8 +4,9 @@
 // broker or data vendor. Go counterpart of the reference's src/adapters/.
 //
 // Rules:
-//   - Adapters depend on internal/config for credentials — never read
-//     os.Environ directly.
+//   - Adapters receive credentials/endpoints by injection (config.* values
+//     wired in by runner/cmd) — they never read os.Environ and do not import
+//     internal/config themselves.
 //   - All network calls take a context, time out, and surface typed errors;
 //     retries/backoff live here, not in the engine.
 package adapters

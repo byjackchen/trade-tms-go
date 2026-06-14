@@ -3,8 +3,9 @@ package params_test
 // resolve_test.go covers the resolution precedence (DB -> file -> baseline),
 // per-strategy baseline fallback, and document parsing of display/allocation.
 // The DB tier is exercised with a fake PayloadReader so no live PostgreSQL is
-// required (a real-DB query path is also covered by the DBPayloadReader SQL,
-// which is the runs-package live-DB harness's concern).
+// required (the pgx-backed reader's SQL + no-row->sentinel mapping lives in the
+// internal/params/paramsdb adapter and is unit-tested there; the real-DB query
+// path is the runs-package live-DB harness's concern).
 
 import (
 	"context"
@@ -127,6 +128,29 @@ func TestResolveBaselineWhenNoDBNoDir(t *testing.T) {
 	}
 	if doc.Source != params.OriginBaseline {
 		t.Errorf("source = %q, want baseline", doc.Source)
+	}
+}
+
+// sentinelReader always reports "no active payload" via the error sentinel
+// (the DB-backed paramsdb.Reader's no-row form), which Resolve must treat
+// identically to (nil, nil): fall through to file/baseline, not error.
+type sentinelReader struct{}
+
+func (sentinelReader) ActivePayload(_ context.Context, _ string) (json.RawMessage, error) {
+	return nil, params.ErrNoActivePayload
+}
+
+func TestResolveSentinelNoActivePayloadFallsThrough(t *testing.T) {
+	ld := params.NewLoader(sentinelReader{}, "testdata")
+	p, doc, err := ld.SEPA(context.Background())
+	if err != nil {
+		t.Fatalf("SEPA: %v", err)
+	}
+	if doc.Source != params.OriginFile {
+		t.Errorf("source = %q, want file (sentinel must fall through, not error)", doc.Source)
+	}
+	if p.RiskPct != 1.0 {
+		t.Errorf("risk_pct = %v, want 1.0 (file baseline)", p.RiskPct)
 	}
 }
 

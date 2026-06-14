@@ -1,3 +1,5 @@
+//go:build integration
+
 package runner_test
 
 // live_persist_test.go exercises the paper/live PG durability layer against a

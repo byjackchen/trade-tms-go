@@ -29,6 +29,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
 	"github.com/byjackchen/trade-tms-go/internal/params"
+	"github.com/byjackchen/trade-tms-go/internal/params/paramsdb"
 	"github.com/byjackchen/trade-tms-go/internal/portfolio"
 )
 
@@ -76,7 +77,7 @@ type Assembler struct {
 func NewAssembler(pool *pgxpool.Pool, paramsDir string) *Assembler {
 	return &Assembler{
 		uni:    universe.NewStore(pool),
-		loader: params.NewLoader(params.DBPayloadReader{Q: pool}, paramsDir),
+		loader: params.NewLoader(paramsdb.NewReader(pool), paramsDir),
 	}
 }
 

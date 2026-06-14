@@ -1,24 +1,3 @@
-// Package orbadapter bridges the PURE ORB (intraday_breakout) SignalGenerator
-// (internal/strategy/orb) to the engine-facing Strategy seam (internal/engine),
-// translating the SG's signals into market orders exactly as the reference
-// IntradayBreakoutRunner does (strategy-sector-orb.md §3.10, nautilus_runner.py):
-//
-//   - LONG -> BUY of signal.target_qty, TimeInForce DAY (intraday-only; the
-//     engine's market submit is the day-scoped equivalent). The SG sizes the
-//     full target position.
-//   - FLAT -> close the entire LIVE net position (SELL if long, BUY if short),
-//     read from portfolio.net_position; a flat book is a no-op. The SG's carried
-//     FLAT qty is NOT used for sizing (it is only the SG's internal held count,
-//     surfaced in logs).
-//
-// This package — NOT the pure orb package — is the only place that imports
-// engine, preserving the Eng-D2 two-layer constraint: the core strategy package
-// never imports broker/engine code (the AST test on the Python side asserts the
-// same). It implements the P3 capability seams (IntentEvaluator,
-// StateSummarizer, StatePersister). ORB consumes no per-bar portfolio context
-// (no regime/market-cap/earnings — nautilus_runner.py:_runner_ticker reserves
-// per-ticker routing but subscribes to none), so ContextConsumer is
-// intentionally NOT implemented.
 package orbadapter
 
 import (
@@ -83,17 +62,9 @@ func (s *Strategy) OnBar(sub engine.OrderSubmitter, bar domain.Bar) error {
 				return err
 			}
 		case orb.SideFlat:
-			net := s.netPosition(sub, sig.Symbol)
-			side, ok := domain.CloseSideFor(net)
-			if !ok {
-				continue // already flat
-			}
-			qty := net
-			if qty < 0 {
-				qty = -qty
-			}
-			reason := fmt.Sprintf("[IntradayBreakout] FLAT (close %d) %s :: %s", net, sig.Symbol, sig.Reason)
-			if _, err := sub.SubmitMarket(s.id, sig.Symbol, side, qty, reason, sig.TS); err != nil {
+			if _, err := engine.CloseToFlat(sub, s.id, sig.Symbol, sig.TS, func(net domain.Qty) string {
+				return fmt.Sprintf("[IntradayBreakout] FLAT (close %d) %s :: %s", net, sig.Symbol, sig.Reason)
+			}); err != nil {
 				return err
 			}
 		case orb.SideShort:
@@ -104,21 +75,17 @@ func (s *Strategy) OnBar(sub engine.OrderSubmitter, bar domain.Bar) error {
 	return nil
 }
 
-// netPosition reads the strategy's live net position if the submitter exposes a
-// PositionReader; otherwise 0 (the FLAT path then no-ops, matching a book the
-// engine has already flattened).
-func (s *Strategy) netPosition(sub engine.OrderSubmitter, sym string) domain.Qty {
-	if pr, ok := sub.(engine.PositionReader); ok {
-		return pr.NetPosition(s.id, sym)
-	}
-	return 0
-}
-
-// EvaluateIntentJSON returns the single IntradayBreakoutIntent for asOf as a
-// JSON-serializable value (engine.IntentEvaluator). It increments the SG's
-// generation counter, exactly as the reference runner's publish path does.
+// EvaluateIntentJSON returns the single ORB intent for asOf, already bridged to
+// the canonical domain.IntradayBreakoutIntent wire shape (engine.IntentEvaluator).
+// It increments the SG's generation counter, exactly as the reference runner's
+// publish path does.
+//
+// The adapter is the SANCTIONED domain bridge (modularization-review.md §E3): the
+// local→domain normalization (formerly publish.normalizeORB) lives in
+// NormalizeIntent here, so publish switches only on domain intent types and no
+// longer imports strategy/orb. The pure orb.SignalIntent never escapes the adapter.
 func (s *Strategy) EvaluateIntentJSON(asOf time.Time) any {
-	return s.gen.EvaluateIntent(asOf)
+	return NormalizeIntent(s.gen.EvaluateIntent(asOf))
 }
 
 // StateSummaryJSON returns the light per-bar UI summary (engine.StateSummarizer).

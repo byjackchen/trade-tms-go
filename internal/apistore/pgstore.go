@@ -1,9 +1,14 @@
-package api
+package apistore
 
-// pgstore.go is the production DataStore over PostgreSQL/TimescaleDB.
+// pgstore.go is the production api.DataStore over PostgreSQL/TimescaleDB.
 // Date columns are read as text ("YYYY-MM-DD"); bars_daily.ts is stored at
 // UTC midnight, so every ts -> date conversion pins AT TIME ZONE 'UTC'
 // rather than trusting the session TimeZone setting.
+//
+// This package holds the concrete pgx-backed implementations of the
+// api.stores.go interface seams, keeping the internal/api HTTP layer free of
+// any jackc/pgx dependency (matching the codebase's dedicated store-package
+// pattern: runs.Store, universe.Store, study.Store, …).
 
 import (
 	"context"
@@ -13,10 +18,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/byjackchen/trade-tms-go/internal/api"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 )
 
-// PGStore implements DataStore over a pgx pool.
+// PGStore implements api.DataStore over a pgx pool.
 type PGStore struct {
 	pool *pgxpool.Pool
 }
@@ -33,9 +39,9 @@ func parseOptionalDate(s string) (calendar.Date, error) {
 	return calendar.ParseDate(s)
 }
 
-// TableCoverage implements DataStore. One aggregate query per table; the
+// TableCoverage implements api.DataStore. One aggregate query per table; the
 // four tables are fixed (the P0 market-data schema).
-func (s *PGStore) TableCoverage(ctx context.Context) ([]TableCoverage, error) {
+func (s *PGStore) TableCoverage(ctx context.Context) ([]api.TableCoverage, error) {
 	type spec struct{ table, sql string }
 	specs := []spec{
 		{"tickers", `
@@ -59,10 +65,10 @@ func (s *PGStore) TableCoverage(ctx context.Context) ([]TableCoverage, error) {
 			       COALESCE(max(event_date)::text, '')
 			FROM tms.events`},
 	}
-	out := make([]TableCoverage, 0, len(specs))
+	out := make([]api.TableCoverage, 0, len(specs))
 	for _, sp := range specs {
 		var (
-			tc       = TableCoverage{Table: sp.table}
+			tc       = api.TableCoverage{Table: sp.table}
 			min, max string
 		)
 		if err := s.pool.QueryRow(ctx, sp.sql).Scan(&tc.Rows, &tc.Tickers, &min, &max); err != nil {
@@ -80,8 +86,8 @@ func (s *PGStore) TableCoverage(ctx context.Context) ([]TableCoverage, error) {
 	return out, nil
 }
 
-// BarSpans implements DataStore.
-func (s *PGStore) BarSpans(ctx context.Context) ([]TickerSpan, error) {
+// BarSpans implements api.DataStore.
+func (s *PGStore) BarSpans(ctx context.Context) ([]api.TickerSpan, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT ticker, count(*),
 		       min(ts AT TIME ZONE 'UTC')::date::text,
@@ -93,10 +99,10 @@ func (s *PGStore) BarSpans(ctx context.Context) ([]TickerSpan, error) {
 		return nil, fmt.Errorf("api: querying bar spans: %w", err)
 	}
 	defer rows.Close()
-	var out []TickerSpan
+	var out []api.TickerSpan
 	for rows.Next() {
 		var (
-			sp          TickerSpan
+			sp          api.TickerSpan
 			first, last string
 		)
 		if err := rows.Scan(&sp.Ticker, &sp.Bars, &first, &last); err != nil {
@@ -116,7 +122,7 @@ func (s *PGStore) BarSpans(ctx context.Context) ([]TickerSpan, error) {
 	return out, nil
 }
 
-// BarDates implements DataStore.
+// BarDates implements api.DataStore.
 func (s *PGStore) BarDates(ctx context.Context, ticker string) ([]calendar.Date, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT DISTINCT (ts AT TIME ZONE 'UTC')::date::text
@@ -145,7 +151,7 @@ func (s *PGStore) BarDates(ctx context.Context, ticker string) ([]calendar.Date,
 	return out, nil
 }
 
-// TickerExists implements DataStore.
+// TickerExists implements api.DataStore.
 func (s *PGStore) TickerExists(ctx context.Context, ticker string) (bool, error) {
 	var exists bool
 	err := s.pool.QueryRow(ctx,
@@ -162,10 +168,10 @@ func escapeLike(s string) string {
 	return r.Replace(s)
 }
 
-// SearchTickers implements DataStore: ticker-prefix OR name-substring,
+// SearchTickers implements api.DataStore: ticker-prefix OR name-substring,
 // case-insensitive; exact ticker match ranks first, then prefix matches,
 // then alphabetical.
-func (s *PGStore) SearchTickers(ctx context.Context, q string, limit int) ([]TickerMeta, error) {
+func (s *PGStore) SearchTickers(ctx context.Context, q string, limit int) ([]api.TickerMeta, error) {
 	esc := escapeLike(q)
 	rows, err := s.pool.Query(ctx, `
 		SELECT ticker, COALESCE(name, ''), COALESCE(exchange, ''), is_delisted,
@@ -184,9 +190,9 @@ func (s *PGStore) SearchTickers(ctx context.Context, q string, limit int) ([]Tic
 		return nil, fmt.Errorf("api: searching tickers %q: %w", q, err)
 	}
 	defer rows.Close()
-	var out []TickerMeta
+	var out []api.TickerMeta
 	for rows.Next() {
-		var m TickerMeta
+		var m api.TickerMeta
 		if err := rows.Scan(&m.Ticker, &m.Name, &m.Exchange, &m.IsDelisted,
 			&m.Category, &m.Sector, &m.Industry, &m.Table,
 			&m.FirstPriceDate, &m.LastPriceDate, &m.DelistDate); err != nil {
@@ -200,8 +206,8 @@ func (s *PGStore) SearchTickers(ctx context.Context, q string, limit int) ([]Tic
 	return out, nil
 }
 
-// SyncWatermarks implements DataStore.
-func (s *PGStore) SyncWatermarks(ctx context.Context) ([]SyncWatermark, error) {
+// SyncWatermarks implements api.DataStore.
+func (s *PGStore) SyncWatermarks(ctx context.Context) ([]api.SyncWatermark, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT dataset, last_sync, row_count, schema_version, updated_at
 		FROM tms.dataset_sync
@@ -210,10 +216,10 @@ func (s *PGStore) SyncWatermarks(ctx context.Context) ([]SyncWatermark, error) {
 		return nil, fmt.Errorf("api: querying sync watermarks: %w", err)
 	}
 	defer rows.Close()
-	var out []SyncWatermark
+	var out []api.SyncWatermark
 	for rows.Next() {
 		var (
-			w        SyncWatermark
+			w        api.SyncWatermark
 			lastSync *time.Time
 		)
 		if err := rows.Scan(&w.Dataset, &lastSync, &w.RowCount, &w.SchemaVersion, &w.UpdatedAt); err != nil {
@@ -228,7 +234,7 @@ func (s *PGStore) SyncWatermarks(ctx context.Context) ([]SyncWatermark, error) {
 	return out, nil
 }
 
-// QueueDepth implements SystemReader: one grouped count over tms.jobs for the
+// QueueDepth implements api.SystemReader: one grouped count over tms.jobs for the
 // two non-terminal states (queued / running). A single round trip.
 func (s *PGStore) QueueDepth(ctx context.Context) (queued, running int, err error) {
 	err = s.pool.QueryRow(ctx, `
@@ -242,7 +248,7 @@ func (s *PGStore) QueueDepth(ctx context.Context) (queued, running int, err erro
 	return queued, running, nil
 }
 
-// ActiveSessions implements SystemReader: the count of live sessions in the
+// ActiveSessions implements api.SystemReader: the count of live sessions in the
 // RUNNING state (the unique partial index guarantees at most one per trader,
 // but a multi-trader deployment can have several).
 func (s *PGStore) ActiveSessions(ctx context.Context) (int, error) {
@@ -254,7 +260,7 @@ func (s *PGStore) ActiveSessions(ctx context.Context) (int, error) {
 	return n, nil
 }
 
-// DataFreshness implements SystemReader: the most recent stored daily-bar date
+// DataFreshness implements api.SystemReader: the most recent stored daily-bar date
 // (the market-data horizon) and the most recent dataset-sync wall-clock time
 // (when the data was last refreshed). Both are "" / nil when no data exists.
 func (s *PGStore) DataFreshness(ctx context.Context) (latestBarDate string, lastSyncAt *time.Time, err error) {
@@ -270,8 +276,8 @@ func (s *PGStore) DataFreshness(ctx context.Context) (latestBarDate string, last
 	return latestBarDate, lastSyncAt, nil
 }
 
-// SyncRuns implements DataStore.
-func (s *PGStore) SyncRuns(ctx context.Context, dataset string, limit int) ([]SyncRun, error) {
+// SyncRuns implements api.DataStore.
+func (s *PGStore) SyncRuns(ctx context.Context, dataset string, limit int) ([]api.SyncRun, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, dataset, kind, started_at, finished_at, rows_added, status,
 		       COALESCE(error, '')
@@ -283,9 +289,9 @@ func (s *PGStore) SyncRuns(ctx context.Context, dataset string, limit int) ([]Sy
 		return nil, fmt.Errorf("api: querying sync runs: %w", err)
 	}
 	defer rows.Close()
-	var out []SyncRun
+	var out []api.SyncRun
 	for rows.Next() {
-		var r SyncRun
+		var r api.SyncRun
 		if err := rows.Scan(&r.ID, &r.Dataset, &r.Kind, &r.StartedAt, &r.FinishedAt,
 			&r.RowsAdded, &r.Status, &r.Error); err != nil {
 			return nil, fmt.Errorf("api: scanning sync run: %w", err)
@@ -298,8 +304,8 @@ func (s *PGStore) SyncRuns(ctx context.Context, dataset string, limit int) ([]Sy
 	return out, nil
 }
 
-// compile-time checks: PGStore is both the DataStore and the SystemReader.
+// compile-time checks: PGStore is both the api.DataStore and the api.SystemReader.
 var (
-	_ DataStore    = (*PGStore)(nil)
-	_ SystemReader = (*PGStore)(nil)
+	_ api.DataStore    = (*PGStore)(nil)
+	_ api.SystemReader = (*PGStore)(nil)
 )

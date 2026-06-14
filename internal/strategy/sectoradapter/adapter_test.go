@@ -7,7 +7,7 @@ import (
 
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine"
-	sr "github.com/byjackchen/trade-tms-go/internal/strategy/sector_rotation"
+	"github.com/byjackchen/trade-tms-go/internal/strategy/sectorrotation"
 )
 
 // recSub records SubmitMarket calls and answers net-position queries, standing
@@ -40,7 +40,7 @@ var _ engine.PositionReader = (*recSub)(nil)
 
 func mkAdapter(t *testing.T) *Strategy {
 	t.Helper()
-	sg, err := sr.New(sr.Config{
+	sg, err := sectorrotation.New(sectorrotation.Config{
 		EquityProvider:   func() float64 { return 100000 },
 		Universe:         []string{"AAA", "BBB", "CCC", "DDD"},
 		MomentumLookback: 20,
@@ -48,7 +48,7 @@ func mkAdapter(t *testing.T) *Strategy {
 		Timezone:         "America/New_York",
 	})
 	if err != nil {
-		t.Fatalf("sr.New: %v", err)
+		t.Fatalf("sectorrotation.New: %v", err)
 	}
 	a, err := New("SectorRotationRunner-000", sg)
 	if err != nil {

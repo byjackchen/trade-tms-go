@@ -124,7 +124,9 @@ func TestORBAdapterImplementsSeamAndTrades(t *testing.T) {
 
 	// Capability surfaces.
 	sub.net = 0
-	if it, ok := a.EvaluateIntentJSON(orbSeamBar(t, 15, 55, "1", "1", "1", "1", 0).TS).(orb.SignalIntent); !ok || it.StrategyID != orb.StrategyID {
+	// §E3: the adapter is the domain bridge — EvaluateIntentJSON returns the
+	// canonical domain.IntradayBreakoutIntent (not the pure orb.SignalIntent).
+	if it, ok := a.EvaluateIntentJSON(orbSeamBar(t, 15, 55, "1", "1", "1", "1", 0).TS).(domain.IntradayBreakoutIntent); !ok || it.StrategyID != orb.StrategyID {
 		t.Fatalf("EvaluateIntentJSON returned %T", a.EvaluateIntentJSON(time.Now()))
 	}
 	if sm, ok := a.StateSummaryJSON().(orb.StateSummary); !ok || sm.Symbol != "AAPL" {

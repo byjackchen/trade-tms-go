@@ -4,32 +4,31 @@ package publish
 // engine.IntentEvaluator.EvaluateIntentJSON into a single, spec-faithful shape
 // the persistence + Redis layers consume.
 //
-// The four strategies return DIFFERENT Go types from EvaluateIntentJSON:
+// Every strategy adapter now hands publish a canonical DOMAIN intent type (the
+// SANCTIONED domain bridge lives in each adapter — modularization-review.md §E3):
 //
-//   - SEPA  -> sepa.SignalIntent          (one per symbol; local type, no json tags)
-//   - ORB   -> orb.SignalIntent           (one per symbol; local type, no json tags)
-//   - Pairs -> []domain.PairsSignalIntent (2N legs; domain type, snake_case tags)
-//   - Sector-> []domain.SectorRotationIntent (one per ETF; domain type, tags)
+//   - SEPA  -> domain.SEPASignalIntent        (one per symbol; sepaadapter bridge)
+//   - ORB   -> domain.IntradayBreakoutIntent   (one per symbol; orbadapter bridge)
+//   - Pairs -> []domain.PairsSignalIntent      (2N legs)
+//   - Sector-> []domain.SectorRotationIntent   (one per ETF)
+//
+// publish therefore switches ONLY on domain intent types and imports no concrete
+// strategy package — the local sepa.SignalIntent / orb.SignalIntent never reach
+// here (their local→domain conversion was relocated into sepaadapter/orbadapter,
+// the only packages that legitimately import both the zero-domain pure strategy
+// package and domain).
 //
 // We MUST persist the canonical snake_case wire shape (api-ws-redis.md §2.6/§5.9
 // — the SignalIntentUnion the cockpit decodes), and we MUST derive the
 // live.signal_intents discriminator columns (strategy_id, symbol, state,
 // strength, proximity_to_trigger_pct, generation) so the row's CHECK
 // constraints are satisfied and the UI's (symbol, strategy_id) dedup works.
-//
-// Rather than reflect over un-tagged local structs (fragile), we convert each
-// concrete type explicitly to the matching domain.*SignalIntent (which carries
-// the byte-identical Python field names + tags), then marshal THAT. This keeps
-// the wire output spec-faithful for every strategy and is the only place that
-// knows each strategy's intent shape.
 
 import (
 	"encoding/json"
 	"fmt"
 
 	"github.com/byjackchen/trade-tms-go/internal/domain"
-	"github.com/byjackchen/trade-tms-go/internal/strategy/orb"
-	"github.com/byjackchen/trade-tms-go/internal/strategy/sepa"
 )
 
 // NormalizedIntent is one strategy signal flattened to the persistence + wire
@@ -77,13 +76,13 @@ func (n NormalizedIntent) IntentJSON() (json.RawMessage, error) {
 // register its conversion here — fail loudly rather than silently drop signals).
 func NormalizeIntent(v any) ([]NormalizedIntent, error) {
 	switch t := v.(type) {
-	case sepa.SignalIntent:
+	case domain.SEPASignalIntent:
 		return []NormalizedIntent{normalizeSEPA(t)}, nil
-	case *sepa.SignalIntent:
+	case *domain.SEPASignalIntent:
 		return []NormalizedIntent{normalizeSEPA(*t)}, nil
-	case orb.SignalIntent:
+	case domain.IntradayBreakoutIntent:
 		return []NormalizedIntent{normalizeORB(t)}, nil
-	case *orb.SignalIntent:
+	case *domain.IntradayBreakoutIntent:
 		return []NormalizedIntent{normalizeORB(*t)}, nil
 	case domain.PairsSignalIntent:
 		return []NormalizedIntent{normalizePairs(t)}, nil
@@ -106,59 +105,32 @@ func NormalizeIntent(v any) ([]NormalizedIntent, error) {
 	}
 }
 
-// normalizeSEPA converts the local sepa.SignalIntent (no json tags) to the
-// domain.SEPASignalIntent (byte-identical Python field tags) and the
-// discriminator columns. Decimal price strings ("" == nil) become *domain.Price.
-func normalizeSEPA(s sepa.SignalIntent) NormalizedIntent {
-	d := domain.NewSEPASignalIntent()
-	d.Symbol = s.Symbol
-	d.State = domain.SignalState(s.State)
-	d.Strength = s.Strength
-	d.ProximityToTriggerPct = s.ProximityToTriggerP
-	d.UpdatedAt = s.UpdatedAt.UTC()
-	d.Generation = int64(s.Generation)
-	d.Grade = s.Grade
-	d.TrendTemplatePass = s.TrendTemplatePass
-	d.BaseAgeDays = s.BaseAgeDays
-	d.BaseDepthPct = s.BaseDepthPct
-	d.VolumeDryup = s.VolumeDryup
-	d.PivotPrice = priceStrPtr(s.PivotPrice)
-	d.StopPrice = priceStrPtr(s.StopPrice)
-	d.RSRank = s.RSRank
+// normalizeSEPA flattens one already-domain SEPASignalIntent (one per symbol),
+// extracting the live.signal_intents discriminator columns. The local→domain
+// field mapping was relocated into sepaadapter (the sanctioned bridge, §E3); this
+// only carries the canonical payload + its discriminators.
+func normalizeSEPA(d domain.SEPASignalIntent) NormalizedIntent {
 	return NormalizedIntent{
 		StrategyID:            domain.StrategyIDSEPA,
-		Symbol:                s.Symbol,
-		State:                 domain.SignalState(s.State),
-		Strength:              s.Strength,
-		ProximityToTriggerPct: s.ProximityToTriggerP,
-		Generation:            int64(s.Generation),
+		Symbol:                d.Symbol,
+		State:                 d.State,
+		Strength:              d.Strength,
+		ProximityToTriggerPct: d.ProximityToTriggerPct,
+		Generation:            d.Generation,
 		Payload:               d,
 	}
 }
 
-// normalizeORB converts the local orb.SignalIntent to domain.IntradayBreakoutIntent.
-func normalizeORB(s orb.SignalIntent) NormalizedIntent {
-	d := domain.NewIntradayBreakoutIntent()
-	d.Symbol = s.Symbol
-	d.State = domain.SignalState(s.State)
-	d.Strength = s.Strength
-	d.ProximityToTriggerPct = s.ProximityToTriggerPct
-	d.UpdatedAt = s.UpdatedAt.UTC()
-	d.Generation = int64(s.Generation)
-	d.ORBHigh = priceStrPtr(s.ORBHigh)
-	d.ORBLow = priceStrPtr(s.ORBLow)
-	d.ATRAtOpen = priceStrPtr(s.ATRAtOpen) // always nil (reserved)
-	if s.EntryWindowEnd != nil {
-		w := s.EntryWindowEnd.UTC()
-		d.EntryWindowEnd = &w
-	}
+// normalizeORB flattens one already-domain IntradayBreakoutIntent (one per
+// symbol). The local→domain mapping was relocated into orbadapter (§E3).
+func normalizeORB(d domain.IntradayBreakoutIntent) NormalizedIntent {
 	return NormalizedIntent{
 		StrategyID:            domain.StrategyIDIntradayBreakout,
-		Symbol:                s.Symbol,
-		State:                 domain.SignalState(s.State),
-		Strength:              s.Strength,
-		ProximityToTriggerPct: s.ProximityToTriggerPct,
-		Generation:            int64(s.Generation),
+		Symbol:                d.Symbol,
+		State:                 d.State,
+		Strength:              d.Strength,
+		ProximityToTriggerPct: d.ProximityToTriggerPct,
+		Generation:            d.Generation,
 		Payload:               d,
 	}
 }
@@ -189,19 +161,4 @@ func normalizeSector(it domain.SectorRotationIntent) NormalizedIntent {
 		Generation:            it.Generation,
 		Payload:               it,
 	}
-}
-
-// priceStrPtr parses a str(Decimal) price ("" == nil) into a *domain.Price.
-// A non-empty value that fails to parse is dropped to nil (the reference's
-// "" == nil convention treats an unparseable price as absent rather than
-// crashing the publish path).
-func priceStrPtr(s string) *domain.Price {
-	if s == "" {
-		return nil
-	}
-	p, err := domain.ParsePrice(s)
-	if err != nil {
-		return nil
-	}
-	return &p
 }

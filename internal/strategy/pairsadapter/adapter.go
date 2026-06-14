@@ -1,22 +1,3 @@
-// Package pairsadapter bridges the PURE Pairs SignalGenerator
-// (internal/strategy/pairs) to the engine-facing Strategy seam
-// (internal/engine), translating each emitted Signal into a market order
-// exactly as the reference PairsRunner._submit_for_signal
-// (strategy-pairs.md §10, nautilus_runner.py):
-//
-//   - LONG  -> market BUY of target_qty
-//   - SHORT -> market SELL of target_qty (margin account)
-//   - FLAT  -> close the live net engine position (SELL if long, BUY if short);
-//     a flat book is a no-op. FLAT sizes from the broker's ACTUAL net position,
-//     NOT from the SG leg_position, so it survives partial fills / manual
-//     intervention.
-//
-// This package — NOT the pure pairs package — is the only place that imports
-// engine, preserving the Eng-D2 two-layer constraint: the core strategy
-// package never imports broker/engine code. It implements the P3 capability
-// seams (IntentEvaluator, StateSummarizer, StatePersister) the engine probes by
-// type assertion. Pairs consumes no per-bar context, so ContextConsumer is
-// intentionally NOT implemented.
 package pairsadapter
 
 import (
@@ -83,32 +64,14 @@ func (s *Strategy) OnBar(sub engine.OrderSubmitter, bar domain.Bar) error {
 				return err
 			}
 		case domain.SideFlat:
-			net := s.netPosition(sub, sig.Symbol)
-			side, ok := domain.CloseSideFor(net)
-			if !ok {
-				continue // already flat
-			}
-			qty := net
-			if qty < 0 {
-				qty = -qty
-			}
-			reason := fmt.Sprintf("%s :: FLAT (close %d)", sig.Reason, net)
-			if _, err := sub.SubmitMarket(s.id, sig.Symbol, side, qty, reason, sig.TS); err != nil {
+			if _, err := engine.CloseToFlat(sub, s.id, sig.Symbol, sig.TS, func(net domain.Qty) string {
+				return fmt.Sprintf("%s :: FLAT (close %d)", sig.Reason, net)
+			}); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
-}
-
-// netPosition reads the strategy's live net position if the submitter exposes a
-// PositionReader; otherwise 0 (the FLAT path then no-ops, matching a book the
-// engine has already flattened).
-func (s *Strategy) netPosition(sub engine.OrderSubmitter, sym string) domain.Qty {
-	if pr, ok := sub.(engine.PositionReader); ok {
-		return pr.NetPosition(s.id, sym)
-	}
-	return 0
 }
 
 // EvaluateIntentJSON returns the 2N per-leg PairsSignalIntent slice for asOf as

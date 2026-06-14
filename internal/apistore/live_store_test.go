@@ -1,24 +1,27 @@
 //go:build integration
 
-package api
+package apistore
 
-// live_trading_test.go validates the paper/live trading READ surface
+// live_store_test.go validates the paper/live trading READ surface
 // (LiveStore.RecentOrders/RecentFills/OpenPositions/LatestReconciliation)
 // against the real schema: it inserts trading rows directly and asserts the
 // store returns them with correct 1e-4 fixed-point -> float conversion.
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/byjackchen/trade-tms-go/internal/testutil/pgtest"
 )
 
+func TestMain(m *testing.M) { os.Exit(pgtest.Run(m, "apistore")) }
+
 func TestLiveStoreTradingReads(t *testing.T) {
-	if itestPool == nil {
-		t.Skipf("skipping: ephemeral postgres unavailable (%s)", pgUnavailable)
-	}
+	itestPool := pgtest.RequirePG(t)
 	ctx := context.Background()
 	_, err := itestPool.Exec(ctx, `TRUNCATE tms.sessions, tms.orders, tms.fills, tms.positions,
 		tms.reconciliation_reports RESTART IDENTITY CASCADE`)
@@ -85,9 +88,7 @@ func TestLiveStoreTradingReads(t *testing.T) {
 // be included in day P/L even though OpenPositions excludes it. Before the fix,
 // handleLiveAccount summed realized over OpenPositions only and reported $0.
 func TestSessionRealizedPnLIncludesClosed(t *testing.T) {
-	if itestPool == nil {
-		t.Skipf("skipping: ephemeral postgres unavailable (%s)", pgUnavailable)
-	}
+	itestPool := pgtest.RequirePG(t)
 	ctx := context.Background()
 	_, err := itestPool.Exec(ctx, `TRUNCATE tms.sessions, tms.positions RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)

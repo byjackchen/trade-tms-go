@@ -161,17 +161,19 @@ func (g *GatedSubmitter) SubmitMarketSignal(strategyID, symbol string, signalSid
 		return "", false, nil
 	}
 
-	// Portfolio gate (allocator budget + aggregate risk constraints).
+	// Portfolio gate (allocator budget + aggregate risk constraints), via the
+	// SHARED portfolio.GateSignal wrapper (E1): identical Check + rejection-record
+	// flow as the backtest engine. The live-only daily-loss halt above is the only
+	// extra pre-check; the sink here persists a live.risk_events row.
 	if g.gate != nil {
 		snap, err := g.account.Snapshot()
 		if err != nil {
 			return "", false, err
 		}
 		proposed := portfolio.NewProposedOrder(strategyID, symbol, signalSide, qty, price, ts)
-		decision := g.gate.Check(proposed, portfolio.SnapshotFromDomain(snap))
+		decision := portfolio.GateSignal(g.gate, proposed, portfolio.SnapshotFromDomain(snap), price,
+			gateRejectionSink{g: g, ctx: ctx})
 		if !decision.Approved {
-			g.recordRejection(ctx, decision.RuleName, decision.Reason,
-				strategyID, symbol, signalSide, qty, price, ts)
 			return "", false, nil
 		}
 	}
@@ -234,6 +236,20 @@ func (g *GatedSubmitter) dailyLossThresholdBreached() bool {
 	}
 	health := g.gate.HealthSnapshot(portfolio.SnapshotFromDomain(snap))
 	return health.IsDailyLossHalt()
+}
+
+// gateRejectionSink is the GatedSubmitter's portfolio.RejectionRecorder: it
+// routes a portfolio-gate rejection through the existing recordRejection path
+// (live.risk_events row + audit + rejected counter), preserving the Price the
+// risk-events row keeps. ctx is the per-submit context captured at call time.
+type gateRejectionSink struct {
+	g   *GatedSubmitter
+	ctx context.Context
+}
+
+func (s gateRejectionSink) RecordRejection(r portfolio.Rejection) {
+	s.g.recordRejection(s.ctx, r.RuleName, r.Reason,
+		r.StrategyID, r.Symbol, r.Side, r.Qty, r.Price, r.TS)
 }
 
 // recordRejection persists a rejected gate decision + bumps the rejected counter.

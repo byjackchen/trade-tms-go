@@ -7,7 +7,7 @@ package params
 //
 // Usage (engine assembly):
 //
-//	ld := params.NewLoader(params.DBPayloadReader{Q: pool}, cfg.StrategyParamsDir)
+//	ld := params.NewLoader(paramsdb.NewReader(pool), cfg.StrategyParamsDir)
 //	sepa, err := ld.SEPA(ctx)          // resolved + validated SEPAParams
 //
 // Strategy ids are the canonical Python stems.

@@ -26,29 +26,29 @@ func TestConfigValidation(t *testing.T) {
 		RiskPct: 1.0, MarketCapMinUSD: 5e8, HardStopPct: 7.5, PivotBufferPct: 1.5,
 		BreakoutVolumeMultiple: 1.5, VCPLookback: 5, HistoryMaxBars: 1000, Timezone: "America/New_York",
 	}
-	if _, err := NewGenerator(good); err != nil {
+	if _, err := New(good); err != nil {
 		t.Fatalf("good config rejected: %v", err)
 	}
 
 	nilEq := good
 	nilEq.EquityProvider = nil
-	if _, err := NewGenerator(nilEq); err == nil || !errors.Is(err, ErrInvalidConfig) {
+	if _, err := New(nilEq); err == nil || !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("nil equity provider not rejected: %v", err)
 	}
 
 	badRisk := good
 	badRisk.RiskPct = 0
-	if _, err := NewGenerator(badRisk); err == nil {
+	if _, err := New(badRisk); err == nil {
 		t.Fatal("risk_pct=0 not rejected")
 	}
 	badRisk.RiskPct = 100.01
-	if _, err := NewGenerator(badRisk); err == nil {
+	if _, err := New(badRisk); err == nil {
 		t.Fatal("risk_pct>100 not rejected")
 	}
 
 	badStop := good
 	badStop.HardStopPct = 0
-	if _, err := NewGenerator(badStop); err == nil {
+	if _, err := New(badStop); err == nil {
 		t.Fatal("hard_stop_pct=0 not rejected")
 	}
 }
@@ -210,7 +210,7 @@ func TestStateDictRoundTripWhenFlat(t *testing.T) {
 }
 
 func TestWarmupFromHistoryCapsAtMax(t *testing.T) {
-	g, err := NewGenerator(Config{
+	g, err := New(Config{
 		Symbol: "NVDA", EquityProvider: func() float64 { return 100000 },
 		RiskPct: 1.0, MarketCapMinUSD: 5e8, HardStopPct: 7.5, PivotBufferPct: 1.5,
 		BreakoutVolumeMultiple: 1.5, VCPLookback: 5, HistoryMaxBars: 200, Timezone: "America/New_York",

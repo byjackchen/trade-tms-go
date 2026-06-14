@@ -2,14 +2,21 @@
 // the home of a protocol-faithful in-repo mock OpenD server (subpackage mock).
 //
 // It speaks the OpenD wire protocol directly — no Python sidecar — implementing
-// the P5 MARKET-DATA + SESSION surface only:
+// both the MARKET-DATA + SESSION surface and the TRADING (Trd_*) surface:
 //
 //	InitConnect (1001), GetGlobalState (1002), KeepAlive (1004),
 //	Qot_Sub (3001), Qot_RegQotPush (3002), Qot_GetSubInfo (3003),
 //	Qot_GetBasicQot (3004), Qot_GetKL (3006), Qot_UpdateKL (3007, push),
-//	Qot_RequestHistoryKL (3103).
+//	Qot_RequestHistoryKL (3103);
+//	Trd_GetAccList (2001), Trd_UnlockTrade (2005), Trd_GetFunds (2101),
+//	Trd_GetPositionList (2102), Trd_GetOrderList (2201), Trd_PlaceOrder (2202),
+//	Trd_UpdateOrder (2208, push), Trd_GetOrderFillList (2211),
+//	Trd_UpdateOrderFill (2218, push).
 //
-// Trading (Trd_*) is intentionally NOT implemented (deferred to P6).
+// Trading is implemented in trd_client.go / trd_convert.go (place-order,
+// unlock-trade, funds/positions/orders queries and the order/fill push
+// handling); modify/cancel-order (Trd_ModifyOrder, 2205) is not wired and its
+// generated binding is intentionally absent from the regenerated set.
 //
 // # Wire protocol
 //

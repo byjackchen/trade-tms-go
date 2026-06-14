@@ -152,7 +152,7 @@ func mkSG(t *testing.T, o sgOpt) *Generator {
 		o.equity = 100000
 	}
 	equity := o.equity
-	g, err := NewGenerator(Config{
+	g, err := New(Config{
 		Symbol:                 o.symbol,
 		EquityProvider:         func() float64 { return equity },
 		RiskPct:                1.0,
@@ -165,7 +165,7 @@ func mkSG(t *testing.T, o sgOpt) *Generator {
 		Timezone:               "America/New_York",
 	})
 	if err != nil {
-		t.Fatalf("NewGenerator: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	g.SetMarketCap(o.marketCap)
 	g.SetRegime(o.regime)

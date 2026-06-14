@@ -20,7 +20,6 @@ package livengine
 import (
 	"context"
 	"fmt"
-	"sort"
 	"sync/atomic"
 	"time"
 
@@ -244,24 +243,16 @@ func (s *Session) Prime(ctx context.Context) error {
 	if s.cfg.Warmup == nil || len(s.cfg.WarmupSymbols) == 0 {
 		return nil
 	}
-	syms := append([]string(nil), s.cfg.WarmupSymbols...)
-	sort.Strings(syms)
-	for _, st := range s.cfg.Strategies {
-		wc, ok := st.(engine.WarmupConsumer)
-		if !ok {
-			continue
+	// Drive the SHARED engine.PrimeWarmup loop (per-symbol fan-out + per-strategy
+	// WarmupConsumer self-filter is identical to the batch path; F3). The only
+	// difference is the bar source: here a WarmupProvider query (which may error).
+	return engine.PrimeWarmup(s.cfg.Strategies, s.cfg.WarmupSymbols, func(sym string) ([]domain.Bar, error) {
+		hist, err := s.cfg.Warmup.WarmupBars(ctx, sym)
+		if err != nil {
+			return nil, fmt.Errorf("livengine: warmup %s: %w", sym, err)
 		}
-		for _, sym := range syms {
-			hist, err := s.cfg.Warmup.WarmupBars(ctx, sym)
-			if err != nil {
-				return fmt.Errorf("livengine: warmup %s: %w", sym, err)
-			}
-			if len(hist) > 0 {
-				wc.WarmupBars(sym, hist)
-			}
-		}
-	}
-	return nil
+		return hist, nil
+	})
 }
 
 // RunStream drives the live loop over feed using the chosen clock discipline.
@@ -360,21 +351,11 @@ func (s *Session) onBar(ctx context.Context, bar domain.Bar) error {
 	return nil
 }
 
-// injectContext snapshots the shared context state into every ContextConsumer,
-// identical to engine.injectContext.
+// injectContext snapshots the shared context state into every ContextConsumer
+// via the SHARED engine.InjectContextInto seam (so the batch + streaming paths
+// build the StrategyContext identically; F3/E2).
 func (s *Session) injectContext(asOf time.Time) {
-	if len(s.ctxCons) == 0 || s.ctxStat == nil {
-		return
-	}
-	ctx := engine.StrategyContext{
-		Regime:           s.ctxStat.Regime(),
-		AsOf:             asOf,
-		MarketCapUSD:     s.ctxStat.MarketCapFloats(),
-		EarningsBlackout: s.ctxStat.EarningsBlackouts(),
-	}
-	for _, cc := range s.ctxCons {
-		cc.InjectContext(ctx)
-	}
+	engine.InjectContextInto(s.ctxCons, asOf, s.ctxStat)
 }
 
 // flushTimestamp evaluates and emits every strategy's SignalIntent for the

@@ -15,7 +15,7 @@ import (
 )
 
 // LiveTradingReader is the paper/live trading read surface (PG-backed; satisfied
-// by *LiveStore). It extends the signal-mode LiveReader.
+// by *apistore.LiveStore). It extends the signal-mode LiveReader.
 type LiveTradingReader interface {
 	// RecentOrders returns up to limit newest orders, optionally filtered by symbol.
 	RecentOrders(ctx context.Context, symbol string, limit int) ([]LiveOrder, error)

@@ -1,6 +1,6 @@
-package api
+package apistore
 
-// live_store.go is the PG-backed LiveReader: it reads the live cockpit
+// live_store.go is the PG-backed api.LiveReader: it reads the live cockpit
 // snapshots from the durable tms.* tables (decision 5: PG is truth). The
 // PortfolioHealth snapshot is reconstructed from the latest health stream
 // mirror; since signal mode persists no health table, the read derives the
@@ -15,6 +15,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/byjackchen/trade-tms-go/internal/api"
 )
 
 // LiveStore reads live cockpit state from PostgreSQL.
@@ -26,9 +28,9 @@ type LiveStore struct {
 func NewLiveStore(pool *pgxpool.Pool) *LiveStore { return &LiveStore{pool: pool} }
 
 // LatestSession returns the most recent session with its active halt (if any).
-func (s *LiveStore) LatestSession(ctx context.Context) (*LiveSession, error) {
+func (s *LiveStore) LatestSession(ctx context.Context) (*api.LiveSession, error) {
 	var (
-		sess    LiveSession
+		sess    api.LiveSession
 		ended   *time.Time
 		cfgText string
 	)
@@ -48,7 +50,7 @@ func (s *LiveStore) LatestSession(ctx context.Context) (*LiveSession, error) {
 	sess.Config = json.RawMessage(cfgText)
 
 	// Active halt (cleared_at IS NULL), most recent.
-	var halt LiveHalt
+	var halt api.LiveHalt
 	herr := s.pool.QueryRow(ctx, `
 		SELECT kind, reason, triggered_at
 		  FROM tms.halts
@@ -65,7 +67,7 @@ func (s *LiveStore) LatestSession(ctx context.Context) (*LiveSession, error) {
 
 // RecentIntents returns up to limit newest signal intents, optionally filtered
 // by strategy_id.
-func (s *LiveStore) RecentIntents(ctx context.Context, strategyID string, limit int) ([]LiveIntent, error) {
+func (s *LiveStore) RecentIntents(ctx context.Context, strategyID string, limit int) ([]api.LiveIntent, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -92,9 +94,9 @@ func (s *LiveStore) RecentIntents(ctx context.Context, strategyID string, limit 
 	}
 	defer rows.Close()
 
-	var out []LiveIntent
+	var out []api.LiveIntent
 	for rows.Next() {
-		var it LiveIntent
+		var it api.LiveIntent
 		var intentText string
 		if err := rows.Scan(&it.StrategyID, &it.Symbol, &it.State, &it.Strength,
 			&it.Generation, &intentText, &it.TS, &it.TSEventNS); err != nil {
@@ -110,7 +112,7 @@ func (s *LiveStore) RecentIntents(ctx context.Context, strategyID string, limit 
 // holds no positions, so the snapshot is the flat-book starting NAV (day P&L 0,
 // no halt — decision 6); it is derived deterministically (no health table), so
 // the cockpit health panel always has a value while a session is running.
-func (s *LiveStore) LatestHealth(ctx context.Context) (*LiveHealth, error) {
+func (s *LiveStore) LatestHealth(ctx context.Context) (*api.LiveHealth, error) {
 	sess, err := s.LatestSession(ctx)
 	if err != nil {
 		return nil, err
@@ -119,7 +121,7 @@ func (s *LiveStore) LatestHealth(ctx context.Context) (*LiveHealth, error) {
 		return nil, nil
 	}
 	// Flat-book signal-mode health: zeros + the session start as the as-of ts.
-	return &LiveHealth{
+	return &api.LiveHealth{
 		DayPnL:           0,
 		DayPnLPct:        0,
 		DailyLossHalt:    false,
@@ -158,7 +160,7 @@ func (s *LiveStore) Watchlist(ctx context.Context) ([]string, error) {
 func fixed4(v int64) float64 { return float64(v) / 10000.0 }
 
 // RecentOrders returns up to limit newest orders, optionally filtered by symbol.
-func (s *LiveStore) RecentOrders(ctx context.Context, symbol string, limit int) ([]LiveOrder, error) {
+func (s *LiveStore) RecentOrders(ctx context.Context, symbol string, limit int) ([]api.LiveOrder, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -177,9 +179,9 @@ func (s *LiveStore) RecentOrders(ctx context.Context, symbol string, limit int) 
 		return nil, err
 	}
 	defer rows.Close()
-	var out []LiveOrder
+	var out []api.LiveOrder
 	for rows.Next() {
-		var o LiveOrder
+		var o api.LiveOrder
 		var avgPx, _qty, _filled int64
 		if err := rows.Scan(&o.ClientOrderID, &o.VenueOrderID, &o.StrategyID, &o.Symbol, &o.Side,
 			&_qty, &_filled, &avgPx, &o.Status, &o.Reason, &o.TS); err != nil {
@@ -192,7 +194,7 @@ func (s *LiveStore) RecentOrders(ctx context.Context, symbol string, limit int) 
 }
 
 // RecentFills returns up to limit newest fills, optionally filtered by symbol.
-func (s *LiveStore) RecentFills(ctx context.Context, symbol string, limit int) ([]LiveFill, error) {
+func (s *LiveStore) RecentFills(ctx context.Context, symbol string, limit int) ([]api.LiveFill, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -209,9 +211,9 @@ func (s *LiveStore) RecentFills(ctx context.Context, symbol string, limit int) (
 		return nil, err
 	}
 	defer rows.Close()
-	var out []LiveFill
+	var out []api.LiveFill
 	for rows.Next() {
-		var f LiveFill
+		var f api.LiveFill
 		var px, fee int64
 		if err := rows.Scan(&f.TradeID, &f.Symbol, &f.Qty, &px, &fee, &f.TS); err != nil {
 			return nil, err
@@ -223,7 +225,7 @@ func (s *LiveStore) RecentFills(ctx context.Context, symbol string, limit int) (
 }
 
 // OpenPositions returns the live position book (non-flat positions).
-func (s *LiveStore) OpenPositions(ctx context.Context) ([]LiveTradePosition, error) {
+func (s *LiveStore) OpenPositions(ctx context.Context) ([]api.LiveTradePosition, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT strategy_id, symbol, signed_qty, COALESCE(avg_entry_px,0), realized_pnl_usd, status
 		  FROM tms.positions
@@ -233,9 +235,9 @@ func (s *LiveStore) OpenPositions(ctx context.Context) ([]LiveTradePosition, err
 		return nil, err
 	}
 	defer rows.Close()
-	var out []LiveTradePosition
+	var out []api.LiveTradePosition
 	for rows.Next() {
-		var p LiveTradePosition
+		var p api.LiveTradePosition
 		var avg, realized int64
 		if err := rows.Scan(&p.StrategyID, &p.Symbol, &p.SignedQty, &avg, &realized, &p.Status); err != nil {
 			return nil, err
@@ -261,9 +263,9 @@ func (s *LiveStore) SessionRealizedPnL(ctx context.Context) (float64, error) {
 }
 
 // LatestReconciliation returns the newest reconciliation report, or nil.
-func (s *LiveStore) LatestReconciliation(ctx context.Context) (*LiveReconciliation, error) {
+func (s *LiveStore) LatestReconciliation(ctx context.Context) (*api.LiveReconciliation, error) {
 	var (
-		rep        LiveReconciliation
+		rep        api.LiveReconciliation
 		mismatches string
 	)
 	err := s.pool.QueryRow(ctx, `
@@ -283,13 +285,13 @@ func (s *LiveStore) LatestReconciliation(ctx context.Context) (*LiveReconciliati
 		return nil, err
 	}
 	if rep.Mismatches == nil {
-		rep.Mismatches = []ReconMismatch{}
+		rep.Mismatches = []api.ReconMismatch{}
 	}
 	return &rep, nil
 }
 
 // compile-time checks.
 var (
-	_ LiveReader        = (*LiveStore)(nil)
-	_ LiveTradingReader = (*LiveStore)(nil)
+	_ api.LiveReader        = (*LiveStore)(nil)
+	_ api.LiveTradingReader = (*LiveStore)(nil)
 )

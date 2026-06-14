@@ -1,4 +1,4 @@
-package sector_rotation
+package sectorrotation
 
 import (
 	"math"

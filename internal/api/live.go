@@ -24,7 +24,7 @@ import (
 )
 
 // LiveReader is the live cockpit read surface (PG-backed; satisfied by
-// *LiveStore). All reads are best-effort newest-wins snapshots.
+// *apistore.LiveStore). All reads are best-effort newest-wins snapshots.
 type LiveReader interface {
 	// LatestSession returns the most recent session (any status), or nil when
 	// none exists.

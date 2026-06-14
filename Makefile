@@ -44,12 +44,12 @@ PARITY_NAU_OUT := $(PARITY_DIR)/nautilus_out
 PARITY_GO_OUT  := $(PARITY_DIR)/go_out
 PARITY_RUN_TS  := 2021-01-04_00-00-00
 
-.PHONY: all build test vet fmt-check itest compose-up compose-down docker-build clean \
+.PHONY: all build test vet lint fmt-check itest compose-up compose-down docker-build clean \
 	e2e-install e2e itest-full e2e-seed bench \
 	parity parity-nautilus parity-go parity-compare parity-depthwalk \
 	parity-backtest parity-backtest-bars parity-backtest-py parity-folds parity-tests
 
-all: fmt-check vet build test
+all: fmt-check vet lint build test
 
 build:
 	mkdir -p $(BIN_DIR)
@@ -78,6 +78,16 @@ bench:
 
 vet:
 	go vet ./...
+
+# Layering gate (F4): golangci-lint runs ONLY depguard, enforcing the
+# inner -> outer import contracts declared in each package's doc.go
+# (see .golangci.yml). Keeps the architecture's layering from silently
+# drifting. Resolves the binary from GOBIN/GOPATH so a plain `make lint`
+# works without golangci-lint on PATH.
+GOLANGCI_LINT ?= $(shell command -v golangci-lint 2>/dev/null || echo "$(or $(GOBIN),$(shell go env GOPATH)/bin)/golangci-lint")
+
+lint:
+	$(GOLANGCI_LINT) run ./...
 
 fmt-check:
 	@out="$$(gofmt -l .)"; \

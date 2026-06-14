@@ -33,7 +33,7 @@ func (f *fakeSub) NetPosition(_, _ string) domain.Qty { return f.net }
 
 func newGen(t *testing.T, symbol string) *sepa.Generator {
 	t.Helper()
-	g, err := sepa.NewGenerator(sepa.Config{
+	g, err := sepa.New(sepa.Config{
 		Symbol: symbol, EquityProvider: func() float64 { return 100000 },
 		RiskPct: 1.0, MarketCapMinUSD: 5e8, HardStopPct: 7.5, PivotBufferPct: 1.5,
 		BreakoutVolumeMultiple: 1.5, VCPLookback: 4, HistoryMaxBars: 1000, Timezone: "America/New_York",
@@ -42,6 +42,16 @@ func newGen(t *testing.T, symbol string) *sepa.Generator {
 		t.Fatal(err)
 	}
 	return g
+}
+
+// newAdapter constructs a sepaadapter.Strategy, failing the test on error.
+func newAdapter(t *testing.T, id string, gen *sepa.Generator) *Strategy {
+	t.Helper()
+	s, err := New(id, gen)
+	if err != nil {
+		t.Fatalf("sepaadapter.New: %v", err)
+	}
+	return s
 }
 
 func mkBar(sym string, ts time.Time, c float64, v int64) domain.Bar {
@@ -53,7 +63,7 @@ func mkBar(sym string, ts time.Time, c float64, v int64) domain.Bar {
 }
 
 func TestAdapterImplementsCapabilities(t *testing.T) {
-	var s engine.Strategy = New("SEPA-AAPL", newGen(t, "AAPL"))
+	var s engine.Strategy = newAdapter(t, "SEPA-AAPL", newGen(t, "AAPL"))
 	if _, ok := s.(engine.ContextConsumer); !ok {
 		t.Error("not a ContextConsumer")
 	}
@@ -69,7 +79,7 @@ func TestAdapterImplementsCapabilities(t *testing.T) {
 }
 
 func TestInjectContextRoutesBySymbol(t *testing.T) {
-	s := New("SEPA-AAPL", newGen(t, "AAPL"))
+	s := newAdapter(t, "SEPA-AAPL", newGen(t, "AAPL"))
 	s.InjectContext(engine.StrategyContext{
 		Regime:           "bull",
 		MarketCapUSD:     map[string]float64{"AAPL": 9e9, "MSFT": 1e9},
@@ -88,7 +98,7 @@ func TestFlatSignalClosesNetPosition(t *testing.T) {
 	// by priming a position then feeding a sub-stop bar is also heavy. Here we
 	// assert the FLAT path reverses a long net into a SELL of equal magnitude.
 	g := newGen(t, "AAPL")
-	s := New("SEPA-AAPL", g)
+	s := newAdapter(t, "SEPA-AAPL", g)
 	sub := &fakeSub{net: 100}
 	// Emit a FLAT manually by exercising submit via a crafted signal is internal;
 	// instead confirm no order when flat (net 0) and a SELL when long.
@@ -104,14 +114,14 @@ func TestFlatSignalClosesNetPosition(t *testing.T) {
 }
 
 func TestStateRoundTripJSON(t *testing.T) {
-	s := New("SEPA-AAPL", newGen(t, "AAPL"))
+	s := newAdapter(t, "SEPA-AAPL", newGen(t, "AAPL"))
 	s.InjectContext(engine.StrategyContext{Regime: "bull", MarketCapUSD: map[string]float64{"AAPL": 9e9}})
 	snap := s.StateDictJSON()
 	b, err := json.Marshal(snap)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s2 := New("SEPA-AAPL", newGen(t, "AAPL"))
+	s2 := newAdapter(t, "SEPA-AAPL", newGen(t, "AAPL"))
 	if err := s2.LoadStateJSON(b); err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -121,18 +131,69 @@ func TestStateRoundTripJSON(t *testing.T) {
 	}
 }
 
-// TestEvaluateIntentJSONReturnsRawSepaType pins the contract that the publish
-// layer relies on: EvaluateIntentJSON returns the RAW sepa.SignalIntent value
-// (NOT a private adapter struct). publish.NormalizeIntent only has a case for
-// sepa.SignalIntent; returning anything else aborts every SEPA/multi intent in
-// the signal/paper/live/EOD modes with "unsupported intent type". This is the
-// in-package half of the regression guard; the publish-side half asserts the
-// resulting wire shape (publish/intent_test.go TestNormalizeSEPAAdapterOutput).
-func TestEvaluateIntentJSONReturnsRawSepaType(t *testing.T) {
-	s := New("SEPA-AAPL", newGen(t, "AAPL"))
+// TestEvaluateIntentJSONReturnsDomainType pins the contract that the publish
+// layer relies on AFTER the §E3 domain-bridge relocation: EvaluateIntentJSON
+// returns the canonical domain.SEPASignalIntent (NOT the pure sepa.SignalIntent
+// and NOT a private adapter struct). publish.NormalizeIntent now switches only on
+// domain types; returning anything else aborts every SEPA/multi intent in the
+// signal/paper/live/EOD modes with "unsupported intent type". This is the
+// in-package half of the regression guard; the wire-shape half is
+// TestNormalizeIntentWireShape below + publish/intent_test.go
+// TestNormalizeSEPAAdapterOutput.
+func TestEvaluateIntentJSONReturnsDomainType(t *testing.T) {
+	s := newAdapter(t, "SEPA-AAPL", newGen(t, "AAPL"))
 	v := s.EvaluateIntentJSON(time.Date(2024, 1, 1, 21, 0, 0, 0, time.UTC))
-	if _, ok := v.(sepa.SignalIntent); !ok {
-		t.Fatalf("EvaluateIntentJSON must return sepa.SignalIntent for publish.NormalizeIntent; got %T", v)
+	if _, ok := v.(domain.SEPASignalIntent); !ok {
+		t.Fatalf("EvaluateIntentJSON must return domain.SEPASignalIntent for publish.NormalizeIntent; got %T", v)
+	}
+}
+
+// TestNormalizeIntentWireShape proves the relocated sepaadapter.NormalizeIntent
+// converts a pure sepa.SignalIntent (no json tags) to the spec-faithful
+// snake_case domain wire shape — the coverage formerly in publish.
+func TestNormalizeIntentWireShape(t *testing.T) {
+	prox := 1.5
+	in := sepa.SignalIntent{
+		Symbol:              "AAPL",
+		State:               sepa.StateBuy,
+		Strength:            75,
+		ProximityToTriggerP: &prox,
+		UpdatedAt:           time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC),
+		Generation:          7,
+		StrategyID:          "sepa",
+		Grade:               75,
+		TrendTemplatePass:   true,
+		PivotPrice:          "123.45",
+		StopPrice:           "118.00",
+	}
+	d := NormalizeIntent(in)
+	if d.Symbol != "AAPL" || d.State != domain.StateBuy || d.Strength != 75 || d.Generation != 7 {
+		t.Fatalf("discriminators wrong: %+v", d)
+	}
+	if d.ProximityToTriggerPct == nil || *d.ProximityToTriggerPct != 1.5 {
+		t.Fatalf("proximity not carried: %+v", d.ProximityToTriggerPct)
+	}
+	body, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		t.Fatal(err)
+	}
+	// Spec field names (snake_case), NOT the local Go field names.
+	for k, want := range map[string]any{
+		"strategy_id": "sepa", "symbol": "AAPL", "state": "buy",
+		"grade": float64(75), "trend_template_pass": true,
+	} {
+		if m[k] != want {
+			t.Fatalf("wire %q = %v, want %v", k, m[k], want)
+		}
+	}
+	for _, k := range []string{"pivot_price", "proximity_to_trigger_pct"} {
+		if _, ok := m[k]; !ok {
+			t.Fatalf("wire missing key %q", k)
+		}
 	}
 }
 

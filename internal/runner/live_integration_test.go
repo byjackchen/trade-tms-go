@@ -1,3 +1,5 @@
+//go:build integration
+
 package runner_test
 
 import (
@@ -15,7 +17,6 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
-	"github.com/byjackchen/trade-tms-go/internal/params"
 	"github.com/byjackchen/trade-tms-go/internal/publish"
 	"github.com/byjackchen/trade-tms-go/internal/runner"
 )
@@ -60,29 +61,6 @@ func sectorBars() []domain.Bar {
 		}
 	}
 	return bars
-}
-
-func intToString(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b []byte
-	for n > 0 {
-		b = append([]byte{byte('0' + n%10)}, b...)
-		n /= 10
-	}
-	return string(b)
-}
-
-// paramsSector is a wide 8-ETF sector universe with a short momentum lookback,
-// so the 4-date series produces a real rebalance.
-func paramsSector() params.SectorRotationParams {
-	return params.SectorRotationParams{
-		Universe:         []string{"E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"},
-		MomentumLookback: 2,
-		TopK:             8,
-		Timezone:         "America/New_York",
-	}
 }
 
 // countAppendRows counts streaming (as_of NULL) intent rows.

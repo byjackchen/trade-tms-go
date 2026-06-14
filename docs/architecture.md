@@ -201,6 +201,20 @@ That output is then handed to one of **two engine consumers**:
 | `engine.New` (**batch**) | `core.Loop` (queue-ordered) | `SimClock` | `exec.SimExecutor` + `FillModel` | backtest, hyperopt, EOD state-replay |
 | `livengine.NewSession` (**streaming**) | `core.StreamLoop` | `WallClock` (live) / `VirtualClock` (test) | `NoopExecutor` (signal) or injected `GatedSubmitter`→`MoomooExecutor` (paper/live) | signal, paper, live |
 
+These two consumers share the strategy/portfolio/context/warmup code and the
+`engine.OrderSubmitter` / `engine.PositionReader` seam, but they are **distinct
+loop drivers and are intentionally NOT merged into one hot-swappable engine**.
+`engine.Engine` owns its simulated venue (the concrete `*exec.SimExecutor`) and
+the batch **fill-timing** logic (`ProcessBar` / `FlushThisBar` / `FillAtBar`,
+`Model().Timing()`) that only the deterministic backtest needs; `livengine.Session`
+runs the live/paper **order lifecycle** behind an injected `engine.OrderSubmitter`
+and carries timestamp-rollover / heartbeat guards the batch path does not.
+Collapsing them would entangle the deterministic fill simulation with the live
+submission path; the split is a deliberate design choice, not incidental
+duplication. (The shared dispatch glue is the genuinely common surface to
+factor — see the F3 cross-path equivalence test — not the loop drivers
+themselves.)
+
 Component-by-component, across all five modes:
 
 | Component | Identical across modes? | Where it differs |

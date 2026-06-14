@@ -1,21 +1,17 @@
+//go:build integration
+
 package runs_test
 
 // store_pg_test.go exercises the runs.Store against a REAL PostgreSQL /
 // TimescaleDB (the equity_curves hypertable, FK cascades and partial indexes
-// cannot be faked). It uses an ephemeral docker container per test binary,
-// skipping when docker is unavailable (TMS_TEST_NO_DOCKER=1). Mirrors the
-// jobs-package harness.
+// cannot be faked). The ephemeral-container bootstrap lives in
+// internal/testutil/pgtest (shared with runner/jobs/study/api), skipping when
+// docker is unavailable (TMS_TEST_NO_DOCKER=1).
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"net"
 	"os"
-	"os/exec"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -23,111 +19,24 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/byjackchen/trade-tms-go/internal/config"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
-	"github.com/byjackchen/trade-tms-go/internal/db"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/metrics"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
+	"github.com/byjackchen/trade-tms-go/internal/testutil/pgtest"
 )
 
-const testPGImage = "timescale/timescaledb:latest-pg16"
+// testPool is the shared ephemeral pool, populated by the first requirePG call.
+var testPool *pgxpool.Pool
 
-var (
-	testPool      *pgxpool.Pool
-	pgUnavailable = "harness not initialized"
-)
+func TestMain(m *testing.M) { os.Exit(pgtest.Run(m, "runs")) }
 
-func TestMain(m *testing.M) {
-	cleanup, err := startEphemeralPG()
-	if err != nil {
-		pgUnavailable = err.Error()
-		fmt.Fprintf(os.Stderr, "runs: integration tests will skip: %v\n", err)
-		os.Exit(m.Run())
-	}
-	defer cleanup()
-	os.Exit(m.Run())
-}
-
-func startEphemeralPG() (func(), error) {
-	if os.Getenv("TMS_TEST_NO_DOCKER") == "1" {
-		return nil, errors.New("TMS_TEST_NO_DOCKER=1")
-	}
-	if _, err := exec.LookPath("docker"); err != nil {
-		return nil, fmt.Errorf("docker not on PATH: %w", err)
-	}
-	infoCtx, cancelInfo := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancelInfo()
-	if out, err := exec.CommandContext(infoCtx, "docker", "info", "--format", "{{.ServerVersion}}").CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("docker daemon unavailable: %v (%s)", err, strings.TrimSpace(string(out)))
-	}
-	name := fmt.Sprintf("tmsgo-runs-test-%d", time.Now().UnixNano())
-	runCtx, cancelRun := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancelRun()
-	out, err := exec.CommandContext(runCtx, "docker", "run", "-d", "--rm",
-		"--name", name,
-		"-e", "POSTGRES_USER=tms", "-e", "POSTGRES_PASSWORD=tms", "-e", "POSTGRES_DB=tms",
-		"-p", "127.0.0.1:0:5432",
-		testPGImage).CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("docker run: %v (%s)", err, strings.TrimSpace(string(out)))
-	}
-	stop := func() {
-		killCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		_ = exec.CommandContext(killCtx, "docker", "kill", name).Run()
-	}
-	port, err := mappedPort(name)
-	if err != nil {
-		stop()
-		return nil, err
-	}
-	cfg := &config.Config{
-		PGHost: "127.0.0.1", PGPort: port, PGUser: "tms", PGPassword: "tms",
-		PGDatabase: "tms", PGSSLMode: "disable", PGMaxConns: 16, PGMinConns: 0,
-	}
-	deadline := time.Now().Add(90 * time.Second)
-	for {
-		if err = db.MigrateUp(cfg); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			stop()
-			return nil, fmt.Errorf("postgres not ready after 90s: %w", err)
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	poolCtx, cancelPool := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancelPool()
-	pool, err := db.NewPool(poolCtx, cfg)
-	if err != nil {
-		stop()
-		return nil, fmt.Errorf("connecting test pool: %w", err)
-	}
-	testPool = pool
-	return func() { pool.Close(); stop() }, nil
-}
-
-func mappedPort(container string) (int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "docker", "port", container, "5432/tcp").CombinedOutput()
-	if err != nil {
-		return 0, fmt.Errorf("docker port: %v (%s)", err, strings.TrimSpace(string(out)))
-	}
-	line := strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0])
-	_, portStr, err := net.SplitHostPort(line)
-	if err != nil {
-		return 0, fmt.Errorf("parsing port %q: %w", line, err)
-	}
-	return strconv.Atoi(portStr)
-}
-
+// requirePG skips when the ephemeral DB is unavailable and exposes the shared
+// pool via the package-local testPool. These tests share one database and must
+// not run in parallel.
 func requirePG(t *testing.T) {
 	t.Helper()
-	if testPool == nil {
-		t.Skipf("postgres unavailable: %s", pgUnavailable)
-	}
+	testPool = pgtest.RequirePG(t)
 }
 
 func samplePersist() runs.PersistInput {
