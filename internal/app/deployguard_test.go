@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -56,6 +57,21 @@ func TestComposeContainerNamesDoNotCollideWithReferenceStack(t *testing.T) {
 		"compose.yaml pins container_name %q, owned by (or too close to) the "+
 			"Python reference stack (trade-multi-strategies runs tms-api/tms-ui "+
 			"on this host); use the tmsgo- prefix", collide.FindString(string(raw)))
+}
+
+// TestAllContainerNamesUseTmsgoPrefix enforces the project convention that
+// EVERY compose container is named `tmsgo-*` (uniform branding + no collision
+// with the Python reference stack's `tms-*` containers on a shared host).
+func TestAllContainerNamesUseTmsgoPrefix(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "compose.yaml"))
+	require.NoError(t, err)
+
+	names := regexp.MustCompile(`(?m)^\s*container_name:\s*(\S+)\s*$`).FindAllStringSubmatch(string(raw), -1)
+	require.NotEmpty(t, names, "compose.yaml defines no container_name values")
+	for _, m := range names {
+		assert.Truef(t, strings.HasPrefix(m[1], "tmsgo-"),
+			"container_name %q must use the tmsgo- prefix (all containers are tmsgo-*)", m[1])
+	}
 }
 
 func TestDockerignoreCoversCacheBustersAndSecrets(t *testing.T) {

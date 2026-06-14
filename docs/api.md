@@ -493,7 +493,7 @@ page renders red/yellow dots rather than throwing. Implementation:
   not_configured`.
 - The moomoo feed is **inferred** from the latest `tms.sessions` row + the
   freshness of the latest `PortfolioHealth` snapshot (the `tms api` process holds
-  no OpenD socket — that lives in `tms-live`).
+  no OpenD socket — that lives in `tmsgo-live`).
 
 ```json
 {
@@ -759,7 +759,7 @@ has no tunable params (`validation` code); `400` for a missing `trial_id`.
 
 The live cockpit read surface plus the audited command-enqueue endpoint. The
 **trading mutation surface stays out of the HTTP API** (read-only forever); the
-ONLY write here enqueues an `ops.commands` row that the `tms-live` node executes
+ONLY write here enqueues an `ops.commands` row that the `tmsgo-live` node executes
 under full audit. Reads come from PostgreSQL (the durable truth); Redis is
 transport-only. The live read endpoints return `503` when the API was started
 without a live reader.
@@ -846,7 +846,7 @@ mutation surface). Body:
 - `400` for an unknown command or invalid mode.
 
 The `confirm_token` is consumed at the boundary and is **never persisted** (no
-secrets in the durable `ops.commands` row). The `tms-live` consumer applies the
+secrets in the durable `ops.commands` row). The `tmsgo-live` consumer applies the
 command idempotently (halt/resume/kill stop or resume **new-intent emission /
 opening orders** + set/clear halt state; in paper/live, `flatten` submits FLAT
 market orders closing every open position, `emergency_kill` halts + flattens +

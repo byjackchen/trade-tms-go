@@ -68,7 +68,7 @@ func startEphemeralPG() (cleanup func(), err error) {
 		return nil, fmt.Errorf("docker daemon unavailable: %v (%s)", err, strings.TrimSpace(string(out)))
 	}
 
-	name := fmt.Sprintf("tms-api-test-%d", time.Now().UnixNano())
+	name := fmt.Sprintf("tmsgo-api-test-%d", time.Now().UnixNano())
 	runCtx, cancelRun := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancelRun()
 	out, err := exec.CommandContext(runCtx, "docker", "run", "-d", "--rm",

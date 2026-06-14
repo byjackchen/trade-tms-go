@@ -8,7 +8,7 @@
 #   docker compose up -d --wait        # brings up DB + cache, runs migrations
 #
 # App services use the `app` profile as their build phases land
-# (tms-api and tms-worker are live; live/ui remain commented placeholders):
+# (all app + live services active):
 #   docker compose --profile app up -d
 
 name: tms
@@ -16,7 +16,7 @@ name: tms
 services:
   postgres:
     image: timescale/timescaledb:latest-pg16
-    container_name: tms-postgres
+    container_name: tmsgo-postgres
     environment:
       POSTGRES_USER: ${TMS_PG_USER:-tms}
       POSTGRES_PASSWORD: ${TMS_PG_PASSWORD:-tms}
@@ -24,7 +24,7 @@ services:
     ports:
       - "55432:5432"
     volumes:
-      - tms-pgdata:/var/lib/postgresql/data
+      - tmsgo-pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${TMS_PG_USER:-tms} -d ${TMS_PG_DATABASE:-tms}"]
       interval: 5s
@@ -35,12 +35,12 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: tms-redis
+    container_name: tmsgo-redis
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "56379:6379"
     volumes:
-      - tms-redisdata:/data
+      - tmsgo-redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -54,7 +54,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: tms:dev
-    container_name: tms-migrate
+    container_name: tmsgo-migrate
     command: ["migrate", "up"]
     environment:
       TMS_PG_HOST: postgres
@@ -84,7 +84,7 @@ services:
   # coverage/freshness/gaps, ticker search, dataset-sync history, job
   # enqueue/inspect/cancel and universe snapshots, plus a WebSocket fan-out of
   # job/sync events bridged from Redis pub/sub. Start with:
-  #   docker compose --profile app up -d --wait tms-api
+  #   docker compose --profile app up -d --wait tmsgo-api
   #
   # Every /api/* route requires the TMS_API_TOKEN bearer token; /healthz and
   # /version are public. env_file pulls TMS_API_TOKEN (and any other secrets)
@@ -95,7 +95,7 @@ services:
   # Healthcheck: the runtime image is distroless (no shell), so the check execs
   # the binary itself — `tms api --health` GETs the server's own loopback
   # /healthz (probe and server share the container netns) and exits 0/1.
-  tms-api:
+  tmsgo-api:
     build:
       context: .
       dockerfile: Dockerfile
@@ -138,7 +138,7 @@ services:
   # Background job worker (P1): durable tms.jobs queue — FOR UPDATE SKIP
   # LOCKED claiming, heartbeats + stale-claim recovery, cooperative cancel,
   # per-job panic isolation, graceful drain on SIGTERM. Start with:
-  #   docker compose --profile app up -d --wait tms-worker
+  #   docker compose --profile app up -d --wait tmsgo-worker
   #
   # Healthcheck: the runtime image is distroless (no shell, so no
   # `test -f` health file), therefore the check execs the binary itself —
@@ -154,7 +154,7 @@ services:
   # 'data.refresh' source=parquet backfills; point TMS_SHARADAR_CACHE_DIR
   # (in .env) at the cache root produced by the Python reference, else the
   # default ./cache/sharadar is used (auto-created empty if absent).
-  tms-worker:
+  tmsgo-worker:
     build:
       context: .
       dockerfile: Dockerfile
@@ -205,7 +205,7 @@ services:
   # (tms.signal_intents + Redis streams) and submits NO orders (paper/live
   # deferred to P6). Under the `live` profile (NOT `app`) so it never starts by
   # accident — a trading node is started deliberately:
-  #   docker compose --profile live up -d tms-live
+  #   docker compose --profile live up -d tmsgo-live
   #
   # OpenD switch (TMS_MOOMOO_ADDR, P5 decision 2):
   #   - GATE / CI:  point at the in-repo mock OpenD (protocol-faithful, driven
@@ -223,7 +223,7 @@ services:
   # Healthcheck: the distroless image execs `tms live --health`, which GETs the
   # node's own loopback /healthz (TMS_WORKER_HEALTH_ADDR, shared netns) and exits
   # 0/1. The node also exposes that endpoint on host port 18090.
-  tms-live:
+  tmsgo-live:
     build:
       context: .
       dockerfile: Dockerfile
@@ -335,7 +335,7 @@ services:
       PORT: "3000"
       HOSTNAME: 0.0.0.0
     depends_on:
-      tms-api:
+      tmsgo-api:
         condition: service_healthy
     healthcheck:
       test:
@@ -347,5 +347,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  tms-pgdata:
-  tms-redisdata:
+  tmsgo-pgdata:
+  tmsgo-redisdata:

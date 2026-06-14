@@ -30,9 +30,9 @@ flowchart TB
       api["tmsgo-api<br/>chi REST + WS · :18080"]
       worker["tmsgo-worker<br/>backtest / hyperopt / eod jobs<br/>(scale N)"]
       live["tmsgo-live<br/>signal · paper · live"]
-      migrate["tms-migrate<br/>(run-once)"]
-      pg[("tms-postgres<br/>TimescaleDB · :55432<br/>SINGLE SOURCE OF TRUTH")]
-      redis[("tms-redis · :56379<br/>transport only · reconstructable")]
+      migrate["tmsgo-migrate<br/>(run-once)"]
+      pg[("tmsgo-postgres<br/>TimescaleDB · :55432<br/>SINGLE SOURCE OF TRUTH")]
+      redis[("tmsgo-redis · :56379<br/>transport only · reconstructable")]
     end
     browser -->|REST + WS| ui
     ui -->|bearer token, server-side| api
@@ -446,7 +446,7 @@ shows red/yellow dots instead of throwing.
 | `data` | `max(bars_daily.ts)` + `max(dataset_sync.last_sync)` | market-data horizon + last refresh |
 
 The moomoo feed is **inferred** (the `tms api` process holds no OpenD socket —
-that lives in `tms-live`), so its liveness is observed indirectly through the
+that lives in `tmsgo-live`), so its liveness is observed indirectly through the
 durable session + health rows. This inference moved from the browser into the API
 so the System page is authoritative rather than re-deriving it client-side. The
 `metrics` block carries the structured numbers (`jobs_queued`, `jobs_running`,

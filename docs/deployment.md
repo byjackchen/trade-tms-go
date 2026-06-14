@@ -20,8 +20,8 @@ live node 18090.**
 | Profile | Services | Bring up |
 |---|---|---|
 | (base, no profile) | `postgres`, `redis`, `migrate` | `docker compose up -d --wait` |
-| `app` | `tms-api` (→18080), `tms-worker`, `ui` (→13000) | `docker compose --profile app up -d` |
-| `live` | `tms-live` (→18090) | `docker compose --profile live up -d` |
+| `app` | `tmsgo-api` (→18080), `tmsgo-worker`, `ui` (→13000) | `docker compose --profile app up -d` |
+| `live` | `tmsgo-live` (→18090) | `docker compose --profile live up -d` |
 
 Notes:
 
@@ -96,7 +96,7 @@ Copy `.env.example` to `.env` and fill in:
 
 `TMS_MOOMOO_ADDR` is the single real-vs-mock switch.
 
-- **Real OpenD** (default for the `tms-live` service): OpenD runs on the host at
+- **Real OpenD** (default for the `tmsgo-live` service): OpenD runs on the host at
   `127.0.0.1:11111`. The container reaches it as `host.docker.internal:11111`;
   the compose service maps `host.docker.internal` → host gateway via:
 
@@ -117,7 +117,7 @@ CI path.
 
 ```bash
 # signal mode (no orders, no credentials) — safe default:
-docker compose --profile live up -d tms-live
+docker compose --profile live up -d tmsgo-live
 
 # paper / live: set TMS_LIVE_MODE and the secrets in ./secrets/moomoo.env first.
 # live (REAL money) additionally requires all 4 activation factors
@@ -162,12 +162,12 @@ not need backing up.
 
 ```bash
 # Backup (custom format, parallelizable, includes Timescale hypertable chunks):
-docker exec tms-postgres pg_dump -U tms -d tms -Fc -f /tmp/tms.dump
-docker cp tms-postgres:/tmp/tms.dump ./backups/tms-$(date +%Y%m%d).dump
+docker exec tmsgo-postgres pg_dump -U tms -d tms -Fc -f /tmp/tms.dump
+docker cp tmsgo-postgres:/tmp/tms.dump ./backups/tms-$(date +%Y%m%d).dump
 
 # Restore into a fresh database:
-docker cp ./backups/tms-YYYYMMDD.dump tms-postgres:/tmp/tms.dump
-docker exec tms-postgres pg_restore -U tms -d tms --clean --if-exists /tmp/tms.dump
+docker cp ./backups/tms-YYYYMMDD.dump tmsgo-postgres:/tmp/tms.dump
+docker exec tmsgo-postgres pg_restore -U tms -d tms --clean --if-exists /tmp/tms.dump
 ```
 
 Notes:
@@ -177,7 +177,7 @@ Notes:
   by `000001_init` if you restore into an empty DB after running `tms migrate up`.
 - For a logical, schema-only baseline, `pg_dump --schema-only -n tms` captures
   the structure that `tms migrate up` would also produce.
-- The Docker named volume `tms-pgdata` is the live data directory; a
+- The Docker named volume `tmsgo-pgdata` is the live data directory; a
   volume-level snapshot is an alternative whole-cluster backup, but the logical
   `pg_dump` above is the portable, version-independent path.
 
