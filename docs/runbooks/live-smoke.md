@@ -1,5 +1,42 @@
 # Live OpenD smoke (DEFERRED to market hours)
 
+> ## ✅ PARTIALLY VERIFIED against the REAL OpenD — 2026-06-14 (Sunday, US market closed)
+>
+> The **connection + GetGlobalState + historical-kline + signal-intent** portion
+> of the signal-mode smoke ran against the user's REAL moomoo OpenD gateway
+> (`moomoo_OpenD` on the host, `127.0.0.1:11111`; reached from the `tms-live`
+> container as `host.docker.internal:11111`). This was the FIRST time the native
+> Go OpenD client touched the real gateway (everything prior used the in-repo
+> mock). SIGNAL MODE ONLY — NoopExecutor, **zero** orders/fills/positions; no
+> `Trd_*` call, no unlock, no trade password.
+>
+> **Observed (proof it was the real server, not the synthetic mock):**
+> - **InitConnect / handshake**: native client connected, real `connID`s assigned
+>   (e.g. `7472034951511880458` for the live node), `keepAliveSec=10`,
+>   `serverVer=1004`.
+> - **GetGlobalState**: `MarketUS = QotMarketState_AfterHoursEnd(11)` — the real
+>   US-market-closed Sunday state (the mock reports synthetic state);
+>   `qotLogined=true`, `trdLogined=true`, real `serverTime` (UTC ~21:19).
+> - **Qot_Sub**: the live node subscribed the 11-ETF `sector_rotation` universe
+>   (KLType_Day), under the 100-sub cap (`subscribed live universe symbols=11`).
+> - **Qot_RequestHistoryKL (REAL daily klines)**: 82 real bars/symbol over
+>   2026-02-17..2026-06-12 for SPY + all 11 sector ETFs (984 rows total). Real
+>   recent levels — e.g. SPY last close 741.75, XLK 184.80, XLF 53.34 (close to
+>   but distinct from Sharadar; genuine moomoo data).
+> - **Signal-intent emission**: the SAME engine warmed `sector_rotation` from
+>   those real bars (engine-replay, `tms eod --as-of 2026-06-12`) and emitted
+>   **11 SignalIntents** (one per ETF: states buy/hold/exit/forming/no_setup,
+>   strengths 0–100) into `tms.signal_intents` (idempotent UPSERT — re-run kept
+>   11 rows), the Redis `SignalIntentUpdate` stream (902 entries), and the
+>   cockpit `/live` page (11 instruments rendered; Positions/Orders/Fills all 0).
+> - **Zero-order invariant**: `tms.orders=0`, `tms.fills=0`, `tms.positions=0`
+>   throughout; no `Trd_*`/`PlaceOrder`/`UnlockTrade` in any log.
+>
+> **Still PENDING a market-open run**: real-time **`Qot_UpdateKL` tick streaming**
+> — with the market closed on a Sunday no live bars push, so the streaming-driven
+> intent cadence + the cockpit WS live-update path were NOT exercised here. Run
+> the streaming smoke (steps 2–6 below) at US market hours to close this out.
+
 P5 locked decision 7: a real-OpenD smoke is **deferred** to market hours with a
 user-confirmed OpenD login. Do NOT connect to real OpenD in the build gate —
 everything is gated through the protocol-faithful **mock** OpenD. This runbook
