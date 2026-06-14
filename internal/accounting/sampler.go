@@ -33,6 +33,12 @@ type EquitySampler struct {
 	strategyIDs map[string]struct{}      // every strategy seen
 	perStrategy map[string][]EquityPoint // strategy_id -> cumulative PnL curve
 	total       []EquityPoint            // account equity curve
+
+	// Reusable scratch buffers for the hot per-bar Sample path, so it does not
+	// allocate a fresh sorted-key / sorted-id slice every sample (rebuilt in
+	// place each call). NOT safe for concurrent use — Sample is single-goroutine.
+	keyScratch []domain.StrategySymbol
+	idScratch  []string
 }
 
 // NewEquitySampler binds a sampler to an account.
@@ -52,13 +58,19 @@ func NewEquitySampler(acct *Account) *EquitySampler {
 func (s *EquitySampler) Sample(ts time.Time) error {
 	// Discover strategies from the account's position book and aggregate.
 	perStrat := make(map[string]domain.Money)
-	for _, pos := range s.acct.AllPositions() {
-		s.strategyIDs[pos.StrategyID] = struct{}{}
+	for key := range s.acct.positions {
+		s.strategyIDs[key.StrategyID] = struct{}{}
 	}
+	// Sort the position keys ONCE into the reusable scratch buffer; the
+	// per-strategy aggregation below scans this same sorted slice (sorted
+	// strategy outer, sorted key inner — the identical deterministic order the
+	// previous per-strategy sortedKeys() call produced).
+	s.keyScratch = s.acct.sortedKeysInto(s.keyScratch)
 	// Aggregate realized + unrealized per strategy deterministically.
-	for _, sid := range s.sortedStrategyIDs() {
+	s.idScratch = s.sortedStrategyIDsInto(s.idScratch)
+	for _, sid := range s.idScratch {
 		var pnl domain.Money
-		for _, key := range s.acct.sortedKeys() {
+		for _, key := range s.keyScratch {
 			if key.StrategyID != sid {
 				continue
 			}
@@ -115,10 +127,18 @@ func (s *EquitySampler) StrategyCurve(strategyID string) []EquityPoint {
 func (s *EquitySampler) StrategyIDs() []string { return s.sortedStrategyIDs() }
 
 func (s *EquitySampler) sortedStrategyIDs() []string {
-	ids := make([]string, 0, len(s.strategyIDs))
+	return s.sortedStrategyIDsInto(make([]string, 0, len(s.strategyIDs)))
+}
+
+// sortedStrategyIDsInto fills dst (reset to len 0, capacity reused) with every
+// sampled strategy id in sorted order and returns it. The result aliases dst's
+// backing array; the hot Sample path passes its reusable scratch buffer to
+// avoid a per-sample allocation while keeping the identical sorted order.
+func (s *EquitySampler) sortedStrategyIDsInto(dst []string) []string {
+	dst = dst[:0]
 	for id := range s.strategyIDs {
-		ids = append(ids, id)
+		dst = append(dst, id)
 	}
-	sort.Strings(ids)
-	return ids
+	sort.Strings(dst)
+	return dst
 }

@@ -346,7 +346,14 @@ func (h *Backtest) buildConfig(ctx context.Context, p backtestParams) (engine.Co
 
 	runTS := p.RunTS
 	if runTS == "" {
-		runTS = runs.NewRunTS(h.now())
+		// Auto-generated key: collision-free under worker concurrency
+		// (TMS_WORKER_CONCURRENCY>1). A plain second-resolution NewRunTS would let
+		// two backtests claimed in the same wall-clock second share one
+		// UNIQUE(run_ts) natural key, and Store.Persist's idempotent
+		// DELETE-then-INSERT would silently destroy one run. An EXPLICIT p.RunTS
+		// (idempotency key for a retried logical run) is honoured verbatim so
+		// retries still converge instead of duplicating.
+		runTS = runs.NewRunID(h.now())
 	}
 	return cfg, asm, runTS, nil
 }

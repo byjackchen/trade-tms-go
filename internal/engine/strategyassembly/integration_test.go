@@ -54,9 +54,9 @@ func sectorParams() params.SectorRotationParams {
 }
 
 // wideSectorParams holds 8 ETFs with top_k=8 (everything held) so each slice is
-// ~12.5% NAV — under both the 20% single-name and 30% concentration default
-// caps, so the rebalance LONGs are APPROVED. Used by the end-to-end submit /
-// determinism test.
+// ~12.5% NAV — under the lone-sector gate's canonical 50% single-name / 40%
+// concentration caps, so the rebalance LONGs are APPROVED. Used by the end-to-end
+// submit / determinism test.
 func wideSectorParams() params.SectorRotationParams {
 	return params.SectorRotationParams{
 		Universe:         []string{"E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8"},
@@ -151,14 +151,87 @@ func TestSectorRotationEndToEnd(t *testing.T) {
 	}
 }
 
-// TestPortfolioGateRejectsOverConcentration proves the gate ACTUALLY rejects an
-// order. SectorRotation sizes target_value = equity/top_k = full equity into the
-// single winner — well above the 40% concentration cap (and the 50% single-name
-// cap) of the multi-strategy gate. So the rebalance LONG must be rejected: no
-// order submitted, one RejectedOrder recorded.
-func TestPortfolioGateRejectsOverConcentration(t *testing.T) {
-	// Build the SectorRotation adapter but with the MULTI-strategy gate (40%
-	// concentration / 50% single-name), reproducing the multi backtest's caps.
+// loneTopK3SectorBars builds 3 SPDR ETFs rising at different rates so a
+// rebalance picks a clear top-3 (all three), each sized at ~1/3 of the deployed
+// book. With the lone-sector gate (100% budget, canonical 50% single-name cap)
+// and budget-aware sizing, each ~33% pick is APPROVED — proving the baseline
+// topK=3 default live profile strategy actually trades (FIXER round 2, finding 1).
+func loneTopK3SectorBars() []engine.InstrumentBars {
+	mk := func(s, c1, c2, c3, c4 string) engine.InstrumentBars {
+		return engine.InstrumentBars{Symbol: s, Bars: []domain.Bar{
+			bar(s, 2024, time.January, 2, c1, 1000),
+			bar(s, 2024, time.January, 16, c2, 1000),
+			bar(s, 2024, time.January, 31, c3, 1000),
+			bar(s, 2024, time.February, 1, c4, 1000),
+		}}
+	}
+	return []engine.InstrumentBars{
+		mk("XLK", "100.00", "108.00", "115.00", "116.00"), // strongest
+		mk("XLF", "100.00", "106.00", "112.00", "113.00"),
+		mk("XLE", "100.00", "104.00", "108.00", "109.00"),
+	}
+}
+
+// TestLoneSectorBaselineTopK3Trades is the direct guard for FIXER round 2 finding
+// 1: the baseline topK=3 SectorRotation — the default live/paper profile strategy
+// — must produce executable orders. Before the fix it sized each pick at 1/topK
+// (33%) of FULL equity, which the lone gate's single-name cap rejected, so the
+// out-of-box live experience traded NOTHING. With budget-aware sizing + the
+// canonical sector caps it now buys all three top-K ETFs, none rejected.
+func TestLoneSectorBaselineTopK3Trades(t *testing.T) {
+	// Run at two NAVs to refute the finding's "violation scales with NAV so NO
+	// balance ever passes" claim: the per-name fraction (1/topK) is NAV-invariant,
+	// so the fix holds at every balance.
+	for _, bal := range []string{"100000", "1000000"} {
+		t.Run("nav="+bal, func(t *testing.T) {
+			asm, err := strategyassembly.Assemble(strategyassembly.Input{
+				Strategy:        "sector_rotation",
+				StartingBalance: mustFloat(bal),
+				Params: strategyassembly.Params{Sector: params.SectorRotationParams{
+					Universe:         []string{"XLK", "XLF", "XLE"},
+					MomentumLookback: 2,
+					TopK:             3,
+					Timezone:         "America/New_York",
+				}},
+			})
+			require.NoError(t, err)
+
+			start := calendar.NewDate(2024, time.January, 1)
+			end := calendar.NewDate(2024, time.February, 28)
+			res := runAssembly(t, asm, start, end, bal, loneTopK3SectorBars())
+
+			require.NotEmpty(t, res.Orders, "baseline topK=3 sector must submit orders (the finding: it traded nothing)")
+			assert.Empty(t, res.RejectedOrders, "baseline topK=3 picks (~33%% each) must pass the canonical 50%% single-name cap; rejects=%+v", res.RejectedOrders)
+			buys := map[string]bool{}
+			for _, o := range res.Orders {
+				assert.Equal(t, strategyassembly.IDSector, o.StrategyID)
+				if o.Side == domain.OrderSideBuy {
+					buys[o.Symbol] = true
+				}
+			}
+			assert.True(t, buys["XLK"] && buys["XLF"] && buys["XLE"],
+				"all three top-3 ETFs should be bought; buys=%v orders=%+v", buys, res.Orders)
+		})
+	}
+}
+
+// mustFloat parses a balance string for StartingBalance (float64), matching the
+// StartingBalance the runner/API supply.
+func mustFloat(s string) float64 { return domain.MustMoney(s).Float64() }
+
+// TestPortfolioGateRejectsOverBudget proves the gate STILL rejects a genuinely
+// over-budget order after the budget-aware-sizing fix. With topK=1 the sector
+// pick consumes the strategy's ENTIRE 30% multi-strategy slice in a single name;
+// when the gate prices it at the rebalance bar's (drifted-up) close it tips just
+// over the 30% allocator budget, so the LONG is rejected: no order submitted, one
+// RejectedOrder recorded. This is the negative control for finding 1 — the fix
+// makes sized picks fit the gate WITHOUT defanging the gate.
+func TestPortfolioGateRejectsOverBudget(t *testing.T) {
+	// Build the SectorRotation adapter with the MULTI-strategy gate (30% allocator
+	// slice; single-name 50% / concentration 40%), reproducing the multi backtest.
+	// topK=1 sizes the strategy's whole 30% slice into the single winner, which
+	// the allocator budget (a hard 30% ceiling) rejects once priced at the drifted
+	// rebalance close.
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
 		Strategy:        "multi",
 		StartingBalance: 100000,
@@ -190,15 +263,16 @@ func TestPortfolioGateRejectsOverConcentration(t *testing.T) {
 	end := calendar.NewDate(2024, time.February, 28)
 	res := runAssembly(t, asm, start, end, "100000", []engine.InstrumentBars{xlk, xlf})
 
-	require.NotEmpty(t, res.RejectedOrders, "the over-concentration sector LONG must be rejected")
+	require.NotEmpty(t, res.RejectedOrders, "the over-budget sector LONG must be rejected")
 	var sawSectorReject bool
 	for _, rj := range res.RejectedOrders {
 		if rj.StrategyID == strategyassembly.IDSector && rj.Symbol == "XLK" {
 			sawSectorReject = true
 			assert.Equal(t, domain.SideLong, rj.SignalSide)
-			// concentration (40%) is checked after single-name (50%); the full
-			// equity into XLK trips one of them.
-			assert.Contains(t, []string{"risk.concentration", "risk.max_single_name", "allocator.budget_exceeded"}, rj.RuleName)
+			// allocator budget (30% slice) is checked first; the whole-slice topK=1
+			// pick, priced at the drifted rebalance close, trips it. (single-name /
+			// concentration accepted too, defensively, in case sizing changes.)
+			assert.Contains(t, []string{"allocator.budget_exceeded", "risk.concentration", "risk.max_single_name"}, rj.RuleName)
 		}
 	}
 	assert.True(t, sawSectorReject, "expected a rejected XLK sector LONG; rejects=%+v", res.RejectedOrders)
@@ -210,10 +284,9 @@ func TestPortfolioGateRejectsOverConcentration(t *testing.T) {
 
 // TestPortfolioGateApprovesWithinBudget is the positive control: an order whose
 // notional is under every cap is APPROVED through the same bridge the engine
-// uses (NewProposedOrder + SnapshotFromDomain + Portfolio.Check). The
-// end-to-end path can't easily hit a small notional because SectorRotation
-// always sizes the full equity/top_k slice, so this asserts the gate's approve
-// branch directly.
+// uses (NewProposedOrder + SnapshotFromDomain + Portfolio.Check). This asserts
+// the gate's approve branch directly (the end-to-end approve path is covered by
+// TestLoneSectorBaselineTopK3Trades / TestSectorRotationEndToEnd).
 func TestPortfolioGateApprovesWithinBudget(t *testing.T) {
 	alloc, err := portfolio.NewAllocator([]portfolio.StrategyAllocation{{StrategyID: "S", CapitalPct: 1.0}})
 	require.NoError(t, err)

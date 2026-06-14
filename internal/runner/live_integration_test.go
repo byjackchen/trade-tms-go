@@ -289,6 +289,57 @@ func TestEnqueueConfirmationGate(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestHaltRehydratedOnRestart is the regression for the halt-durability defect:
+// an active (uncleared) tms.halts row scoped to the resumed session must be
+// re-applied to the in-memory HaltState on (re)start, so a crash/restart does NOT
+// silently clear an operator/operational halt and resume emitting/trading.
+// DATABASE-ORIENTED thesis: durable PG state is authoritative on restart.
+func TestHaltRehydratedOnRestart(t *testing.T) {
+	pool := requirePG(t)
+	ctx := testCtx(t)
+	sessionID := openTestSession(t, pool, "PAPER-HALT-001")
+
+	// Simulate a node that latched a MANUAL halt, persisted it, then crashed.
+	node, err := runner.NewLive(pool, nil, runner.LiveConfig{TraderID: "PAPER-HALT-001"}, zerolog.Nop())
+	require.NoError(t, err)
+	node.SetSessionIDForTest(sessionID)
+	node.RecordHaltForTest(ctx, string(commands.HaltManual), "operator halt before crash")
+
+	// A fresh node (the restart) starts with a clean HaltState (NewHaltState).
+	restarted, err := runner.NewLive(pool, nil, runner.LiveConfig{TraderID: "PAPER-HALT-001"}, zerolog.Nop())
+	require.NoError(t, err)
+	require.False(t, restarted.HaltState().IsHalted(), "fresh HaltState is not halted before rehydration")
+
+	// Rehydration (run before the supervisor loop) must restore the halt.
+	restarted.SetSessionIDForTest(sessionID)
+	restarted.RehydrateHaltForTest(ctx)
+
+	snap := restarted.HaltState().Snapshot()
+	require.True(t, snap.Halted, "latched halt rehydrated from PG on restart")
+	assert.False(t, restarted.HaltState().Emitting(), "a rehydrated halt suppresses NEW emission/trading")
+	assert.Equal(t, commands.HaltManual, snap.Kind)
+	assert.Equal(t, "operator halt before crash", snap.Reason)
+
+	// After an operator Resume (clears the durable row), a subsequent restart does
+	// NOT re-apply the halt.
+	restarted.ClearHaltForTest(ctx, "operator")
+	afterResume, err := runner.NewLive(pool, nil, runner.LiveConfig{TraderID: "PAPER-HALT-001"}, zerolog.Nop())
+	require.NoError(t, err)
+	afterResume.SetSessionIDForTest(sessionID)
+	afterResume.RehydrateHaltForTest(ctx)
+	assert.False(t, afterResume.HaltState().IsHalted(), "a cleared halt is not rehydrated")
+	assert.True(t, afterResume.HaltState().Emitting())
+
+	// A halt scoped to a DIFFERENT session is not rehydrated into this trader.
+	otherSession := openTestSession(t, pool, "PAPER-HALT-OTHER")
+	other, err := runner.NewLive(pool, nil, runner.LiveConfig{TraderID: "PAPER-HALT-OTHER"}, zerolog.Nop())
+	require.NoError(t, err)
+	other.SetSessionIDForTest(otherSession)
+	other.RecordHaltForTest(ctx, string(commands.HaltBroker), "other-session halt")
+	afterResume.RehydrateHaltForTest(ctx) // still scoped to sessionID
+	assert.False(t, afterResume.HaltState().IsHalted(), "halts from other sessions do not leak in")
+}
+
 // openTestSession inserts a RUNNING session row and returns its id.
 func openTestSession(t *testing.T, pool *pgxpool.Pool, traderID string) int64 {
 	t.Helper()

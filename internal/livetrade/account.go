@@ -51,6 +51,16 @@ func (a *AccountAdapter) Position(strategyID, symbol string) (domain.Position, b
 	return a.acct.Position(strategyID, symbol)
 }
 
+// OpenPositions returns snapshots of every non-flat (strategy, symbol) position
+// in deterministic (strategy, symbol) order (moomoo.AccountBook). The flatten
+// path enumerates these to close each originating BOOK row under its OWN
+// strategy id so the fill nets it to 0 -> CLOSED (no phantom FLATTEN rows).
+func (a *AccountAdapter) OpenPositions() []domain.Position {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.acct.OpenPositions()
+}
+
 // ObserveBar records a symbol's last price so the gate's estimated-fill price +
 // the health snapshot's mark-to-market are current. Called by the trade session
 // on every bar (mirroring the engine's ObserveBar before strategies run).

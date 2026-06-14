@@ -23,6 +23,11 @@ type LiveTradingReader interface {
 	RecentFills(ctx context.Context, symbol string, limit int) ([]LiveFill, error)
 	// OpenPositions returns the live position book (non-flat positions).
 	OpenPositions(ctx context.Context) ([]LiveTradePosition, error)
+	// SessionRealizedPnL returns Σ realized PnL over the FULL position book
+	// (open AND closed). Day P/L must include realized gains/losses from
+	// positions closed intraday (e.g. a rebalance dropping a sector), which
+	// OpenPositions excludes.
+	SessionRealizedPnL(ctx context.Context) (float64, error)
 	// LatestReconciliation returns the newest reconciliation report, or nil.
 	LatestReconciliation(ctx context.Context) (*LiveReconciliation, error)
 }
@@ -168,11 +173,17 @@ func (s *Server) handleLiveAccount(w http.ResponseWriter, r *http.Request) {
 		internalError(w, s.log, "live account", err)
 		return
 	}
-	// Day P&L = Σ realized over the book (market value / buying power require a
-	// live mark; the cockpit follows the Redis account stream for live values).
-	var dayPnL, marketValue float64
+	// Day P&L = Σ realized over the FULL book (open + intraday-closed), so a
+	// rebalance that closes a position still books its realized P&L. Market value
+	// is over open positions only (closed positions have no mark); the cockpit
+	// follows the Redis account stream for live marks.
+	dayPnL, err := reader.SessionRealizedPnL(r.Context())
+	if err != nil {
+		internalError(w, s.log, "live account", err)
+		return
+	}
+	var marketValue float64
 	for _, p := range positions {
-		dayPnL += p.RealizedPnL
 		marketValue += float64(p.SignedQty) * p.AvgEntryPx
 	}
 	writeJSON(w, http.StatusOK, LiveAccount{

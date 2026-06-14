@@ -1,58 +1,18 @@
 package sepaadapter
 
-// marshal.go converts the pure SEPA value types into JSON-serializable maps
-// whose key set and null semantics match the Python reference exactly:
-//   - SignalIntent  -> dataclasses.asdict(SEPASignalIntent) with Decimal/datetime
-//     str-encoded (intent.py JSON round-trip: asdict + default=str).
-//   - StateSummary  -> the 11-key dict (signal.py:515-539), None for empty
-//     optional strings.
-// These feed the engine's IntentEvaluator / StateSummarizer publish paths.
+// marshal.go converts the pure SEPA StateSummary value type into a
+// JSON-serializable map whose key set and null semantics match the Python
+// reference exactly: the 11-key dict (signal.py:515-539), None for empty
+// optional strings. It feeds the engine's StateSummarizer publish path.
+//
+// NOTE: the SEPA *intent* wire shape is NOT defined here. EvaluateIntentJSON
+// returns the raw sepa.SignalIntent and publish.NormalizeIntent converts it to
+// the canonical domain.SEPASignalIntent — the single source of the SEPA intent
+// wire shape, identical to how the other three adapters work.
 
 import (
-	"time"
-
 	"github.com/byjackchen/trade-tms-go/internal/strategy/sepa"
 )
-
-// intentJSON mirrors the field set of sepa/intent.py SEPASignalIntent. Pointer
-// fields are omitted-as-null when nil; Decimal fields are str-encoded.
-type intentJSON struct {
-	Symbol              string   `json:"symbol"`
-	State               string   `json:"state"`
-	Strength            float64  `json:"strength"`
-	ProximityToTriggerP *float64 `json:"proximity_to_trigger_pct"`
-	UpdatedAt           string   `json:"updated_at"`
-	Generation          int      `json:"generation"`
-	StrategyID          string   `json:"strategy_id"`
-	Grade               int      `json:"grade"`
-	TrendTemplatePass   bool     `json:"trend_template_pass"`
-	BaseAgeDays         *int     `json:"base_age_days"`
-	BaseDepthPct        *float64 `json:"base_depth_pct"`
-	VolumeDryup         *bool    `json:"volume_dryup"`
-	PivotPrice          *string  `json:"pivot_price"`
-	StopPrice           *string  `json:"stop_price"`
-	RSRank              *int     `json:"rs_rank"`
-}
-
-func marshalIntent(it sepa.SignalIntent) intentJSON {
-	return intentJSON{
-		Symbol:              it.Symbol,
-		State:               string(it.State),
-		Strength:            it.Strength,
-		ProximityToTriggerP: it.ProximityToTriggerP,
-		UpdatedAt:           it.UpdatedAt.UTC().Format(time.RFC3339Nano),
-		Generation:          it.Generation,
-		StrategyID:          it.StrategyID,
-		Grade:               it.Grade,
-		TrendTemplatePass:   it.TrendTemplatePass,
-		BaseAgeDays:         it.BaseAgeDays,
-		BaseDepthPct:        it.BaseDepthPct,
-		VolumeDryup:         it.VolumeDryup,
-		PivotPrice:          emptyToNil(it.PivotPrice),
-		StopPrice:           emptyToNil(it.StopPrice),
-		RSRank:              it.RSRank,
-	}
-}
 
 // summaryJSON is the 11-key state_summary dict (signal.py:515-539).
 type summaryJSON struct {

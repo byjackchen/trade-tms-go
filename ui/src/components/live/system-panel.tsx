@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSystemHealth, useLiveSession, useLiveHealth } from "@/lib/api/hooks";
+import {
+  useSystemHealth,
+  useSystem,
+  useLiveSession,
+  useLiveHealth,
+} from "@/lib/api/hooks";
 import { useLiveStream } from "@/lib/api/use-live-stream";
 import { hasSession } from "@/lib/api/types";
 import { ApiError } from "@/lib/api/client";
@@ -11,6 +16,22 @@ import { StatusDot } from "./live-badges";
 import { formatRelative, formatTs } from "@/lib/format";
 
 type Dot = "green" | "yellow" | "red" | "gray";
+
+/** Map a backend component status string to a status dot color. */
+function statusToDot(status: string | undefined): Dot {
+  switch (status) {
+    case "ok":
+      return "green";
+    case "degraded":
+    case "unknown":
+      return "yellow";
+    case "down":
+      return "red";
+    default:
+      // idle / not_configured / missing
+      return "gray";
+  }
+}
 
 function ConnRow({
   label,
@@ -40,6 +61,28 @@ function ConnRow({
   );
 }
 
+function MetricTile({
+  label,
+  value,
+  testid,
+}: {
+  label: string;
+  value: string;
+  testid: string;
+}) {
+  return (
+    <div
+      className="rounded-lg border border-border px-3 py-2"
+      data-testid={testid}
+    >
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="truncate text-sm font-medium" title={value}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
 /**
  * System page body: dependency connection status (moomoo data feed / Redis /
  * Postgres), the live WS bridge, and the API build version.
@@ -51,6 +94,7 @@ function ConnRow({
  */
 export function SystemPanel() {
   const health = useSystemHealth();
+  const system = useSystem();
   const sessionQ = useLiveSession();
   const liveHealthQ = useLiveHealth();
   const { state } = useLiveStream({});
@@ -85,27 +129,41 @@ export function SystemPanel() {
         ? "green"
         : "red";
 
-  // ---- moomoo data feed (inferred) ----
-  let feedDot: Dot = "gray";
-  let feedDetail = "no session";
-  if (session) {
-    if (session.status === "RUNNING") {
-      const lh = liveHealthQ.data;
-      const ageMs = lh ? now - new Date(lh.ts).getTime() : Infinity;
-      if (Number.isFinite(ageMs) && ageMs < 5 * 60 * 1000) {
-        feedDot = "green";
-        feedDetail = "data flowing";
+  // ---- moomoo data feed ----
+  // Prefer the authoritative aggregate /api/v1/system component (the API infers
+  // it server-side from the latest running session + health freshness). Fall
+  // back to the client-side inference when the aggregate endpoint is unavailable
+  // (older API / signal-only deployment without a system reader).
+  const feedComp = system.data?.components?.moomoo_feed;
+  let feedDot: Dot;
+  let feedDetail: string;
+  if (feedComp) {
+    feedDot = statusToDot(feedComp.status);
+    feedDetail = feedComp.detail ?? feedComp.status;
+  } else {
+    feedDot = "gray";
+    feedDetail = "no session";
+    if (session) {
+      if (session.status === "RUNNING") {
+        const lh = liveHealthQ.data;
+        const ageMs = lh ? now - new Date(lh.ts).getTime() : Infinity;
+        if (Number.isFinite(ageMs) && ageMs < 5 * 60 * 1000) {
+          feedDot = "green";
+          feedDetail = "data flowing";
+        } else {
+          feedDot = "yellow";
+          feedDetail = "running — awaiting bars";
+        }
       } else {
-        feedDot = "yellow";
-        feedDetail = "running — awaiting bars";
+        feedDot = "gray";
+        feedDetail = session.status.toLowerCase();
       }
-    } else {
-      feedDot = "gray";
-      feedDetail = session.status.toLowerCase();
+    } else if (noReader) {
+      feedDetail = "reader not configured";
     }
-  } else if (noReader) {
-    feedDetail = "reader not configured";
   }
+
+  const metrics = system.data?.metrics;
 
   // ---- WS bridge ----
   const bridgeDot: Dot =
@@ -158,6 +216,33 @@ export function SystemPanel() {
               detail={state}
               testid="conn-bridge"
             />
+            {metrics ? (
+              <div
+                className="mt-2 grid grid-cols-2 gap-2"
+                data-testid="system-metrics"
+              >
+                <MetricTile
+                  label="Job queue"
+                  value={`${metrics.jobs_queued} queued · ${metrics.jobs_running} running`}
+                  testid="metric-jobs"
+                />
+                <MetricTile
+                  label="Active sessions"
+                  value={String(metrics.active_sessions)}
+                  testid="metric-sessions"
+                />
+                <MetricTile
+                  label="Data freshness"
+                  value={metrics.latest_bar_date ?? "no bars"}
+                  testid="metric-data"
+                />
+                <MetricTile
+                  label="Live mode"
+                  value={metrics.live_mode ?? "—"}
+                  testid="metric-mode"
+                />
+              </div>
+            ) : null}
             {session ? (
               <div
                 className="mt-2 rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground"

@@ -271,7 +271,18 @@ func (e *MoomooExecutor) applyEffects(ctx context.Context, st *OrderState, effec
 }
 
 // orderSnapshot builds a domain.Order snapshot of the tracked state at status.
+// It carries the cumulative fill progress (CumQty/CumNotional) into FilledQty +
+// AvgFillPx so a FILLED snapshot satisfies the orders schema invariant
+// `status=FILLED => filled_qty=qty` (without this, a FILLED row with filled_qty=0
+// is rejected by CHECK orders_check3 / SQLSTATE 23514, and the durable order row
+// is stale until InsertFill's roll-up repairs it).
 func (e *MoomooExecutor) orderSnapshot(st *OrderState, status domain.OrderStatus) domain.Order {
+	var avgFillPx domain.Price
+	if st.CumQty > 0 {
+		// CumNotional = CumQty * avgPx on the 1e-4 grid (see statemachine Apply), so
+		// the volume-weighted average is an exact integer divide back onto the grid.
+		avgFillPx = domain.Price(st.CumNotional / int64(st.CumQty))
+	}
 	return domain.Order{
 		ClientOrderID: st.ClientOrderID,
 		VenueOrderID:  st.VenueOrderID,
@@ -282,6 +293,8 @@ func (e *MoomooExecutor) orderSnapshot(st *OrderState, status domain.OrderStatus
 		TIF:           domain.TIFGTC,
 		Qty:           st.OrderQty,
 		Status:        status,
+		FilledQty:     st.CumQty,
+		AvgFillPx:     avgFillPx,
 		TS:            e.clock.Now(),
 	}
 }

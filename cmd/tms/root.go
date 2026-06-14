@@ -74,21 +74,3 @@ func newVersionCmd() *cobra.Command {
 		},
 	}
 }
-
-// notImplementedError is the sentinel failure for planned-but-unbuilt
-// subcommands: exit non-zero with an explicit message instead of silently
-// pretending to work.
-func notImplementedError(name string) error {
-	return fmt.Errorf("%q is not implemented yet — scheduled for a later build phase (the Python reference behaviour is the contract)", name)
-}
-
-func newStubCmd(env *runtimeEnv, name, short string) *cobra.Command {
-	return &cobra.Command{
-		Use:   name,
-		Short: short + " (not implemented yet)",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			env.log.Error().Str("command", name).Msg("subcommand not implemented yet")
-			return notImplementedError(name)
-		},
-	}
-}

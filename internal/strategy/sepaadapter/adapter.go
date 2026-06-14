@@ -149,10 +149,19 @@ func (s *Strategy) netPosition(sub engine.OrderSubmitter, sym string) domain.Qty
 	return 0
 }
 
-// EvaluateIntentJSON returns the per-symbol SignalIntent for asOf as a
-// JSON-serializable value (engine.IntentEvaluator). Pure read.
+// EvaluateIntentJSON returns the per-symbol SignalIntent for asOf
+// (engine.IntentEvaluator). Pure read.
+//
+// It returns the RAW sepa.SignalIntent generator value — exactly like the
+// other three adapters (orb/pairs/sector) return their own generator types —
+// so publish.NormalizeIntent's `case sepa.SignalIntent` converts it to the
+// canonical domain.SEPASignalIntent wire shape. Returning a private adapter
+// struct here (the old behaviour) had no NormalizeIntent case and aborted every
+// SEPA/multi intent in the signal/paper/live/EOD modes with
+// "unsupported intent type"; keeping the raw type is the single source of the
+// SEPA wire shape and restores the five-modes-one-engine thesis for SEPA.
 func (s *Strategy) EvaluateIntentJSON(asOf time.Time) any {
-	return marshalIntent(s.gen.EvaluateIntent(asOf))
+	return s.gen.EvaluateIntent(asOf)
 }
 
 // StateSummaryJSON returns the light per-bar UI summary (engine.StateSummarizer).

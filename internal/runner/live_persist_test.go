@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -101,6 +102,122 @@ func TestLivePersistRoundTrip(t *testing.T) {
 	_, ok, err = p.LoadState(ctx, "UNKNOWN")
 	require.NoError(t, err)
 	assert.False(t, ok)
+}
+
+// TestUpsertOrderFilledCarriesFilledQty is the regression for the paper/live
+// order-persistence defect: an EffectStatus(FILLED) snapshot must carry
+// filled_qty=qty so UpsertOrder does NOT violate CHECK (status<>'FILLED' OR
+// filled_qty=qty) (SQLSTATE 23514). It writes a FILLED order directly (no fill
+// roll-up to mask it) and asserts the row lands with filled_qty=qty + avg_fill_px.
+func TestUpsertOrderFilledCarriesFilledQty(t *testing.T) {
+	pool := requirePG(t)
+	ctx := testCtx(t)
+	sessionID := openTestSession(t, pool, "PAPER-FILLED-001")
+	p := runner.NewLivePersist(pool, nil, sessionID, "PAPER-FILLED-001", "MOOMOO", zerolog.Nop())
+
+	// Mirror the executor's orderSnapshot on an EffectStatus(FILLED): the order is
+	// FILLED with the cumulative fill carried on the snapshot itself.
+	o := domain.NewMarketOrder("PAPER-O-F", "TEST-001", "AAPL", domain.OrderSideBuy, 100, "open", time.Now().UTC())
+	o.Status = domain.OrderStatusFilled
+	o.FilledQty = 100
+	o.AvgFillPx = domain.MustPrice("150.25")
+	require.NoError(t, o.Validate(), "a FILLED order with filled_qty=qty is valid in-domain")
+	// This is the exact write that previously failed with orders_check3 (the bug
+	// set status=FILLED, filled_qty=0). It must now succeed with no error.
+	require.NoError(t, p.UpsertOrder(ctx, o), "FILLED order persists without violating orders_check3")
+
+	var status string
+	var filledQty, avgPx int64
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT status, filled_qty, avg_fill_px FROM tms.orders WHERE client_order_id='PAPER-O-F'`).
+		Scan(&status, &filledQty, &avgPx))
+	assert.Equal(t, "FILLED", status)
+	assert.Equal(t, int64(100), filledQty, "filled_qty carried into the FILLED row")
+	assert.Equal(t, int64(1502500), avgPx, "avg_fill_px persisted on the 1e-4 grid")
+
+	// A partial-fill snapshot (filled_qty<qty) round-trips too, and filled_qty must
+	// never regress on a later upsert (GREATEST guard).
+	o2 := domain.NewMarketOrder("PAPER-O-P", "TEST-001", "AAPL", domain.OrderSideBuy, 100, "open", time.Now().UTC())
+	o2.Status = domain.OrderStatusPartiallyFilled
+	o2.FilledQty = 40
+	o2.AvgFillPx = domain.MustPrice("150.00")
+	require.NoError(t, p.UpsertOrder(ctx, o2))
+	// A stale duplicate carrying a LOWER filled_qty must not walk the row backwards.
+	o2.FilledQty = 10
+	require.NoError(t, p.UpsertOrder(ctx, o2))
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT filled_qty FROM tms.orders WHERE client_order_id='PAPER-O-P'`).Scan(&filledQty))
+	assert.Equal(t, int64(40), filledQty, "filled_qty never regresses on a stale duplicate")
+}
+
+// openPositionCount returns the number of OPEN tms.positions rows for the
+// session — the cockpit's "open positions" gauge. After a flatten it MUST be 0.
+func openPositionCount(t *testing.T, pool *pgxpool.Pool, sessionID int64) int64 {
+	t.Helper()
+	ctx := testCtx(t)
+	var n int64
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM tms.positions WHERE session_id=$1 AND status='OPEN'`, sessionID).Scan(&n))
+	return n
+}
+
+// TestFlattenLeavesPositionBookFlatInPG is the persistence-level regression that
+// the P6 gate MISSED: it asserts the open-position COUNT in tms.positions drops
+// to 0 after a flatten — i.e. the originating '<strategy>|<sym>' row is stamped
+// status=CLOSED (signed_qty 0) and NO phantom 'FLATTEN|<sym>' OPEN row is left
+// behind. The old (buggy) flatten closed the broker aggregate under a FLATTEN
+// position_id, so the book held PAIRED rows (the strategy row still OPEN at +N
+// AND a FLATTEN row at -N): economically flat, but openPositionCount != 0 and
+// the cockpit showed phantom open positions. The correct model nets each
+// originating row to 0, so this count is 0.
+func TestFlattenLeavesPositionBookFlatInPG(t *testing.T) {
+	pool := requirePG(t)
+	ctx := testCtx(t)
+	sessionID := openTestSession(t, pool, "PAPER-FLATTEN-001")
+	p := runner.NewLivePersist(pool, nil, sessionID, "PAPER-FLATTEN-001", "MOOMOO", zerolog.Nop())
+
+	// Two strategies, one sharing a symbol — the multi-strategy-same-symbol case
+	// from the diagnosis (SectorRotation-001/XLK + Hedge-002/XLK), plus a distinct
+	// MSFT row. Open each (the executor's persistPosition writes the OPEN row).
+	opens := []domain.Position{
+		{StrategyID: "SectorRotation-001", Symbol: "XLK", SignedQty: 348, AvgPx: domain.MustPrice("200.00"), UpdatedAt: time.Now().UTC()},
+		{StrategyID: "Hedge-002", Symbol: "XLK", SignedQty: -100, AvgPx: domain.MustPrice("200.00"), UpdatedAt: time.Now().UTC()},
+		{StrategyID: "SectorRotation-001", Symbol: "MSFT", SignedQty: -50, AvgPx: domain.MustPrice("300.00"), UpdatedAt: time.Now().UTC()},
+	}
+	for _, o := range opens {
+		require.NoError(t, p.UpsertPosition(ctx, o))
+	}
+	require.Equal(t, int64(3), openPositionCount(t, pool, sessionID), "3 open rows before flatten")
+
+	// CORRECT-MODEL flatten: each originating row's closing fill nets it to 0, so
+	// the executor's persistPosition writes the SAME (strategy, symbol) row at
+	// signed_qty 0 -> UpsertPosition stamps status=CLOSED. This is the exact write
+	// the rewritten Flatten produces (close under the ORIGINATING strategy id,
+	// NOT a FLATTEN pseudo-strategy).
+	for _, o := range opens {
+		closed := o
+		closed.SignedQty = 0
+		closed.UpdatedAt = time.Now().UTC()
+		require.NoError(t, p.UpsertPosition(ctx, closed))
+	}
+
+	// THE STRENGTHENED ASSERTION (the gap P6 missed): the open-position COUNT is 0.
+	assert.Equal(t, int64(0), openPositionCount(t, pool, sessionID),
+		"after a flatten the position BOOK must be row-by-row flat (no phantom OPEN rows)")
+
+	// Each originating row is CLOSED (not a NEW FLATTEN row): same position_id,
+	// status flipped to CLOSED, closed_at stamped.
+	var closedCount int64
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM tms.positions
+		  WHERE session_id=$1 AND status='CLOSED' AND closed_at IS NOT NULL`, sessionID).Scan(&closedCount))
+	assert.Equal(t, int64(3), closedCount, "each originating row is stamped CLOSED in place")
+
+	// And there is NO phantom FLATTEN-strategy row at all (old-model artifact).
+	var flattenRows int64
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM tms.positions WHERE session_id=$1 AND strategy_id='FLATTEN'`, sessionID).Scan(&flattenRows))
+	assert.Equal(t, int64(0), flattenRows, "the correct model creates NO phantom FLATTEN position rows")
 }
 
 // TestFlattenConfirmationGate proves flatten + emergency_kill require a confirm

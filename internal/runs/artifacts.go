@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/byjackchen/trade-tms-go/internal/domain"
@@ -343,13 +344,60 @@ func isoUTC(t time.Time) string {
 	return u.Format("2006-01-02T15:04:05.000000+00:00")
 }
 
-// tsToISO converts a %Y-%m-%d_%H-%M-%S run-ts directory name to an ISO 8601
-// UTC instant (used for the strategy summary sample ts).
+// tsToISO converts a run-ts directory name to an ISO 8601 UTC instant (used for
+// the strategy summary sample ts). It accepts both the second-resolution
+// %Y-%m-%d_%H-%M-%S form (NewRunTS / explicit idempotency keys) and the
+// collision-free %Y-%m-%d_%H-%M-%S-MMMMMM-CCCC form (NewRunID): the trailing
+// "-MMMMMM-CCCC" microsecond+counter suffix is parsed back into sub-second
+// precision so the emitted ISO instant matches the wall-clock the key encodes.
 func tsToISO(ts string) string {
-	if t, err := time.Parse("2006-01-02_15-04-05", ts); err == nil {
+	base, micros, ok := splitRunID(ts)
+	if t, err := time.Parse("2006-01-02_15-04-05", base); err == nil {
+		if ok {
+			t = t.Add(time.Duration(micros) * time.Microsecond)
+		}
 		return isoUTC(t.UTC())
 	}
 	return ts
+}
+
+// splitRunID separates a collision-free run key
+// "%Y-%m-%d_%H-%M-%S-MMMMMM-CCCC" into its second-resolution base and the
+// microsecond field. For a plain second-resolution key it returns the key
+// unchanged with ok=false. The 4-digit counter is a uniqueness tiebreaker only
+// and carries no time information, so it is discarded.
+func splitRunID(ts string) (base string, micros int, ok bool) {
+	// The base form has exactly two '-' inside the time portion after the '_';
+	// the collision-free form appends "-MMMMMM-CCCC" → two extra '-' groups.
+	parts := strings.Split(ts, "-")
+	if len(parts) != 7 {
+		return ts, 0, false
+	}
+	// parts: [YYYY, MM, DD_HH, MM, SS, MMMMMM, CCCC]
+	m, err := parseDigits(parts[5], 6)
+	if err != nil {
+		return ts, 0, false
+	}
+	if _, err := parseDigits(parts[6], 4); err != nil {
+		return ts, 0, false
+	}
+	base = strings.Join(parts[:5], "-")
+	return base, m, true
+}
+
+// parseDigits parses an exactly-n-digit decimal field (leading zeros kept).
+func parseDigits(s string, n int) (int, error) {
+	if len(s) != n {
+		return 0, fmt.Errorf("runs: field %q is not %d digits", s, n)
+	}
+	v := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, fmt.Errorf("runs: field %q has non-digit", s)
+		}
+		v = v*10 + int(c-'0')
+	}
+	return v, nil
 }
 
 // atomicWrite writes body to path via a tmp file + rename, fsyncing the file
@@ -381,7 +429,41 @@ func atomicWrite(path string, body []byte) error {
 	return nil
 }
 
-// NewRunTS returns a fresh UTC run-ts directory name.
+// NewRunTS returns a fresh UTC run-ts directory name at SECOND resolution
+// (%Y-%m-%d_%H-%M-%S). This is the exact byte-compatible Python dumper dir name
+// and is used by the single-threaded parity runner (which pins an explicit
+// Timestamp, so it never collides). It is NOT collision-free under concurrency
+// — concurrent backtest jobs MUST use NewRunID instead.
 func NewRunTS(now time.Time) string {
 	return now.UTC().Format("2006-01-02_15-04-05")
+}
+
+// runIDSeq breaks exact-microsecond ties between run keys generated on different
+// goroutines within the same process (two NewRunID calls that land in the same
+// microsecond still differ). It is monotonic per process; combined with the
+// microsecond wall-clock field it yields a strictly unique, lexically sortable
+// suffix.
+var runIDSeq atomic.Uint64
+
+// NewRunID returns a COLLISION-FREE run key for concurrent backtests:
+// the second-resolution NewRunTS form plus a 6-digit microsecond field and a
+// 4-digit per-process monotonic counter, "-MMMMMM-CCCC".
+//
+// Worker concurrency is >1 (TMS_WORKER_CONCURRENCY=4), so two backtests can be
+// claimed within the same wall-clock second. With a plain second-resolution
+// run_ts both rows shared one UNIQUE(run_ts) natural key and the idempotent
+// DELETE-then-INSERT in Store.Persist silently destroyed one run's persisted
+// results + artifact dir. The microsecond field separates near-simultaneous
+// runs; the monotonic counter guarantees uniqueness even if two goroutines read
+// the same microsecond. The form stays lexically sortable (run list ORDER BY
+// run_ts DESC keeps newest-first ordering) and is a valid directory name.
+//
+// Callers that supply an EXPLICIT run_ts (an idempotency key for a retried
+// logical run) keep the second-resolution form and the DELETE-then-INSERT
+// convergence semantics — only auto-generated keys gain the unique suffix.
+func NewRunID(now time.Time) string {
+	u := now.UTC()
+	micros := u.Nanosecond() / 1000
+	seq := runIDSeq.Add(1) % 10000
+	return fmt.Sprintf("%s-%06d-%04d", u.Format("2006-01-02_15-04-05"), micros, seq)
 }

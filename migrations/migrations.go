@@ -17,6 +17,9 @@
 //	                     members with score diagnostics + reasons)
 //	000008_jobs_p1     — jobs P1 columns: dedupe_key (+ active-unique
 //	                     index), progress JSONB, cancel_requested
+//	000012_runs_collision_free_ts — relax runs.run_ts CHECK to permit the
+//	                     collision-free %Y-%m-%d_%H-%M-%S-MMMMMM-CCCC form so
+//	                     concurrent backtests never share the UNIQUE natural key
 //
 // Money convention (see docs/spec/domain-types-money.md): all USD price and
 // balance columns are BIGINT fixed-point at 1e-4 scale

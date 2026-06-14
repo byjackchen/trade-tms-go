@@ -409,6 +409,15 @@ func (e *Engine) liquidateOpenPositions() error {
 // New, before Run).
 func (e *Engine) TotalBars() int { return e.totalBars }
 
+// Clock returns the batch loop's deterministic clock (a *core.SimClock advanced
+// by the event loop to each event's timestamp before dispatch). It is exposed so
+// the unification proof (internal/unified) can ASSERT the backtest/hyperopt batch
+// path is driven by a SimClock — the mode-specific seam that distinguishes the
+// batch consumer from the streaming (WallClock/VirtualClock) live consumers,
+// while the strategy/portfolio/context set is the SAME strategyassembly.Assemble
+// output across all five modes.
+func (e *Engine) Clock() core.Clock { return e.loop.Clock() }
+
 // EquityFloat returns the value the strategy generators size against: the
 // account's SETTLED cash balance (= starting + realized = Nautilus
 // account(VENUE).balance_total(USD)), NOT cash + unrealized. The Python

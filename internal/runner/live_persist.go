@@ -63,19 +63,25 @@ func (p *LivePersist) UpsertOrder(ctx context.Context, o domain.Order) error {
 	if p.pool == nil {
 		return nil
 	}
+	// filled_qty/avg_fill_px ride on the snapshot so a FILLED status arrives with
+	// filled_qty=qty in the SAME write — satisfying CHECK (status<>'FILLED' OR
+	// filled_qty=qty). Never regress filled_qty on update (GREATEST): a late
+	// duplicate or out-of-order push must not walk a FILLED row backwards.
 	_, err := p.pool.Exec(ctx, `
 		INSERT INTO tms.orders
 		    (session_id, client_order_id, venue_order_id, strategy_id, symbol, instrument_id,
-		     side, order_type, qty, tif, status, reason, ts_submitted, ts_last_event)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,'MARKET',$8,'GTC',$9,$10,$11,$11)
+		     side, order_type, qty, tif, status, filled_qty, avg_fill_px, reason, ts_submitted, ts_last_event)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,'MARKET',$8,'GTC',$9,$10,$11,$12,$13,$13)
 		ON CONFLICT (client_order_id) DO UPDATE SET
 		    venue_order_id = COALESCE(EXCLUDED.venue_order_id, tms.orders.venue_order_id),
 		    status         = EXCLUDED.status,
+		    filled_qty     = GREATEST(EXCLUDED.filled_qty, tms.orders.filled_qty),
+		    avg_fill_px    = COALESCE(EXCLUDED.avg_fill_px, tms.orders.avg_fill_px),
 		    reason         = COALESCE(NULLIF(EXCLUDED.reason, ''), tms.orders.reason),
 		    ts_last_event  = EXCLUDED.ts_last_event`,
 		p.sessionID, o.ClientOrderID, nullStr(o.VenueOrderID), o.StrategyID, o.Symbol,
 		p.instrumentID(o.Symbol), string(o.Side), int64(o.Qty), string(o.Status),
-		nullStr(o.Reason), o.TS.UTC())
+		int64(o.FilledQty), nullPx(o.AvgFillPx), nullStr(o.Reason), o.TS.UTC())
 	if err != nil {
 		return fmt.Errorf("upsert order %s: %w", o.ClientOrderID, err)
 	}
@@ -328,6 +334,15 @@ func nullStr(s string) any {
 		return nil
 	}
 	return s
+}
+
+// nullPx maps a non-positive price to SQL NULL (the avg_fill_px column is
+// `NULL OR > 0`): a not-yet-filled order has no average fill price.
+func nullPx(px domain.Price) any {
+	if px <= 0 {
+		return nil
+	}
+	return int64(px)
 }
 
 func textArray(ss []string) []string {

@@ -43,6 +43,7 @@ import type {
   LivePositionsResponse,
   LiveAccount,
   LiveReconciliationResponse,
+  SystemResponse,
 } from "./types";
 import { ApiError } from "./client";
 
@@ -498,6 +499,27 @@ export function useSystemHealth(): UseQueryResult<SystemHealth, Error> {
       return (await resp.json()) as SystemHealth;
     },
     refetchInterval: 10000,
+  });
+}
+
+/**
+ * Poll the aggregated GET /api/v1/system endpoint (bearer-guarded, via the
+ * proxy): the single call that backs the System page's component grid + metrics.
+ * A 503 means the API has no system reader configured (a deployment choice), an
+ * expected degraded state surfaced rather than retried.
+ */
+export function useSystem(): UseQueryResult<SystemResponse, Error> {
+  return useQuery({
+    queryKey: ["system"],
+    queryFn: () => apiGet<SystemResponse>("system"),
+    // Refresh on the same cadence as the legacy /healthz proxy so the dots +
+    // metrics stay current without hammering the aggregate query.
+    refetchInterval: 10000,
+    retry: (count, err) => {
+      const status = err instanceof ApiError ? err.status : undefined;
+      if (status === 503 || (status !== undefined && status < 500)) return false;
+      return count < 2;
+    },
   });
 }
 

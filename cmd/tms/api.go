@@ -112,12 +112,13 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		return err
 	}
 
+	pgStore := api.NewPGStore(pool)
 	srv, err := api.NewServer(api.Deps{
 		Log:         log,
 		Token:       token,
 		CORSOrigins: env.cfg.APICORSOrigins,
 		Jobs:        queue,
-		Data:        api.NewPGStore(pool),
+		Data:        pgStore,
 		Universe:    universe.NewStore(pool),
 		Runs:        runs.NewStore(pool),
 		Strategies:  api.NewStrategyReader(params.DBPayloadReader{Q: pool}, env.cfg.StrategyParamsDir),
@@ -127,6 +128,9 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		PingPG:      pool.Ping,
 		PingRedis:   func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },
 		Live:        api.NewLiveStore(pool),
+		// SystemReader backs GET /api/v1/system (queue depth, active sessions,
+		// data freshness); the same PGStore satisfies it.
+		System: pgStore,
 		// The audited command enqueuer is the ONLY write path of the live API.
 		// A live/paper mode switch requires the confirmation token; "" means the
 		// presence of any non-empty confirm_token suffices (the API gates by

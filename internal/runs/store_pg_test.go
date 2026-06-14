@@ -252,6 +252,48 @@ func TestStorePersistIdempotent(t *testing.T) {
 	assert.Equal(t, 0, trades)
 }
 
+// TestStoreConcurrentSameSecondNoOverwrite is the DB-level regression for the
+// round-3 data-loss blocker: two backtests that start within the same
+// wall-clock second must BOTH persist. Previously both got the same
+// second-resolution run_ts, and Persist's idempotent DELETE-then-INSERT on the
+// UNIQUE(run_ts) natural key silently destroyed one run's rows + artifacts. With
+// NewRunID the keys carry a microsecond+counter suffix, so both rows survive.
+func TestStoreConcurrentSameSecondNoOverwrite(t *testing.T) {
+	requirePG(t)
+	ctx := context.Background()
+	store := runs.NewStore(testPool)
+
+	// The exact same wall-clock second for both runs (the collision condition).
+	now := time.Date(2024, 7, 1, 2, 31, 59, 0, time.UTC)
+	in1 := samplePersist()
+	in1.RunTS = runs.NewRunID(now)
+	in2 := samplePersist()
+	in2.RunTS = runs.NewRunID(now)
+
+	require.NotEqual(t, in1.RunTS, in2.RunTS, "NewRunID must be collision-free within a second")
+
+	id1, err := store.Persist(ctx, in1)
+	require.NoError(t, err)
+	id2, err := store.Persist(ctx, in2)
+	require.NoError(t, err)
+	require.NotEqual(t, id1, id2)
+
+	// BOTH runs are still readable — neither overwrote the other.
+	d1, err := store.Get(ctx, id1)
+	require.NoError(t, err, "first same-second run must survive")
+	d2, err := store.Get(ctx, id2)
+	require.NoError(t, err, "second same-second run must survive")
+	assert.Equal(t, in1.RunTS, d1.RunTS)
+	assert.Equal(t, in2.RunTS, d2.RunTS)
+
+	// Both sub-second run_ts values satisfy the relaxed CHECK and both rows exist
+	// for the shared second prefix.
+	var count int
+	require.NoError(t, testPool.QueryRow(ctx,
+		`SELECT count(*) FROM tms.runs WHERE run_ts LIKE $1`, "2024-07-01_02-31-59%").Scan(&count))
+	assert.Equal(t, 2, count, "both same-second runs persisted")
+}
+
 func TestStoreGetNotFound(t *testing.T) {
 	requirePG(t)
 	_, err := runs.NewStore(testPool).Get(context.Background(), 9_999_999)

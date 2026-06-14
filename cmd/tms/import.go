@@ -12,39 +12,21 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/db"
 )
 
-// newImportCmd declares the data-import command tree (Sharadar SEP prices,
-// tickers/universe, actions). The flag surface is fixed now so callers and
-// docs are stable; the importers themselves land in the P0 data phase and
-// must reproduce the Python reference's cache semantics exactly.
+// newImportCmd declares the data-import command tree. The concrete importer is
+// the `sharadar` subcommand (bulk-loads the Sharadar parquet cache into
+// TimescaleDB); the parent groups it and prints help when invoked bare.
 func newImportCmd(env *runtimeEnv) *cobra.Command {
-	var (
-		dataset string
-		from    string
-		to      string
-		source  string
-	)
-
 	importCmd := &cobra.Command{
 		Use:   "import",
 		Short: "Import market data into TimescaleDB (Sharadar datasets)",
-		Long: "Import Sharadar datasets (sep, tickers, actions) into TimescaleDB,\n" +
-			"either from the Nasdaq Data Link API or from an existing local cache\n" +
-			"produced by the Python reference (cache/sharadar Parquet layout).",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			env.log.Error().
-				Str("dataset", dataset).
-				Str("from", from).
-				Str("to", to).
-				Str("source", source).
-				Msg("import not implemented yet")
-			return notImplementedError("import")
-		},
+		Long: "Import Sharadar datasets into TimescaleDB from an existing local cache\n" +
+			"(cache/sharadar parquet layout). See `tms import sharadar`.",
+		Args:          cobra.NoArgs,
+		SilenceErrors: false,
+		// No bare action: running `tms import` with no subcommand prints help
+		// (cobra default when RunE is nil and subcommands exist).
 	}
 
-	importCmd.Flags().StringVar(&dataset, "dataset", "sep", "dataset to import: sep|tickers|actions|all")
-	importCmd.Flags().StringVar(&from, "from", "", "start date (YYYY-MM-DD, inclusive)")
-	importCmd.Flags().StringVar(&to, "to", "", "end date (YYYY-MM-DD, inclusive)")
-	importCmd.Flags().StringVar(&source, "source", "cache", "data source: cache (local Parquet) | api (Nasdaq Data Link)")
 	importCmd.AddCommand(newImportSharadarCmd(env))
 	return importCmd
 }

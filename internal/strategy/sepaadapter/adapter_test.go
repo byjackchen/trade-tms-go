@@ -121,25 +121,18 @@ func TestStateRoundTripJSON(t *testing.T) {
 	}
 }
 
-func TestIntentJSONShape(t *testing.T) {
+// TestEvaluateIntentJSONReturnsRawSepaType pins the contract that the publish
+// layer relies on: EvaluateIntentJSON returns the RAW sepa.SignalIntent value
+// (NOT a private adapter struct). publish.NormalizeIntent only has a case for
+// sepa.SignalIntent; returning anything else aborts every SEPA/multi intent in
+// the signal/paper/live/EOD modes with "unsupported intent type". This is the
+// in-package half of the regression guard; the publish-side half asserts the
+// resulting wire shape (publish/intent_test.go TestNormalizeSEPAAdapterOutput).
+func TestEvaluateIntentJSONReturnsRawSepaType(t *testing.T) {
 	s := New("SEPA-AAPL", newGen(t, "AAPL"))
 	v := s.EvaluateIntentJSON(time.Date(2024, 1, 1, 21, 0, 0, 0, time.UTC))
-	b, _ := json.Marshal(v)
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		t.Fatal(err)
-	}
-	for _, k := range []string{
-		"symbol", "state", "strength", "proximity_to_trigger_pct", "updated_at",
-		"generation", "strategy_id", "grade", "trend_template_pass", "base_age_days",
-		"base_depth_pct", "volume_dryup", "pivot_price", "stop_price", "rs_rank",
-	} {
-		if _, ok := m[k]; !ok {
-			t.Errorf("intent JSON missing key %q", k)
-		}
-	}
-	if m["strategy_id"] != "sepa" {
-		t.Errorf("strategy_id != sepa: %v", m["strategy_id"])
+	if _, ok := v.(sepa.SignalIntent); !ok {
+		t.Fatalf("EvaluateIntentJSON must return sepa.SignalIntent for publish.NormalizeIntent; got %T", v)
 	}
 }
 

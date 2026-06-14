@@ -3,6 +3,8 @@ package moomoo
 import (
 	"context"
 	"errors"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -53,6 +55,27 @@ func (a *fakeAccount) Position(strategyID, symbol string) (domain.Position, bool
 	return *p, true
 }
 
+// OpenPositions returns snapshots of every non-flat (strategy, symbol) position
+// in deterministic (strategy_id, symbol) order — the per-strategy BOOK the
+// flatten enumerates (mirrors accounting.Account.OpenPositions).
+func (a *fakeAccount) OpenPositions() []domain.Position {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]domain.Position, 0, len(a.pos))
+	for _, p := range a.pos {
+		if p.SignedQty != 0 {
+			out = append(out, *p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].StrategyID != out[j].StrategyID {
+			return out[i].StrategyID < out[j].StrategyID
+		}
+		return out[i].Symbol < out[j].Symbol
+	})
+	return out
+}
+
 // recordSink captures emitted fills.
 type recordSink struct {
 	mu    sync.Mutex
@@ -98,6 +121,29 @@ func (p *recordPersist) UpsertPosition(_ context.Context, pos domain.Position) e
 	return nil
 }
 
+// positionsSnapshot returns a copy of every persisted position write (ordered).
+func (p *recordPersist) positionsSnapshot() []domain.Position {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]domain.Position(nil), p.positions...)
+}
+
+// lastPersistedPosition returns the LAST persisted position write for
+// (strategy, symbol), or nil if none — i.e. the state UpsertPosition would
+// stamp into tms.positions (status derived from SignedQty==0 => CLOSED).
+func lastPersistedPosition(p *recordPersist, strategyID, symbol string) *domain.Position {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var last *domain.Position
+	for i := range p.positions {
+		if p.positions[i].StrategyID == strategyID && p.positions[i].Symbol == symbol {
+			cp := p.positions[i]
+			last = &cp
+		}
+	}
+	return last
+}
+
 type recordRisk struct {
 	mu     sync.Mutex
 	events []string
@@ -108,6 +154,38 @@ func (r *recordRisk) RecordRiskEvent(_ context.Context, _, _, rule, detail strin
 	r.events = append(r.events, rule+":"+detail)
 	r.mu.Unlock()
 	return nil
+}
+
+// has reports whether any recorded event was for rule.
+func (r *recordRisk) has(rule string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, e := range r.events {
+		if strings.HasPrefix(e, rule+":") {
+			return true
+		}
+	}
+	return false
+}
+
+// snapshot returns a copy of the recorded events.
+func (r *recordRisk) snapshot() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.events...)
+}
+
+// trackedByCOID returns the executor's tracked OrderState for coid, failing the
+// test if it is unknown.
+func trackedByCOID(t *testing.T, e *MoomooExecutor, coid string) OrderState {
+	t.Helper()
+	for _, st := range e.TrackedOrders() {
+		if st.ClientOrderID == coid {
+			return st
+		}
+	}
+	t.Fatalf("no tracked order for client-order-id %q", coid)
+	return OrderState{}
 }
 
 type fixedClock struct{ t time.Time }
@@ -194,9 +272,25 @@ func TestSubmitAcceptFillUpdatesPositionAndSink(t *testing.T) {
 	if len(fills) != 1 || fills[0].Qty != 100 || fills[0].Price != domain.MustPrice("150.00") {
 		t.Fatalf("want 1 fill 100@150, got %+v", fills)
 	}
-	// Order persisted reaching FILLED.
+	// Order persisted reaching FILLED — and the FILLED snapshot MUST carry
+	// filled_qty=qty (+ a valid avg_fill_px) so the persisted row satisfies the
+	// orders schema CHECK (status<>'FILLED' OR filled_qty=qty). A snapshot with
+	// FilledQty=0 was the production defect that hit SQLSTATE 23514.
 	if !persistedStatus(persist, coid, domain.OrderStatusFilled) {
 		t.Fatalf("order %s never persisted FILLED; orders=%+v", coid, persist.orders)
+	}
+	filled := lastOrderSnapshot(persist, coid, domain.OrderStatusFilled)
+	if filled == nil {
+		t.Fatalf("no FILLED snapshot captured for %s", coid)
+	}
+	if filled.FilledQty != filled.Qty {
+		t.Fatalf("FILLED snapshot filled_qty=%d != qty=%d (orders_check3 would reject)", filled.FilledQty, filled.Qty)
+	}
+	if filled.AvgFillPx != domain.MustPrice("150.00") {
+		t.Fatalf("FILLED snapshot avg_fill_px=%s want 150.00", filled.AvgFillPx)
+	}
+	if err := filled.Validate(); err != nil {
+		t.Fatalf("FILLED snapshot must be a valid domain.Order: %v", err)
 	}
 	if e.FillsEmitted() != 1 {
 		t.Fatalf("FillsEmitted=%d want 1", e.FillsEmitted())
@@ -246,7 +340,7 @@ func TestSubmitTimeRejectSurfacesRiskEvent(t *testing.T) {
 }
 
 func TestPartialFillsAccumulate(t *testing.T) {
-	e, venue, acct, sink, _ := newPaperExecutor(t)
+	e, venue, acct, sink, persist := newPaperExecutor(t)
 	ts := time.Now().UTC()
 	coid, err := e.SubmitMarket("PAIRS-000", "MSFT", domain.OrderSideBuy, 100, "entry", ts)
 	if err != nil {
@@ -275,6 +369,15 @@ func TestPartialFillsAccumulate(t *testing.T) {
 	pos, _ := acct.Position("PAIRS-000", "MSFT")
 	if pos.SignedQty != 100 {
 		t.Fatalf("want net 100, got %d", pos.SignedQty)
+	}
+	// The intermediate PARTIALLY_FILLED snapshot carries the cumulative filled_qty
+	// (40 after the first partial), and the terminal FILLED snapshot carries 100 —
+	// every snapshot satisfies filled_qty<=qty and the FILLED=qty invariant.
+	if partial := lastOrderSnapshot(persist, coid, domain.OrderStatusPartiallyFilled); partial == nil || partial.FilledQty != 40 {
+		t.Fatalf("PARTIALLY_FILLED snapshot want filled_qty=40, got %+v", partial)
+	}
+	if filled := lastOrderSnapshot(persist, coid, domain.OrderStatusFilled); filled == nil || filled.FilledQty != 100 {
+		t.Fatalf("FILLED snapshot want filled_qty=100, got %+v", filled)
 	}
 }
 
@@ -357,4 +460,19 @@ func persistedStatus(p *recordPersist, coid string, status domain.OrderStatus) b
 		}
 	}
 	return false
+}
+
+// lastOrderSnapshot returns the most recent persisted order snapshot for coid at
+// status (nil if none), so a test can assert the snapshot's filled_qty/avg_fill_px.
+func lastOrderSnapshot(p *recordPersist, coid string, status domain.OrderStatus) *domain.Order {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var found *domain.Order
+	for i := range p.orders {
+		if p.orders[i].ClientOrderID == coid && p.orders[i].Status == status {
+			o := p.orders[i]
+			found = &o
+		}
+	}
+	return found
 }

@@ -79,3 +79,43 @@ func TestLiveStoreTradingReads(t *testing.T) {
 	assert.False(t, recon.HasIssues)
 	assert.Equal(t, []string{"AAPL"}, recon.Matched)
 }
+
+// TestSessionRealizedPnLIncludesClosed locks the P7 day-P/L regression: realized
+// PnL from a position closed intraday (e.g. a rebalance dropping a sector) must
+// be included in day P/L even though OpenPositions excludes it. Before the fix,
+// handleLiveAccount summed realized over OpenPositions only and reported $0.
+func TestSessionRealizedPnLIncludesClosed(t *testing.T) {
+	if itestPool == nil {
+		t.Skipf("skipping: ephemeral postgres unavailable (%s)", pgUnavailable)
+	}
+	ctx := context.Background()
+	_, err := itestPool.Exec(ctx, `TRUNCATE tms.sessions, tms.positions RESTART IDENTITY CASCADE`)
+	require.NoError(t, err)
+
+	var sessionID int64
+	require.NoError(t, itestPool.QueryRow(ctx,
+		`INSERT INTO tms.sessions (trader_id, mode, status) VALUES ('PAPER-PNL-001','paper','RUNNING') RETURNING id`).
+		Scan(&sessionID))
+
+	// An OPEN position with +$120.00 realized and a CLOSED (flat) position with
+	// -$859.74 realized (closed by a rebalance). Net day P/L = -$739.74.
+	_, err = itestPool.Exec(ctx, `
+		INSERT INTO tms.positions (session_id, position_id, strategy_id, symbol, instrument_id,
+		    signed_qty, avg_entry_px, realized_pnl_usd, status, opened_at, closed_at)
+		VALUES ($1,'SECT|XLK','SECT','XLK','XLK.MOOMOO',288,2000000,1200000,'OPEN',now(),NULL),
+		       ($1,'SECT|XLP','SECT','XLP','XLP.MOOMOO',0,3500000,-8597400,'CLOSED',now(),now())`, sessionID)
+	require.NoError(t, err)
+
+	store := NewLiveStore(itestPool)
+
+	// OpenPositions excludes the closed XLP entirely.
+	open, err := store.OpenPositions(ctx)
+	require.NoError(t, err)
+	require.Len(t, open, 1)
+	assert.Equal(t, "XLK", open[0].Symbol)
+
+	// SessionRealizedPnL must include BOTH: 120.00 + (-859.74) = -739.74.
+	day, err := store.SessionRealizedPnL(ctx)
+	require.NoError(t, err)
+	assert.InDelta(t, -739.74, day, 1e-6, "day P/L must include intraday-closed realized PnL")
+}

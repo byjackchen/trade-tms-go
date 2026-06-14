@@ -140,6 +140,15 @@ JSON 还携带 `allocation: {capital_pct: 0.30, active: true}`(sector_rotation.j
 `max_single_name_pct=0.50, concentration_pct=0.40, daily_loss_halt_pct=0.10`
 (src/runner/strategy_assembly.py:230-258)。**[MUST-MATCH]**
 
+> **单策略闸门(Go 专有,FIXER round 2 finding 1)**:SectorRotation 每个 pick
+> 取 `equity/top_k`(基线 top_k=3 即 33% NAV)。Python 仅在多策略 `run_backtest`
+> 下跑 sector,33% > 30% 预算被 allocator 全部拒单,sector 在该路径成交为零——
+> Go 多策略路径**逐字保留**此行为以维持 hyperopt 目标面奇偶一致。但 Go 额外提供
+> 单策略路径(live 默认 `--strategy sector_rotation`),无 Python oracle。该单策略
+> 闸门改用 sector 的**正典风控** 50/40/10(而非通用默认 20/30/5):33% pick 永远
+> 过不了 20% single-name 上限,否则默认 live/paper 策略将一单不成交。详见
+> `docs/spec/portfolio-risk.md` §9a。`internal/engine/strategyassembly/assembly.go:loneSectorPortfolio`。
+
 ### 2.4 内部状态 **[MUST-MATCH]**(signal.py:107-122)
 
 | 字段 | 类型 | 初始化 |

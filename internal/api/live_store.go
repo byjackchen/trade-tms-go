@@ -246,6 +246,20 @@ func (s *LiveStore) OpenPositions(ctx context.Context) ([]LiveTradePosition, err
 	return out, rows.Err()
 }
 
+// SessionRealizedPnL returns Σ realized PnL (USD) over the FULL position book —
+// open AND closed — so day P/L includes positions closed intraday (e.g. a
+// rebalance dropping a sector), which OpenPositions filters out.
+func (s *LiveStore) SessionRealizedPnL(ctx context.Context) (float64, error) {
+	var realized int64
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(realized_pnl_usd), 0)
+		  FROM tms.positions`).Scan(&realized)
+	if err != nil {
+		return 0, err
+	}
+	return fixed4(realized), nil
+}
+
 // LatestReconciliation returns the newest reconciliation report, or nil.
 func (s *LiveStore) LatestReconciliation(ctx context.Context) (*LiveReconciliation, error) {
 	var (

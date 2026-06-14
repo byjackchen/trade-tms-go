@@ -475,6 +475,54 @@ list, wrapped in `strategy`). `404`
 
 ---
 
+## System status
+
+### `GET /api/v1/system`
+
+Aggregated health of every component for the UI **System** page — Postgres,
+Redis, the moomoo data feed (inferred), active live sessions, the durable
+job-queue depth, and market-data freshness — in one call. **Always `200`**;
+degradation is reported in the body (`status` + per-component `status`), so the
+page renders red/yellow dots rather than throwing. Implementation:
+`internal/api/system.go`; contract: `internal/api/system_test.go`.
+
+- `status` rollup: `"down"` iff Postgres is unreachable (the only fatal
+  dependency); `"degraded"` if any other component is `down`/`degraded`;
+  otherwise `"ok"`.
+- Component `status` values: `ok | degraded | down | idle | unknown |
+  not_configured`.
+- The moomoo feed is **inferred** from the latest `tms.sessions` row + the
+  freshness of the latest `PortfolioHealth` snapshot (the `tms api` process holds
+  no OpenD socket — that lives in `tms-live`).
+
+```json
+{
+  "status": "ok",
+  "version": "0.1.0",
+  "ts": "2025-06-12T15:30:00Z",
+  "components": {
+    "postgres":    { "status": "ok", "detail": "reachable" },
+    "redis":       { "status": "ok", "detail": "reachable" },
+    "moomoo_feed": { "status": "ok", "detail": "data flowing" },
+    "sessions":    { "status": "ok", "detail": "1 active session · latest RUNNING (signal)" },
+    "jobs":        { "status": "ok", "detail": "3 queued · 1 running" },
+    "data":        { "status": "ok", "detail": "latest bar 2025-06-10" }
+  },
+  "metrics": {
+    "jobs_queued": 3,
+    "jobs_running": 1,
+    "active_sessions": 1,
+    "latest_bar_date": "2025-06-10",
+    "last_sync_at": "2025-06-12T13:30:00Z",
+    "live_mode": "signal",
+    "live_session_id": 7,
+    "health_age_seconds": 60.0
+  }
+}
+```
+
+---
+
 ## Backtests
 
 The result + control plane over the DB source of truth (`research.runs` /

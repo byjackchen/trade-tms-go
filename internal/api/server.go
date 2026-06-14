@@ -44,6 +44,10 @@ type Deps struct {
 	// Commands enqueues audited control commands. Optional: when nil
 	// POST /api/v1/live/commands returns 503.
 	Commands CommandEnqueuer
+	// System supplies the aggregate counts + freshness for GET /api/v1/system.
+	// Optional: when nil those components report "not_configured" (the endpoint
+	// still serves PG/Redis/feed status).
+	System SystemReader
 	// Now overrides the clock (tests); nil = time.Now.
 	Now func() time.Time
 }
@@ -65,6 +69,7 @@ type Server struct {
 	pingRedis   PingFunc
 	live        LiveReader
 	commands    CommandEnqueuer
+	system      SystemReader
 	hub         *Hub
 	now         func() time.Time
 }
@@ -108,6 +113,7 @@ func NewServer(d Deps) (*Server, error) {
 		pingRedis:   d.PingRedis,
 		live:        d.Live,
 		commands:    d.Commands,
+		system:      d.System,
 		hub:         NewHub(log, d.CORSOrigins),
 		now:         now,
 	}, nil
@@ -160,6 +166,11 @@ func (s *Server) Routes() *chi.Mux {
 
 			r.Get("/strategies", s.handleStrategyList)
 			r.Get("/strategies/{id}", s.handleStrategyGet)
+
+			// Aggregated system status (P7 capstone): pg + redis + moomoo feed
+			// + active sessions + job-queue depth + data freshness in one call
+			// for the UI System page.
+			r.Get("/system", s.handleSystem)
 
 			r.Post("/backtests", s.handleBacktestEnqueue)
 			r.Get("/backtests", s.handleBacktestList)

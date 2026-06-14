@@ -769,6 +769,53 @@ and return `false` (order silently dropped — never raises).
 
 ---
 
+## 9a. Go single-strategy gate selection (`internal/engine/strategyassembly/assembly.go`)
+
+The Python reference only ever runs strategies under ONE portfolio gate: the
+multi-strategy `_build_portfolio` (SEPA 40 / SectorRotation 30 / Pairs 20;
+single-name 50% / concentration 40% / daily-loss 10%) — both in
+`scripts/multi_strategy_backtest.run_backtest` and the hyperopt worker
+(`src/research/workers.py:13` calls that same `run_backtest`). There is **no
+Python "lone strategy" backtest path.**
+
+Go exposes single-strategy backtest / live / paper runs (e.g. the live profile
+default `--strategy sector_rotation`, `compose.yaml`). For those the Go
+assembler synthesizes a gate. The rule (`strategyGate`):
+
+| Path | Allocator budget | Risk caps | Parity oracle |
+|---|---|---|---|
+| `MultiStrategyGate=true` (hyperopt objective, all strategies) | canonical multi slice (SEPA 40 / Sector 30 / Pairs 20) | 50 / 40 / 10 | **byte-for-byte = Python `run_backtest`** |
+| Lone SEPA / Pairs / ORB | 100% | default 20 / 30 / 5 | none (Go-only path) |
+| **Lone SectorRotation** | 100% | **canonical 50 / 40 / 10** (NOT the 20/30/5 default) | none (Go-only path) |
+
+**Why lone SectorRotation needs the canonical 50% single-name cap** (FIXER round 2,
+finding 1): SectorRotation is a *concentrated* rotation — `signal.py:283`,
+`intent.go:72` size each pick at `target_value = equity / top_k`, i.e. 1/topK of
+the deployed book (33% per name at the baseline `top_k=3`,
+`baseline/sector_rotation.json`). A 33% pick can **never** pass a 20% single-name
+cap (the cap is on full NAV, independent of budget), so a lone SectorRotation
+under the generic default gate would have **every** order rejected and trade
+nothing — the out-of-box live/paper default would be inert. The 50/40/10 caps are
+the only risk config the reference defines for a topK rotation, and they admit a
+3-ETF rotation (33% < 50%). Using them for lone SectorRotation does not weaken any
+parity-critical gate: the hyperopt objective path always sets
+`MultiStrategyGate=true` and already uses 50/40/10; only single-strategy
+backtest/live is affected, and that path has no Python oracle to diverge from.
+
+**Why the multi-strategy path is deliberately left unchanged (sector trades zero
+there).** In the *shared-book* multi-strategy gate, SectorRotation sizes against
+the full shared NAV (33% per pick) but its allocator budget is only 30% NAV, so
+the allocator (`allocator.budget_exceeded`) rejects every pick — and the Python
+oracle does **exactly** the same (verified directly: a 333-share XLK pick at
+$33,300 vs a $30,000 budget is rejected identically in both). This is a latent
+sizing/budget mismatch in the *reference*, faithfully reproduced. Making Go
+size-scale sector in the multi path would make it trade where Python does not,
+diverging the hyperopt objective surface (which Python optimizes over a *flat*
+sector subspace because sector never trades). Parity wins: the multi path is left
+byte-identical to Python; only the un-oracled lone path is fixed.
+
+---
+
 ## 10. Open questions
 
 1. **`ProposedOrder.ts` is dead.** The field is documented "for daily-loss halt windowing"

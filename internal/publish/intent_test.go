@@ -11,7 +11,50 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/strategy/orb"
 	"github.com/byjackchen/trade-tms-go/internal/strategy/sepa"
+	"github.com/byjackchen/trade-tms-go/internal/strategy/sepaadapter"
 )
+
+// TestNormalizeSEPAAdapterOutput is the regression guard for the round-3
+// blocker: the SEPA adapter's EvaluateIntentJSON output must normalize through
+// the REAL production path. The prior test only fed NormalizeIntent a
+// hand-built sepa.SignalIntent — the type the broken adapter NEVER produced (it
+// returned a private sepaadapter.intentJSON, which hit the default error case
+// and aborted every SEPA/multi intent in the signal/paper/live/EOD modes). This
+// drives the actual adapter so the bug cannot silently reappear.
+func TestNormalizeSEPAAdapterOutput(t *testing.T) {
+	gen, err := sepa.NewGenerator(sepa.Config{
+		Symbol: "AAPL", EquityProvider: func() float64 { return 100000 },
+		RiskPct: 1.0, MarketCapMinUSD: 5e8, HardStopPct: 7.5, PivotBufferPct: 1.5,
+		BreakoutVolumeMultiple: 1.5, VCPLookback: 4, HistoryMaxBars: 1000,
+		Timezone: "America/New_York",
+	})
+	require.NoError(t, err)
+	adapter := sepaadapter.New("SEPARunner-000", gen)
+
+	// The exact value the live signal node / EOD replay feeds the sink.
+	payload := adapter.EvaluateIntentJSON(time.Date(2024, 1, 1, 21, 0, 0, 0, time.UTC))
+
+	norms, err := NormalizeIntent(payload)
+	require.NoError(t, err, "SEPA adapter output must normalize (five-modes-one-engine thesis)")
+	require.Len(t, norms, 1)
+	n := norms[0]
+	assert.Equal(t, "sepa", n.StrategyID)
+	assert.Equal(t, "AAPL", n.Symbol)
+
+	body, err := n.IntentJSON()
+	require.NoError(t, err)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(body, &m))
+	// Full spec-faithful snake_case wire shape.
+	for _, k := range []string{
+		"symbol", "state", "strength", "proximity_to_trigger_pct", "updated_at",
+		"generation", "strategy_id", "grade", "trend_template_pass", "base_age_days",
+		"base_depth_pct", "volume_dryup", "pivot_price", "stop_price", "rs_rank",
+	} {
+		assert.Contains(t, m, k, "intent wire shape missing key %q", k)
+	}
+	assert.Equal(t, "sepa", m["strategy_id"])
+}
 
 // TestNormalizeSEPAWireShape proves a local sepa.SignalIntent (no json tags)
 // normalizes to the spec-faithful snake_case domain wire shape with the head

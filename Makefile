@@ -45,9 +45,9 @@ PARITY_GO_OUT  := $(PARITY_DIR)/go_out
 PARITY_RUN_TS  := 2021-01-04_00-00-00
 
 .PHONY: all build test vet fmt-check itest compose-up compose-down docker-build clean \
-	e2e-install e2e itest-full e2e-seed \
+	e2e-install e2e itest-full e2e-seed bench \
 	parity parity-nautilus parity-go parity-compare parity-depthwalk \
-	parity-backtest parity-backtest-bars parity-backtest-py
+	parity-backtest parity-backtest-bars parity-backtest-py parity-folds parity-tests
 
 all: fmt-check vet build test
 
@@ -57,6 +57,24 @@ build:
 
 test:
 	go test -race ./...
+
+# ---------------------------------------------------------------------------
+# Permanent benchmark suite (docs/benchmarks.md).
+# ---------------------------------------------------------------------------
+# Runs every Benchmark* across the repo (engine throughput, hyperopt trials/sec
+# + parallel scaling, live per-bar latency, import wrangle rows/sec, API
+# p50/p99). Hermetic — no DB/Redis/Python needed; benchmarks build their own
+# in-memory inputs. -benchmem records allocs/op (the hotspot signal). Override
+# BENCH (regexp) or BENCHTIME on the CLI, e.g.:
+#   make bench BENCH=Engine BENCHTIME=10x
+#   make bench BENCHTIME=3s
+BENCH     ?= .
+BENCHTIME ?= 1s
+BENCHPKGS ?= ./internal/engine/... ./internal/hyperopt/nsga2/... \
+	./internal/livengine/... ./internal/data/universe/... ./internal/api/...
+
+bench:
+	go test -run '^$$' -bench '$(BENCH)' -benchmem -benchtime $(BENCHTIME) $(BENCHPKGS)
 
 vet:
 	go vet ./...
@@ -214,3 +232,22 @@ parity-backtest-py: parity-backtest-bars
 parity-backtest: compose-up parity-backtest-bars
 	$(ITEST_ENV) go test -tags parity_backtest -count=1 \
 		-run TestParityIntegratedBacktest -v ./internal/hyperopt/study/
+
+# Run the hyperopt walk-forward objective parity gate (build tag parity_folds):
+# drives the Go objective evaluator over multiple real adjacent folds and
+# compares per-fold + stitched Sharpe/Calmar/MaxDD to the reference
+# research.workers pipeline output. Requires the compose postgres up (55432).
+parity-folds: compose-up
+	$(ITEST_ENV) go test -tags parity_folds -count=1 \
+		-run TestParityFoldsObjective -v ./internal/hyperopt/study/
+
+# ---------------------------------------------------------------------------
+# parity-tests: every build-tag-gated, Python-touching gate, run explicitly.
+# ---------------------------------------------------------------------------
+# These are the ONLY tests that invoke the read-only trade-multi-strategies
+# venv (the offline oracle). They are deliberately excluded from the default
+# `go test ./...` and from the shipped distroless image — production has zero
+# Python runtime dependency (see docs/parity.md). Run them on demand to
+# re-prove golden parity against the reference.
+parity-tests: parity parity-backtest parity-folds
+	@echo "[parity-tests] all Python-oracle parity gates passed"

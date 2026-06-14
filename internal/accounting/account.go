@@ -29,6 +29,12 @@ type Account struct {
 	positions map[domain.StrategySymbol]*Position
 	lastPrice map[string]domain.Price
 
+	// keyScratch is a reusable buffer for sortedKeysInto, so the hot
+	// per-equity-sample Unrealized() path does not allocate a fresh key slice
+	// on every call (it is rebuilt in place each use). NOT safe for concurrent
+	// use — the engine drives the account from a single goroutine.
+	keyScratch []domain.StrategySymbol
+
 	bus *core.MsgBus
 }
 
@@ -171,7 +177,8 @@ func (a *Account) EmitInitialState(ts time.Time) error { return a.emitAccountSta
 // contribute 0 (they cannot be marked).
 func (a *Account) Unrealized() (domain.Money, error) {
 	var total domain.Money
-	for _, key := range a.sortedKeys() {
+	a.keyScratch = a.sortedKeysInto(a.keyScratch)
+	for _, key := range a.keyScratch {
 		p := a.positions[key]
 		if p.IsFlat() {
 			continue
@@ -210,19 +217,36 @@ func (a *Account) Equity() (domain.Money, error) {
 }
 
 // sortedKeys returns the position keys in deterministic (strategy, symbol)
-// order.
+// order, as a freshly-allocated slice the caller may retain.
 func (a *Account) sortedKeys() []domain.StrategySymbol {
-	keys := make([]domain.StrategySymbol, 0, len(a.positions))
-	for k := range a.positions {
-		keys = append(keys, k)
+	return sortKeys(make([]domain.StrategySymbol, 0, len(a.positions)), a.positions)
+}
+
+// sortedKeysInto fills dst (reset to len 0, capacity reused) with the position
+// keys in deterministic (strategy, symbol) order and returns it. The returned
+// slice aliases dst's backing array — callers must consume it before the next
+// sortedKeysInto on the same buffer. Used by the hot Unrealized() path to avoid
+// a per-call allocation while preserving the exact deterministic iteration
+// order (so the summation, and any overflow-error short-circuit, is identical
+// to the allocating sortedKeys()).
+func (a *Account) sortedKeysInto(dst []domain.StrategySymbol) []domain.StrategySymbol {
+	return sortKeys(dst[:0], a.positions)
+}
+
+// sortKeys appends the keys of positions to dst and sorts them by
+// (strategyID, symbol). Shared by sortedKeys and sortedKeysInto so both produce
+// the identical deterministic order.
+func sortKeys(dst []domain.StrategySymbol, positions map[domain.StrategySymbol]*Position) []domain.StrategySymbol {
+	for k := range positions {
+		dst = append(dst, k)
 	}
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].StrategyID != keys[j].StrategyID {
-			return keys[i].StrategyID < keys[j].StrategyID
+	sort.Slice(dst, func(i, j int) bool {
+		if dst[i].StrategyID != dst[j].StrategyID {
+			return dst[i].StrategyID < dst[j].StrategyID
 		}
-		return keys[i].Symbol < keys[j].Symbol
+		return dst[i].Symbol < dst[j].Symbol
 	})
-	return keys
+	return dst
 }
 
 // OpenPositions returns snapshots of all non-flat positions, sorted by

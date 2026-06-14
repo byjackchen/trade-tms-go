@@ -153,8 +153,10 @@ test.describe("paper trading — flatten closes all positions", () => {
       "flatten submit is disabled until the confirmation phrase is typed",
     ).toBeTruthy();
 
-    // Arm with the documented flatten phrase. The cockpit advertises the exact
-    // phrase in the dialog; FLATTEN is the canonical phrase for this control.
+    // Arm with the documented flatten phrase AND an audited reason. The flatten
+    // dialog requires BOTH a reason (audited) and the exact phrase before submit
+    // enables — mirroring halt/kill. FLATTEN is the canonical phrase.
+    await page.getByTestId("flatten-reason").fill("e2e flatten — close book");
     await phrase.fill("FLATTEN");
     await expect(submit).toBeEnabled({ timeout: 5_000 });
     await submit.click();

@@ -6,7 +6,12 @@ package strategyassembly
 //   - Input.MultiStrategyGate == false (default, the P2/P3 backtest path) -> a
 //     single strategy gets the LONE-strategy gate: 100% allocator budget + the
 //     reference DEFAULT risk caps (single-name 20%, concentration 30%,
-//     daily-loss 5%).
+//     daily-loss 5%) — EXCEPT SectorRotation, which uses its CANONICAL caps
+//     (single-name 50%, concentration 40%, daily-loss 10%): a topK rotation holds
+//     1/topK (33% at topK=3) per name, structurally impossible under a 20%
+//     single-name cap, so the lone strategy would trade NOTHING (FIXER round 2,
+//     finding 1; confirmed against the Python oracle, which never runs
+//     SectorRotation under any other caps).
 //   - Input.MultiStrategyGate == true  (the P4 hyperopt objective path) -> a
 //     single strategy gets its CANONICAL MULTI-strategy slice (SEPA 40 / Sector
 //     30 / Pairs 20) + the multi risk caps (single-name 50%, concentration 40%,
@@ -66,7 +71,9 @@ func assembleSingle(t *testing.T, strategy string, multiGate bool) *Assembly {
 }
 
 func TestSingleStrategyGateLoneBudget(t *testing.T) {
-	for _, strategy := range []string{"pairs", "sector_rotation"} {
+	// Non-sector lone strategies keep the generic default caps (their P4 parity
+	// contract). Pairs is the representative case.
+	for _, strategy := range []string{"pairs"} {
 		t.Run(strategy, func(t *testing.T) {
 			asm := assembleSingle(t, strategy, false)
 			pf := asm.Portfolio
@@ -80,6 +87,25 @@ func TestSingleStrategyGateLoneBudget(t *testing.T) {
 				t.Fatalf("lone gate risk caps = %+v, want default (0.20/0.30/0.05)", rc)
 			}
 		})
+	}
+}
+
+// TestLoneSectorGateUsesCanonicalCaps locks the SectorRotation-specific lone gate
+// (FIXER round 2, finding 1): full book (100% budget) under the canonical sector
+// caps (single-name 50%, concentration 40%, daily-loss 10%), NOT the generic
+// 20/30/5 default. A topK rotation holds 1/topK per name (33% at topK=3); the
+// generic 20% single-name cap would reject every pick and the default live
+// profile strategy would trade nothing.
+func TestLoneSectorGateUsesCanonicalCaps(t *testing.T) {
+	asm := assembleSingle(t, "sector_rotation", false)
+	pf := asm.Portfolio
+
+	if got := pf.Allocator().BudgetPct(IDSector); got != 1.0 {
+		t.Fatalf("lone sector gate: budget = %v, want 1.0 (full book)", got)
+	}
+	rc := pf.RiskConstraints().Config()
+	if rc.MaxSingleNamePct != sectorMaxSingleName || rc.ConcentrationPct != sectorConcentration || rc.DailyLossHaltPct != sectorDailyLossHalt {
+		t.Fatalf("lone sector gate caps = %+v, want canonical (0.50/0.40/0.10)", rc)
 	}
 }
 

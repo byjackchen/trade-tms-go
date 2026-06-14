@@ -222,6 +222,18 @@ func NewSession(cfg Config) (*Session, error) {
 // It is nil in paper/live mode (the injected Submitter owns execution).
 func (s *Session) Executor() *NoopExecutor { return s.exec }
 
+// Mode returns the session's execution mode (signal | paper | live). It is
+// exposed so the unification proof (internal/unified) can ASSERT that the three
+// streaming modes share ONE Session assembler and differ only in their executor
+// seam (NoopExecutor for signal; the injected GatedSubmitter for paper/live).
+func (s *Session) Mode() Mode { return s.cfg.Mode }
+
+// Submitter returns the order submitter the strategies run through: the internal
+// NoopExecutor in signal mode, or the injected GatedSubmitter in paper/live. It
+// is the mode-specific executor seam — the ONLY component that differs between
+// the three streaming modes (the strategies/portfolio/context are identical).
+func (s *Session) Submitter() engine.OrderSubmitter { return s.sub }
+
 // Prime feeds the out-of-band warmup history into every WarmupConsumer strategy,
 // once per (symbol, strategy), BEFORE the loop — reusing the exact semantics of
 // engine.primeWarmup (no orders, no fills, no emissions; pure indicator/history

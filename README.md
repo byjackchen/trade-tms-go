@@ -1,84 +1,126 @@
 # trade-tms-go
 
-Trade Management System（Go 版）。目标：将 Python 参考实现
-`trade-multi-strategies` 完整移植为单一静态二进制 `tms`，语义与参考实现
-精确一致（除非显式标注 IMPROVE），不删减任何功能。
+A Go port of the Python reference `trade-multi-strategies` that **unifies five
+trading modes on one engine**. The entire system ships as a single static binary
+`tms` plus a Next.js control-plane UI, with **zero Python runtime dependency** in
+production — Python is only the offline parity oracle.
 
-## 架构概览
+The thesis: backtest, hyperopt, live-signal, paper, and live all run on the SAME
+deterministic event-loop engine (`internal/core` + `internal/engine`), the SAME
+strategy implementations, and the SAME portfolio (allocator / risk /
+reconciliation) layer. Only the edge adapters — clock, data feed, executor,
+publisher — differ between modes.
 
-单二进制、多子命令；所有部署形态（数据导入、回测、hyperopt、live 节点、
-HTTP API）都是 `tms <subcommand>`：
+| Mode | Clock | Feed | Executor | Purpose |
+|---|---|---|---|---|
+| backtest | SimClock | historical (Postgres) | SimExecutor + FillModel | reproducible simulation |
+| hyperopt | SimClock ×N | historical | SimExecutor | NSGA-II walk-forward search |
+| live-signal | WallClock | moomoo OpenD stream | NoopExecutor | signals, no orders |
+| paper | WallClock | moomoo OpenD stream | MoomooExecutor (paper) | simulated fills, real venue |
+| live | WallClock | moomoo OpenD stream | MoomooExecutor (live, gated) | REAL money, 4-factor gate |
 
-```
-cmd/tms/                  CLI 入口（cobra）：version / migrate / import /
-                          backtest / hyperopt / live / eod / api
-internal/
-  domain/                 核心值类型：bar、signal、order、fill、position（零依赖）
-  core/                   事件、clock 抽象、交易日历等跨层原语
-  engine/                 确定性事件循环 —— 回测与 live 共用同一代码路径
-  exec/                   ExecutionClient：回测模拟成交 + moomoo paper/live
-  strategy/               Strategy 接口与全部策略移植（centralized-params 方案）
-  indicators/             技术指标，与 pandas 语义逐位对齐（golden tests）
-  portfolio/              仓位、风险限额、多策略资金分配与组合记账
-  data/                   Sharadar 导入、TimescaleDB repository、Parquet（arrow-go）
-  adapters/               外部集成：Nasdaq Data Link、moomoo OpenD、Redis streams
-  hyperopt/               参数空间、trial 调度、study 持久化（runs/ 布局兼容）
-  runs/                   回测/hyperopt/EOD 运行工件管理
-  api/                    chi + coder/websocket，对应参考实现的 FastAPI 层
-  app/                    进程级设施：zerolog、信号上下文、优雅停机、版本信息
-  config/                 唯一配置入口：.env 加载 + MissingConfig 快速失败
-  db/                     pgx v5 连接池 + golang-migrate（migrations 内嵌于二进制）
-```
+---
 
-依赖方向：`domain` 不依赖任何 internal 包；`engine` 只面向接口；
-I/O 全部收敛在 `adapters` / `data` / `db`；任何包不直接读 `os.Getenv`，
-统一经 `internal/config`。
+## The trifecta
 
-## 基础设施
+Three hard requirements the system meets:
 
-- PostgreSQL：timescale/timescaledb（pg16），宿主端口 **55432**
-- Redis 7，宿主端口 **56379**
-- API 宿主端口 **18080**，UI 宿主端口 **13000**（本项目保留端口，勿改）
-- 迁移内嵌在二进制中，`tms migrate up` 是 schema 变更进入环境的唯一途径
+1. **Database-oriented.** All durable state lives in Postgres / TimescaleDB.
+   Redis is reconstructable transport only — restarting it loses no system state.
+   PG is authoritative on restart: a live node rehydrates its open session row,
+   broker positions, strategy state, AND any latched trading halt (`tms.halts`)
+   before resuming — a crash can never silently clear an operator/operational halt
+   and re-arm a halted trader.
+2. **Dockerized.** A clean `docker compose up` from zero brings up the whole
+   system: Postgres, Redis, migrations, API, worker, UI.
+3. **UI fully visual + controllable.** Every datum is observable AND every
+   control is actionable from the UI (Data / Backtests / Strategies / Hyperopt /
+   Live-cockpit), including kill / halt / flatten / mode-switch with confirmation.
 
-## 快速开始
+---
 
-```bash
-# 1) 配置
-cp .env.example .env   # 按需修改；真实环境变量优先于 .env
+## Quickstart
 
-# 2) 启动基础栈（postgres + redis，并自动执行迁移）
-make compose-up        # 即 docker compose up -d --build --wait postgres redis migrate
-
-# 3) 本地构建与验证
-make build             # 产出 bin/tms（注入版本信息）
-make test              # go test -race ./...
-make vet fmt-check     # 静态检查
-
-# 4) 试用 CLI
-bin/tms version
-bin/tms migrate status # 需要 .env 指向 55432 的 compose 库
-bin/tms import --help  # 导入命令骨架（实现于 P0 数据阶段）
-
-# 5) 集成测试 / 收尾
-make itest             # compose up + go test -tags integration
-make compose-down
-```
-
-尚未实现的子命令（backtest / hyperopt / live / eod / api）会以非零退出码
-显式报 `not implemented`，不会静默假装成功。
-
-## Docker
+Host ports reserved for this project (do not change them to defaults):
+**Postgres 55432, Redis 56379, API 18080, UI 13000, live node 18090.**
 
 ```bash
-make docker-build      # 多阶段构建：golang:1.26 -> distroless static (nonroot)
-docker run --rm tms:dev version
+cp .env.example .env          # fill in TMS_API_TOKEN (openssl rand -hex 32), etc.
+
+docker compose up -d --wait              # postgres + redis + migrate (schema in)
+docker compose --profile app up -d --wait   # api (18080) + worker + ui (13000)
 ```
 
-## 开发约定
+- UI:  <http://localhost:13000>
+- API: <http://localhost:18080> — `/healthz` and `/version` are public; every
+  `/api/*` route requires `Authorization: Bearer <TMS_API_TOKEN>`.
 
-- 验收标准：ACCURATE（与 Python 参考语义一致）/ COMPLETE（不删功能）/
-  NO SIMPLIFICATION / PRODUCTION-GRADE（错误处理、context 取消、优雅停机、
-  结构化日志、正常路径零 panic）。
-- 指标与策略以参考实现产出的 golden 输出做回归校验。
-- 配置缺失在启动期以 `MissingConfig` 快速失败，错误信息附设置指引。
+Start a live signal node (separate `live` profile — never started by `app`):
+
+```bash
+docker compose --profile live up -d tms-live   # signal mode, no credentials
+```
+
+Local development:
+
+```bash
+make build      # bin/tms (version injected)
+make test       # go test -race ./...  (hermetic; no Python needed)
+make vet fmt-check
+make parity     # the Nautilus golden-parity gate (needs the read-only oracle venv)
+```
+
+---
+
+## Documentation
+
+| Doc | What |
+|---|---|
+| [docs/architecture.md](docs/architecture.md) | Hexagonal design, five-modes-one-engine, deterministic event loop, sync-core/async-edge, DB-as-truth, Redis-as-transport, native moomoo client, 4-factor live gate |
+| [docs/deployment.md](docs/deployment.md) | Compose profiles (app/live), env + secrets, host-OpenD (`host.docker.internal:11111`), first-boot migrate, Postgres backup/restore, scaling the worker |
+| [docs/parity.md](docs/parity.md) | The production-grade accuracy proof ledger |
+| [docs/api.md](docs/api.md) | REST + WebSocket API contract |
+| [docs/runbooks/](docs/runbooks/) | Operational runbooks (e.g. the deferred live OpenD smoke) |
+| [docs/spec/](docs/spec/) | Per-component specs ported from the reference |
+
+---
+
+## The parity story (P0–P6 evidence)
+
+Every layer is **proven equal** to the Python reference, not merely close. See
+[docs/parity.md](docs/parity.md) for the full ledger; the headline gates:
+
+- **Fixed-point money** — exact int64 round-trip (`internal/domain`).
+- **Indicators** — ≤ 1e-9 vs numpy/pandas (golden + incremental).
+- **Data field parity** — Sharadar fields mirror the reference cache.
+- **Strategy signals — 0 mismatch** across all four strategies.
+- **Fill / engine parity vs Nautilus** — per-fill price/qty/timing exact,
+  equity within a cent (`make parity`).
+- **Metrics** — Sharpe/Calmar/MaxDD ≤ 1e-12 relative (Neumaier-compensated).
+- **Hyperopt objective parity** — per-fold + stitched match (`parity_folds` tag).
+- **moomoo protocol — byte-for-byte** vs the vendored Python SDK
+  (`internal/adapters/moomoo`), proven with NO OpenD via a protocol-faithful mock.
+
+The default `go test ./...` is hermetic — it consumes committed golden fixtures
+and never shells to Python. Only the `parity` / `parity_folds` build tags invoke
+the oracle, and neither is part of the shipped image.
+
+---
+
+## Known deferred items
+
+- **Real-OpenD smoke.** The full live operations layer is built and proven
+  against a protocol-faithful **mock** OpenD. Connecting to a real OpenD is
+  deferred to market hours with a user-confirmed login — see
+  [docs/runbooks/live-smoke.md](docs/runbooks/live-smoke.md). The mock-driven
+  deterministic gate is the permanent CI path.
+
+---
+
+## Acceptance bar
+
+ACCURATE (semantically equal to the reference unless an `[IMPROVE]` is noted) /
+COMPLETE (no feature dropped) / NO SIMPLIFICATION / PRODUCTION-GRADE (error
+handling, context cancellation, graceful shutdown, structured logging, zero panic
+on the happy path) / SAFE (the 4-factor live activation gate + per-order
+allocator/risk/halt gating).

@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
@@ -143,6 +144,12 @@ type Live struct {
 	// between sessions.
 	tradeSession *livetrade.TradeSession
 	reconciler   *livetrade.Reconciler
+
+	// sessionID is the open tms.sessions row id (set once by Run after openSession,
+	// reused across session restarts). Halt rows are scoped to it so the active
+	// halt for THIS trader can be rehydrated on restart, and a stale halt from a
+	// prior crashed session is never re-applied. Guarded by mu; 0 before openSession.
+	sessionID int64
 }
 
 // NewLive builds a live node. rdb may be nil (Redis-less: no streams, no command
@@ -461,12 +468,23 @@ func (l *Live) Run(ctx context.Context) error {
 	}()
 	defer consumerWG.Wait()
 
-	// (3) Open a session row in tms.sessions (one running per trader).
+	// (3) Open a session row in tms.sessions (one running per trader). The id is
+	// stored on the node so halt rows can be scoped to it (record/clear/rehydrate).
 	sessionID, err := l.openSession(ctx)
 	if err != nil {
 		return err
 	}
+	l.mu.Lock()
+	l.sessionID = sessionID
+	l.mu.Unlock()
 	defer l.closeSession(context.WithoutCancel(ctx), sessionID, "STOPPED")
+
+	// (3a) DATABASE-ORIENTED restart continuity: rehydrate a latched halt from the
+	// durable tms.halts row BEFORE the supervisor runs the first session, so a
+	// crash/restart cannot silently clear an operator/operational halt and resume
+	// emitting or trading. Without this the fresh HaltState (NewHaltState) would
+	// report "running" and the node would re-arm a halted trader.
+	l.rehydrateHalt(ctx)
 
 	// (4) Supervisor loop: run a session; restart on a mode-switch; exit on stop.
 	for {
@@ -841,25 +859,77 @@ func (l *Live) closeSession(ctx context.Context, id int64, status string) {
 	}
 }
 
-// recordHalt inserts an active tms.halts row (best-effort audit).
+// recordHalt inserts an active tms.halts row scoped to this node's session
+// (best-effort audit; the session_id lets rehydrateHalt restore it on restart).
+// Idempotent on the halt LATCH: if an active (cleared_at IS NULL) halt already
+// exists for the session it is NOT duplicated, mirroring HaltState.Halt which
+// keeps the first trigger (so a re-halt of an already-halted node does not stack
+// rows that rehydration would have to disambiguate).
 func (l *Live) recordHalt(ctx context.Context, kind commands.HaltKind, reason string) {
 	if reason == "" {
 		reason = string(kind)
 	}
 	if _, err := l.pool.Exec(ctx,
-		`INSERT INTO tms.halts (kind, reason) VALUES ($1, $2)`,
-		string(kind), reason); err != nil {
+		`INSERT INTO tms.halts (session_id, kind, reason)
+		 SELECT $1, $2, $3
+		 WHERE NOT EXISTS (
+		     SELECT 1 FROM tms.halts WHERE session_id=$1 AND cleared_at IS NULL)`,
+		l.sessionIDValue(), string(kind), reason); err != nil {
 		l.log.Warn().Err(err).Msg("recording halt row failed")
 	}
 }
 
-// clearHalt clears any active tms.halts rows (best-effort).
+// clearHalt clears any active tms.halts rows for this session (best-effort).
 func (l *Live) clearHalt(ctx context.Context, by string) {
 	if _, err := l.pool.Exec(ctx,
-		`UPDATE tms.halts SET cleared_at=now(), cleared_by=$1 WHERE cleared_at IS NULL`,
-		by); err != nil {
+		`UPDATE tms.halts SET cleared_at=now(), cleared_by=$2
+		  WHERE session_id=$1 AND cleared_at IS NULL`,
+		l.sessionIDValue(), by); err != nil {
 		l.log.Warn().Err(err).Msg("clearing halt rows failed")
 	}
+}
+
+// sessionIDValue returns the open session id (or NULL via any when unset). A halt
+// recorded before openSession (no path does this today) still persists as a
+// session-less audit row rather than failing the write.
+func (l *Live) sessionIDValue() any {
+	l.mu.RLock()
+	id := l.sessionID
+	l.mu.RUnlock()
+	if id == 0 {
+		return nil
+	}
+	return id
+}
+
+// rehydrateHalt restores a latched halt from the durable tms.halts row on
+// (re)start: durable state in Postgres is authoritative (the database-oriented
+// thesis), so a MANUAL/reconciliation/broker/data halt set before a crash must
+// survive the restart rather than being silently cleared by the fresh in-memory
+// HaltState. Scoped to THIS session (the one openSession reused), so only a halt
+// that belongs to the resumed session is re-applied. The daily-loss halt is NOT
+// the concern here (the gate re-derives it every PostTimestamp); we still restore
+// it for fidelity, and HaltState.Halt is idempotent if the gate re-latches it.
+func (l *Live) rehydrateHalt(ctx context.Context) {
+	id := l.sessionIDValue()
+	if id == nil {
+		return
+	}
+	var kind, reason string
+	err := l.pool.QueryRow(ctx,
+		`SELECT kind, reason FROM tms.halts
+		  WHERE session_id=$1 AND cleared_at IS NULL
+		  ORDER BY triggered_at DESC LIMIT 1`, id).Scan(&kind, &reason)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return // no active halt — fresh running state is correct
+	}
+	if err != nil {
+		l.log.Warn().Err(err).Msg("rehydrating halt from PG failed (continuing with fresh state)")
+		return
+	}
+	l.halt.Halt(commands.HaltKind(kind), reason)
+	l.log.Warn().Str("kind", kind).Str("reason", reason).
+		Msg("rehydrated active halt from PG on restart (durable state is authoritative; emitting/trading suppressed until Resume)")
 }
 
 // compile-time check: *Live is a commands.Controller.

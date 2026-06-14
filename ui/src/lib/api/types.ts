@@ -914,3 +914,36 @@ export type WsAccountUpdate = {
   ts_event: number;
   ts_init: number;
 };
+
+// ---- System status (GET /api/v1/system) ----
+//
+// The single aggregated component-health response the System page binds to:
+// pg + redis + moomoo feed + active sessions + job-queue depth + data
+// freshness in one call (the P7 "UI fully observable" capstone).
+
+/** One component's health line. status: ok|degraded|down|idle|unknown|not_configured. */
+export type SystemComponent = {
+  status: string;
+  detail?: string;
+};
+
+/** Structured numeric surface behind the component lines. */
+export type SystemMetrics = {
+  jobs_queued: number;
+  jobs_running: number;
+  active_sessions: number;
+  latest_bar_date?: string;
+  last_sync_at?: string | null;
+  live_mode?: string;
+  live_session_id?: number | null;
+  health_age_seconds?: number | null;
+};
+
+/** GET /api/v1/system body. */
+export type SystemResponse = {
+  status: string;
+  version: string;
+  ts: string;
+  components: Record<string, SystemComponent>;
+  metrics: SystemMetrics;
+};

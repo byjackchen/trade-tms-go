@@ -77,6 +77,12 @@ type AccountBook interface {
 	// Position returns the (strategy, symbol) net position snapshot; ok=false if
 	// the position has never been opened.
 	Position(strategyID, symbol string) (domain.Position, bool)
+	// OpenPositions returns snapshots of every NON-FLAT (strategy, symbol)
+	// position in deterministic (strategy, symbol) order. This is the
+	// authoritative per-strategy BOOK the flatten closes row-by-row (so each
+	// originating position nets to 0 -> CLOSED), as distinct from the broker's
+	// cross-strategy netted GetPositionList view.
+	OpenPositions() []domain.Position
 }
 
 // Persistence writes the durable order/fill/position state (live.orders /

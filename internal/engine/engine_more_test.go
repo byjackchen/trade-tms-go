@@ -145,4 +145,50 @@ func TestEmptyFeedRuns(t *testing.T) {
 	require.Len(t, res.AccountStates, 1)
 }
 
+// TestEngineDeterminismMultiStrategy runs the multi-year, multi-strategy
+// benchmark config twice and asserts the two Results are bit-identical
+// (final balance, total PnL, full per-bar total-equity curve, every
+// per-strategy curve, and the account-state curve). This is the permanent
+// regression guard for the equity-sampler / account allocation-reduction
+// optimizations (bench fix): a reused scratch buffer must NOT perturb the
+// deterministic aggregation order or any sampled value.
+func TestEngineDeterminismMultiStrategy(t *testing.T) {
+	cfg, feed, _ := benchEngineConfig(4, 3)
+
+	run := func() *Result {
+		eng, err := New(context.Background(), cfg, feed)
+		require.NoError(t, err)
+		res, err := eng.Run(context.Background())
+		require.NoError(t, err)
+		return res
+	}
+	a, b := run(), run()
+
+	require.Equal(t, a.FinalBalance, b.FinalBalance, "final balance must be deterministic")
+	require.Equal(t, a.TotalPnL, b.TotalPnL, "total pnl must be deterministic")
+	require.Equal(t, a.BarsProcessed, b.BarsProcessed)
+	require.Equal(t, a.SampledDays, b.SampledDays)
+
+	// Full total-equity curve equality (the EquitySampler.Sample output).
+	require.Equal(t, len(a.TotalEquityCurve), len(b.TotalEquityCurve))
+	for i := range a.TotalEquityCurve {
+		assert.True(t, a.TotalEquityCurve[i].TS.Equal(b.TotalEquityCurve[i].TS), "equity ts %d", i)
+		assert.Equal(t, a.TotalEquityCurve[i].Value, b.TotalEquityCurve[i].Value, "equity value %d", i)
+	}
+
+	// Per-strategy curves equality (the Unrealized / sortedKeysInto path).
+	require.Equal(t, len(a.StrategyEquity), len(b.StrategyEquity))
+	for id, ca := range a.StrategyEquity {
+		cb, ok := b.StrategyEquity[id]
+		require.True(t, ok, "strategy %s missing in second run", id)
+		require.Equal(t, len(ca), len(cb), "strategy %s curve length", id)
+		for i := range ca {
+			assert.Equal(t, ca[i].Value, cb[i].Value, "strategy %s point %d", id, i)
+		}
+	}
+
+	// Account-state curve equality.
+	require.Equal(t, len(a.AccountStates), len(b.AccountStates))
+}
+
 var _ = time.Now

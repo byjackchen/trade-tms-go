@@ -30,8 +30,16 @@ type Order struct {
 	LimitPrice    *Price      `json:"limit_price"`
 	StopPrice     *Price      `json:"stop_price"`
 	Status        OrderStatus `json:"status"`
-	Reason        string      `json:"reason,omitempty"` // originating signal reason
-	TS            time.Time   `json:"ts"`               // submission timestamp (UTC)
+	// FilledQty is the cumulative filled quantity so far (0 until the first fill).
+	// It MUST equal Qty when Status is FILLED (the orders schema enforces
+	// `status <> 'FILLED' OR filled_qty = qty`); a snapshot that sets Status=FILLED
+	// without FilledQty=Qty is a malformed order and will be rejected by the DB.
+	FilledQty Qty `json:"filled_qty"`
+	// AvgFillPx is the volume-weighted average fill price (per-share, 1e-4); 0 when
+	// nothing has filled yet (persisted as NULL).
+	AvgFillPx Price     `json:"avg_fill_px,omitempty"`
+	Reason    string    `json:"reason,omitempty"` // originating signal reason
+	TS        time.Time `json:"ts"`               // submission timestamp (UTC)
 }
 
 // NewMarketOrder builds the only order shape the reference system emits:
@@ -93,6 +101,17 @@ func (o Order) Validate() error {
 	}
 	if o.TS.IsZero() {
 		return fmt.Errorf("%w: order %s has zero timestamp", ErrInvalidArgument, o.ClientOrderID)
+	}
+	// FilledQty invariants mirror the orders schema CHECKs (filled_qty in [0,qty];
+	// status=FILLED requires filled_qty=qty). Catching them here fails loud at the
+	// boundary instead of as a swallowed SQLSTATE 23514 in the persistence layer.
+	if o.FilledQty < 0 || o.FilledQty > o.Qty {
+		return fmt.Errorf("%w: order %s filled_qty %d out of range [0,%d]",
+			ErrInvalidArgument, o.ClientOrderID, o.FilledQty, o.Qty)
+	}
+	if o.Status == OrderStatusFilled && o.FilledQty != o.Qty {
+		return fmt.Errorf("%w: order %s is FILLED but filled_qty %d != qty %d",
+			ErrInvalidArgument, o.ClientOrderID, o.FilledQty, o.Qty)
 	}
 	return nil
 }

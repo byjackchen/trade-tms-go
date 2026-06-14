@@ -61,6 +61,25 @@ const (
 	riskDailyLossHalt = 0.10
 )
 
+// Canonical SectorRotation risk caps. SectorRotation is a CONCENTRATED rotation:
+// it holds 1/topK of its deployed capital in each of topK sector ETFs (33% per
+// name at the baseline topK=3). The generic single-strategy default caps
+// (single-name 20%, concentration 30%) are structurally incompatible with that
+// shape — a 33% pick can never pass a 20% single-name cap regardless of NAV. The
+// ONLY risk config the reference defines for SectorRotation is the multi-strategy
+// gate (single-name 50% / concentration 40% / daily-loss 10%; see
+// scripts/multi_strategy_backtest._build_portfolio), which is sized precisely to
+// admit a topK rotation. The lone-strategy SectorRotation path therefore uses
+// these SAME canonical caps (NOT the generic 20/30/5 default) so the default live
+// profile strategy can actually trade. This does not weaken any parity-critical
+// gate: the P4 hyperopt objective path always sets MultiStrategyGate=true and
+// already uses these caps; only single-strategy backtest/live is affected.
+const (
+	sectorMaxSingleName = riskMaxSingleName
+	sectorConcentration = riskConcentration
+	sectorDailyLossHalt = riskDailyLossHalt
+)
+
 // LiveEquity is a late-bound equity source. Before binding, Get returns the
 // fallback (the starting balance); after BindEquity it reads the live account.
 // Atomic pointer swap keeps it safe even though the engine drives a single
@@ -445,7 +464,38 @@ func strategyGate(id string, multiGate bool) (*portfolio.Portfolio, error) {
 	if multiGate && (id == IDSEPA || id == IDSector || id == IDPairs) {
 		return multiStrategyPortfolio()
 	}
+	// Lone SectorRotation needs its canonical caps (50/40/10), NOT the generic
+	// 20/30/5 default — a topK rotation holds 1/topK (33% at topK=3) per name,
+	// which the 20% single-name default would reject outright. The reference only
+	// ever runs SectorRotation under these caps (FIXER round 2, finding 1). Other
+	// lone strategies keep the default gate (their P4 parity contract).
+	if id == IDSector {
+		return loneSectorPortfolio()
+	}
 	return singleStrategyPortfolio(id)
+}
+
+// loneSectorPortfolio builds the lone-strategy gate for SectorRotation: the whole
+// book (100% budget) under SectorRotation's canonical risk caps (single-name 50%,
+// concentration 40%, daily-loss 10%) — the only caps the reference defines for a
+// topK rotation. Paired with full-equity sizing (budget 100% -> unscaled), each
+// pick is 1/topK (33% at topK=3), within the 50% single-name cap.
+func loneSectorPortfolio() (*portfolio.Portfolio, error) {
+	alloc, err := portfolio.NewAllocator([]portfolio.StrategyAllocation{
+		{StrategyID: IDSector, CapitalPct: 1.0},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("strategyassembly: allocator: %w", err)
+	}
+	rc, err := portfolio.NewRiskConstraints(portfolio.RiskConstraintsConfig{
+		MaxSingleNamePct: sectorMaxSingleName,
+		ConcentrationPct: sectorConcentration,
+		DailyLossHaltPct: sectorDailyLossHalt,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("strategyassembly: risk constraints: %w", err)
+	}
+	return portfolio.NewPortfolio(alloc, rc), nil
 }
 
 // singleStrategyPortfolio builds a gate for a lone strategy: the whole budget

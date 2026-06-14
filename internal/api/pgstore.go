@@ -228,6 +228,48 @@ func (s *PGStore) SyncWatermarks(ctx context.Context) ([]SyncWatermark, error) {
 	return out, nil
 }
 
+// QueueDepth implements SystemReader: one grouped count over tms.jobs for the
+// two non-terminal states (queued / running). A single round trip.
+func (s *PGStore) QueueDepth(ctx context.Context) (queued, running int, err error) {
+	err = s.pool.QueryRow(ctx, `
+		SELECT
+		  count(*) FILTER (WHERE status = 'queued')  AS queued,
+		  count(*) FILTER (WHERE status = 'running') AS running
+		FROM tms.jobs`).Scan(&queued, &running)
+	if err != nil {
+		return 0, 0, fmt.Errorf("api: querying job-queue depth: %w", err)
+	}
+	return queued, running, nil
+}
+
+// ActiveSessions implements SystemReader: the count of live sessions in the
+// RUNNING state (the unique partial index guarantees at most one per trader,
+// but a multi-trader deployment can have several).
+func (s *PGStore) ActiveSessions(ctx context.Context) (int, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM tms.sessions WHERE status = 'RUNNING'`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("api: counting active sessions: %w", err)
+	}
+	return n, nil
+}
+
+// DataFreshness implements SystemReader: the most recent stored daily-bar date
+// (the market-data horizon) and the most recent dataset-sync wall-clock time
+// (when the data was last refreshed). Both are "" / nil when no data exists.
+func (s *PGStore) DataFreshness(ctx context.Context) (latestBarDate string, lastSyncAt *time.Time, err error) {
+	if err = s.pool.QueryRow(ctx, `
+		SELECT COALESCE(max(ts AT TIME ZONE 'UTC')::date::text, '')
+		FROM tms.bars_daily`).Scan(&latestBarDate); err != nil {
+		return "", nil, fmt.Errorf("api: querying latest bar date: %w", err)
+	}
+	if err = s.pool.QueryRow(ctx,
+		`SELECT max(last_sync) FROM tms.dataset_sync`).Scan(&lastSyncAt); err != nil {
+		return "", nil, fmt.Errorf("api: querying last sync time: %w", err)
+	}
+	return latestBarDate, lastSyncAt, nil
+}
+
 // SyncRuns implements DataStore.
 func (s *PGStore) SyncRuns(ctx context.Context, dataset string, limit int) ([]SyncRun, error) {
 	rows, err := s.pool.Query(ctx, `
@@ -255,3 +297,9 @@ func (s *PGStore) SyncRuns(ctx context.Context, dataset string, limit int) ([]Sy
 	}
 	return out, nil
 }
+
+// compile-time checks: PGStore is both the DataStore and the SystemReader.
+var (
+	_ DataStore    = (*PGStore)(nil)
+	_ SystemReader = (*PGStore)(nil)
+)
