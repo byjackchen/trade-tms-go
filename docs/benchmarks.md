@@ -323,6 +323,29 @@ The Go `sector_rotation` study, by contrast, loads only the **12 instruments**
 the strategy actually trades (SPY + 11 ETFs, ~850 bars each) into the shared
 in-process dataset and replays them — hence single-digit milliseconds.
 
+> **This is NOT a survivorship-bias shortcut — important clarification.** The
+> 12-instrument load above is specific to *this* benchmark (a `sector_rotation`
+> study over a fixed, known basket of 11 SPDR ETFs + SPY — a universe with no
+> survivorship bias by construction) running against the small ~48-ticker
+> Sharadar subset imported for tests. It is a **data/environment** artifact, not
+> an architectural one. Go IS survivor-bias-correct **by design** for the
+> screened strategies (SEPA): the importer keeps delisted tickers' bars
+> wholesale (`sharadar/syncplan.go:128` — "both active AND delisted survive"),
+> `tms.tickers` carries `first_price_date`/`last_price_date`/`delist_date`, and
+> the production hyperopt/backtest path screens the SEPA universe through the
+> point-in-time, delisted-inclusive `universe.ListUniverseForWindow`
+> (`hyperopt.go:332`, `backtest.go:626`) with **no top-N cap** — byte-equivalent
+> to Python's `_filter_by_window` (spec §2.2, [MUST-MATCH]). A real full-universe
+> SEPA hyperopt in Go therefore loads the **whole ~5,500-name survivor-bias-free
+> universe per study** too (slower than 12 ETFs, but still far cheaper than
+> Python's per-fork universe reload + Nautilus). One genuine **non-bias** delta
+> remains: Go screens the universe once per *study window* and reuses it across
+> folds, whereas Python re-screens per *fold* — both are survivor-bias-free (both
+> include delisted names for their listed period); Go's once-per-study set is the
+> strictly-more-inclusive union and can shift walk-forward fold objectives
+> slightly. Re-screening per fold (in `study/objective.go`+`dataset.go`) would
+> restore exact per-fold parity if required.
+
 > **Objective parity holds despite the cost gap.** For an identical param set
 > through the identical folds, the two engines produce the **same**
 > `(sharpe, calmar)` to within **3.55e-6** (already proven by the parity gate).
