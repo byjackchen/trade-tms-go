@@ -225,6 +225,18 @@ func (c *Consumer) apply(ctx context.Context, cmd Command) {
 	case NameSetMode:
 		err = c.ctrl.SetMode(ctx, cmd.Args.Mode)
 		result = map[string]any{"mode": cmd.Args.Mode}
+	case NameFlatten:
+		var n int
+		n, err = c.ctrl.Flatten(ctx, reasonOr(cmd.Args.Reason, "flatten"))
+		result = map[string]any{"flattened_orders": n}
+	case NameEmergencyKill:
+		var n int
+		n, err = c.ctrl.EmergencyKill(ctx, reasonOr(cmd.Args.Reason, "emergency kill"))
+		result = map[string]any{"halted": true, "flattened_orders": n, "stopped": true}
+	case NameReconcile:
+		var issues bool
+		issues, err = c.ctrl.Reconcile(ctx)
+		result = map[string]any{"has_issues": issues}
 	default:
 		c.reject(ctx, cmd, fmt.Sprintf("unhandled command %q", cmd.Name))
 		return

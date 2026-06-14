@@ -105,6 +105,106 @@ export async function hasRunningSignalSession(): Promise<boolean> {
   return !!s && s.mode === "signal" && s.status === "RUNNING";
 }
 
+// ---------------------------------------------------------------------------
+// Paper/live TRADING helpers (P6). The gate runs `tms-live --mode paper`
+// against the in-repo MOCK trading venue (an extension of the P5 mock OpenD):
+// it accepts Trd_PlaceOrder, simulates accept->fill (or reject), pushes
+// Trd_UpdateOrder / Trd_UpdateOrderFill, and maintains mock positions/funds
+// (P6 decision 9). The MoomooExecutor (decision 2) maps domain orders onto the
+// venue and the order-state machine (decision 3) onto tms.orders/fills, with the
+// portfolio gate (decision 4) as a PRE-SUBMIT check that writes tms.risk_events.
+//
+// These helpers gate the paper-trading specs the same way the signal specs gate
+// on a signal session: they self-skip cleanly until the paper session + the
+// cockpit's paper-trading panels land, so the gate stays green meanwhile (the
+// established specs-07-17 pattern). The contract they bind is documented in
+// docs/api.md "Live trading (P6, paper/live)" and docs/spec/ui-runner-modes-eod.md.
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the API was started WITH a trading reader (the LiveStore implementing
+ * LiveTradingReader, internal/api/live_trading.go). The trading read endpoints
+ * (/live/orders, /live/positions, /live/account, /live/reconciliation) return
+ * 503 "unavailable" when no trading reader is configured. We probe
+ * GET /api/v1/live/positions: 503 → no trading reader; any other status (200
+ * with a possibly-empty book) → reader present.
+ *
+ * This is strictly stronger than liveReaderAvailable() (which only needs the
+ * signal reader): a stack can have the signal reader but no trading reader.
+ */
+export async function liveTradingAvailable(): Promise<boolean> {
+  const res = await getAuthed("live/positions");
+  return res.status !== 503;
+}
+
+/** A RUNNING paper session exists (the gate's `tms-live --mode paper` node over
+ * the mock venue). The paper-trading specs require it; they skip otherwise. */
+export async function hasRunningPaperSession(): Promise<boolean> {
+  const s = await currentSession();
+  return !!s && s.mode === "paper" && s.status === "RUNNING";
+}
+
+/** A RUNNING paper OR live trading session exists. Trading specs that only need
+ * a position book (not specifically paper) gate on this. The gate only ever
+ * runs paper (live is never auto-activated — decision 8); this is the broader
+ * predicate so a future live-canary stack would also satisfy it. */
+export async function hasRunningTradingSession(): Promise<boolean> {
+  const s = await currentSession();
+  return (
+    !!s &&
+    (s.mode === "paper" || s.mode === "live") &&
+    s.status === "RUNNING"
+  );
+}
+
+/**
+ * Wait until a UI panel identified by any of `testids` becomes visible, polling
+ * up to `timeout` ms; returns the first that appears or null on timeout. The
+ * paper-trading panels (blotter / positions / account / reconciliation) ship
+ * after the signal cockpit; specs use this to detect whether a panel is built
+ * yet and self-skip cleanly if not.
+ */
+export async function firstVisibleTestId(
+  page: Page,
+  testids: string[],
+  timeout = 10_000,
+): Promise<string | null> {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    for (const id of testids) {
+      const loc = page.getByTestId(id).first();
+      if ((await loc.count()) && (await loc.isVisible().catch(() => false))) {
+        return id;
+      }
+    }
+    await page.waitForTimeout(200);
+  }
+  return null;
+}
+
+/**
+ * Poll `read` until it returns a value satisfying `pred`, or until `timeout`.
+ * Returns the last value observed. Used to wait for a paper order to reach a
+ * terminal state (FILLED), a position count to settle, etc. — DB- or UI-backed.
+ */
+export async function waitFor<T>(
+  read: () => Promise<T>,
+  pred: (v: T) => boolean,
+  opts: { interval?: number; timeout?: number } = {},
+): Promise<T> {
+  const interval = opts.interval ?? 1_000;
+  const timeout = opts.timeout ?? 30_000;
+  const deadline = Date.now() + timeout;
+  let last = await read();
+  if (pred(last)) return last;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, interval));
+    last = await read();
+    if (pred(last)) return last;
+  }
+  return last;
+}
+
 /**
  * Poll until the streaming live-intent count seen by the cockpit stops growing,
  * i.e. two consecutive reads `apart` ms apart return the same value. Returns the

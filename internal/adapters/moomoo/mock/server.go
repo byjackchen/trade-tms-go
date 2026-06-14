@@ -84,6 +84,11 @@ type Server struct {
 	closed     bool
 	wg         sync.WaitGroup
 	acceptDone chan struct{}
+
+	// venue, when non-nil (EnableTrading), turns the mock OpenD into a mock
+	// TRADING venue too: it handles Trd_* requests and fills working orders on
+	// PushKLine. nil = market-data only (the P5 surface). Guarded by mu.
+	venue *tradeVenue
 }
 
 // conn is one accepted client connection and its subscription registry.
@@ -297,6 +302,11 @@ func (c *conn) handle(ctx context.Context, f mo.Frame) error {
 	case mo.ProtoQotRequestHistoryKL:
 		return c.onRequestHistoryKL(ctx, sn, f.Body)
 	default:
+		// Trading (Trd_*) protos route through the mock trading venue when it is
+		// enabled; handleTrd returns handled=false for everything else.
+		if handled, err := c.handleTrd(ctx, f); handled {
+			return err
+		}
 		// Unknown/unsupported proto: stay protocol-faithful by ignoring (real
 		// OpenD would reject; for P5's market-data surface this never happens).
 		c.srv.log.Debug().Str("proto", f.Header.ProtoID.String()).Msg("mock: unsupported proto ignored")
@@ -542,5 +552,45 @@ func (s *Server) PushKLine(symbol string, kl qotcommon.KLType, bars []domain.Bar
 		}
 		n++
 	}
+
+	// MOCK TRADING VENUE fill driver: every pushed bar is a fill opportunity for
+	// working orders on that symbol (documented model: market order fills at the
+	// NEXT pushed bar's close). This runs on the SAME controllable clock as the
+	// K-line push, so fills are deterministic. The resulting Trd_UpdateOrderFill
+	// + Trd_UpdateOrder pushes are delivered to every live connection (a real
+	// OpenD pushes them to the trading session).
+	if err := s.driveVenueFills(symbol, bars); err != nil {
+		return n, err
+	}
 	return n, nil
+}
+
+// driveVenueFills fills working orders for symbol against the close of the last
+// bar in bars, then delivers the resulting trading pushes to all connections.
+func (s *Server) driveVenueFills(symbol string, bars []domain.Bar) error {
+	s.mu.Lock()
+	v := s.venue
+	s.mu.Unlock()
+	if v == nil || len(bars) == 0 {
+		return nil
+	}
+	last := bars[len(bars)-1]
+	pushes := v.fillWorkingOrders(symbol, last.Close.Float64(), last.TS)
+	if len(pushes) == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	conns := make([]*conn, 0, len(s.conns))
+	for c := range s.conns {
+		conns = append(conns, c)
+	}
+	s.mu.Unlock()
+	for _, push := range pushes {
+		for _, c := range conns {
+			if err := push(c); err != nil {
+				s.log.Debug().Err(err).Msg("mock: trade push write failed")
+			}
+		}
+	}
+	return nil
 }

@@ -36,9 +36,12 @@ type Mode string
 const (
 	// ModeSignal records SignalIntents and submits no orders (decision 3 + 6).
 	ModeSignal Mode = "signal"
-	// ModePaper / ModeLive are deferred to P6 (order submission / fills).
+	// ModePaper runs the full trading loop against the SIMULATE broker account
+	// (paper money) via the injected GatedSubmitter (P6 decision 1+2).
 	ModePaper Mode = "paper"
-	ModeLive  Mode = "live"
+	// ModeLive runs against the REAL broker account; reaching it requires the full
+	// live-activation gate in the MoomooExecutor (P6 decision 8).
+	ModeLive Mode = "live"
 )
 
 // IsValid reports whether m is a known mode.
@@ -82,13 +85,39 @@ type Config struct {
 	// "always emit" (the EOD batch path + tests). Health snapshots are ALWAYS
 	// emitted (the cockpit health panel must keep updating during a halt).
 	EmitGate func() bool
+
+	// Submitter, when non-nil, REPLACES the signal-mode NoopExecutor for paper /
+	// live modes (P6 decision 1+2): the strategies run their OnBar through this
+	// engine.OrderSubmitter, which actually PLACES orders (after the pre-submit
+	// portfolio gate, wired into the submitter) and reads net positions from the
+	// broker-settled account book. It is required for ModePaper / ModeLive and
+	// must be nil for ModeSignal (the session refuses a mismatch). The submitter
+	// owns the gate + executor; the session only drives the bar loop + emission.
+	Submitter engine.OrderSubmitter
+
+	// PostTimestamp, when non-nil, is invoked after each timestamp's strategies
+	// have run + intents emitted, with the timestamp. The paper/live trade session
+	// uses it to evaluate the daily-loss halt + emit a live health/position
+	// snapshot + persist strategy state. nil (signal mode) => no-op.
+	PostTimestamp func(ctx context.Context, asOf time.Time) error
+
+	// ObserveBar, when non-nil, is invoked for every bar BEFORE the strategies run
+	// (paper/live: record the bar's close into the account book so the gate's
+	// estimated-fill price + the health mark-to-market are current, mirroring the
+	// engine's ObserveBar). nil (signal mode) => no-op.
+	ObserveBar func(bar domain.Bar)
 }
 
 // Session is one assembled live node. Build with NewSession, optionally Prime,
 // then RunStream (live) or Replay (batch).
 type Session struct {
-	cfg     Config
-	exec    *NoopExecutor
+	cfg Config
+	// exec is the signal-mode NoopExecutor; nil in paper/live (the injected
+	// Submitter is used instead).
+	exec *NoopExecutor
+	// sub is the order submitter the strategies run through: the NoopExecutor in
+	// signal mode, or the injected GatedSubmitter in paper/live.
+	sub     engine.OrderSubmitter
 	sink    IntentSink
 	spySym  string
 	ctxStat *portfolio.SharedContextState
@@ -129,9 +158,20 @@ func NewSession(cfg Config) (*Session, error) {
 	if !cfg.Mode.IsValid() {
 		return nil, fmt.Errorf("%w: unknown live mode %q", domain.ErrInvalidArgument, cfg.Mode)
 	}
-	if cfg.Mode != ModeSignal {
-		return nil, fmt.Errorf("%w: live mode %q not wired yet (P5 = signal only; paper/live deferred to P6)",
-			domain.ErrInvalidArgument, cfg.Mode)
+	// Mode/submitter pairing (P6): signal mode uses the internal NoopExecutor and
+	// MUST NOT carry an injected submitter; paper/live REQUIRE one (the
+	// GatedSubmitter that owns the gate + executor). This is a SAFETY invariant —
+	// there is no path where a paper/live session silently runs the no-op
+	// (placing nothing) or a signal session reaches a real executor.
+	switch cfg.Mode {
+	case ModeSignal:
+		if cfg.Submitter != nil {
+			return nil, fmt.Errorf("%w: signal mode must not carry an order submitter (signal places no orders)", domain.ErrInvalidArgument)
+		}
+	case ModePaper, ModeLive:
+		if cfg.Submitter == nil {
+			return nil, fmt.Errorf("%w: %s mode requires an order submitter (the gated executor)", domain.ErrInvalidArgument, cfg.Mode)
+		}
 	}
 	if len(cfg.Strategies) == 0 {
 		return nil, fmt.Errorf("%w: live session has no strategies", domain.ErrInvalidArgument)
@@ -149,9 +189,14 @@ func NewSession(cfg Config) (*Session, error) {
 	}
 	s := &Session{
 		cfg:    cfg,
-		exec:   NewNoopExecutor(),
 		sink:   sink,
 		spySym: spy,
+	}
+	if cfg.Mode == ModeSignal {
+		s.exec = NewNoopExecutor()
+		s.sub = s.exec
+	} else {
+		s.sub = cfg.Submitter
 	}
 	if cfg.Context != nil {
 		s.ctxStat = portfolio.NewSharedContextState()
@@ -173,7 +218,8 @@ func NewSession(cfg Config) (*Session, error) {
 	return s, nil
 }
 
-// Executor exposes the NoopExecutor (for telemetry: WouldSubmitCount).
+// Executor exposes the signal-mode NoopExecutor (for telemetry: WouldSubmitCount).
+// It is nil in paper/live mode (the injected Submitter owns execution).
 func (s *Session) Executor() *NoopExecutor { return s.exec }
 
 // Prime feeds the out-of-band warmup history into every WarmupConsumer strategy,
@@ -275,6 +321,14 @@ func (s *Session) onBar(ctx context.Context, bar domain.Bar) error {
 	s.haveTS = true
 	s.barsSeen.Add(1)
 
+	// Record the bar's close into the account book (paper/live) BEFORE strategies
+	// run, mirroring the engine's ObserveBar: the pre-submit gate's estimated-fill
+	// price + the health mark-to-market read the current bar's close. No-op in
+	// signal mode.
+	if s.cfg.ObserveBar != nil {
+		s.cfg.ObserveBar(bar)
+	}
+
 	// Context refresh on the SPY heartbeat (look-ahead-safe), identical to
 	// engine.handleBar: advance the provider, push the snapshot into every
 	// ContextConsumer before OnBar.
@@ -283,10 +337,11 @@ func (s *Session) onBar(ctx context.Context, bar domain.Bar) error {
 		s.injectContext(bar.TS)
 	}
 
-	// Run strategies through the NoopExecutor (records would-be orders; places
-	// none). Registration order = cfg.Strategies order (deterministic).
+	// Run strategies through the submitter: the NoopExecutor (signal: records
+	// would-be orders, places none) or the GatedSubmitter (paper/live: gate +
+	// place). Registration order = cfg.Strategies order (deterministic).
 	for _, st := range s.cfg.Strategies {
-		if err := st.OnBar(s.exec, bar); err != nil {
+		if err := st.OnBar(s.sub, bar); err != nil {
 			return fmt.Errorf("livengine: strategy %s on bar %s@%s: %w", st.ID(), bar.Symbol, bar.TS, err)
 		}
 	}
@@ -329,6 +384,14 @@ func (s *Session) flushTimestamp(ctx context.Context) error {
 		if err := s.emitHealth(ctx, asOf); err != nil {
 			return err
 		}
+		// PostTimestamp (paper/live) still runs while halted: the live health /
+		// position snapshot + daily-loss re-evaluation must keep updating even when
+		// NEW-intent emission is paused (the halt suppresses intents, not telemetry).
+		if s.cfg.PostTimestamp != nil {
+			if err := s.cfg.PostTimestamp(ctx, asOf); err != nil {
+				return err
+			}
+		}
 		s.haveTS = false
 		return nil
 	}
@@ -363,6 +426,14 @@ func (s *Session) flushTimestamp(ctx context.Context) error {
 	if err := s.emitHealth(ctx, asOf); err != nil {
 		return err
 	}
+	// PostTimestamp (paper/live): evaluate the daily-loss halt + emit the live
+	// health/position snapshot + persist strategy state, after this timestamp's
+	// intents. No-op in signal mode.
+	if s.cfg.PostTimestamp != nil {
+		if err := s.cfg.PostTimestamp(ctx, asOf); err != nil {
+			return err
+		}
+	}
 	s.haveTS = false
 	return nil
 }
@@ -373,6 +444,12 @@ func (s *Session) flushTimestamp(ctx context.Context) error {
 // the snapshot is skipped (HealthSnapshot needs the risk config).
 func (s *Session) emitHealth(ctx context.Context, asOf time.Time) error {
 	if s.cfg.Portfolio == nil {
+		return nil
+	}
+	// In paper/live the trade session's PostTimestamp emits the REAL health
+	// snapshot (marked against the live account book), so the session's flat-book
+	// signal-mode snapshot is suppressed to avoid a misleading zero overwrite.
+	if s.cfg.PostTimestamp != nil {
 		return nil
 	}
 	// Empty signal-mode book: NAV = cash = starting balance, no positions, no

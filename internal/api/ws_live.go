@@ -32,6 +32,14 @@ const (
 	WSTypePortfolioHealth = "portfolio_health"
 	WSTypeWatchlist       = "watchlist"
 	WSTypePosition        = "position"
+	// P6 paper/live trading frame types (additive). These bridge the live
+	// trading Redis fan-out (publish/live.go) so the cockpit blotter / fills /
+	// position book / account panel update in real time. PG stays the durable
+	// truth; the cockpit reconstructs from PG on (re)connect and follows these.
+	WSTypeOrderUpdate   = "order_update"
+	WSTypeFillUpdate    = "fill_update"
+	WSTypeLivePosition  = "live_position"
+	WSTypeAccountUpdate = "account_update"
 )
 
 // liveTopic pairs a Redis stream topic with its WS envelope type.
@@ -48,6 +56,11 @@ func liveTopics() []liveTopic {
 		{publish.TopicPortfolioHealth, WSTypePortfolioHealth},
 		{publish.TopicWatchlist, WSTypeWatchlist},
 		{publish.TopicPosition(), WSTypePosition},
+		// P6 paper/live trading streams.
+		{publish.TopicLiveOrder, WSTypeOrderUpdate},
+		{publish.TopicLiveFill, WSTypeFillUpdate},
+		{publish.TopicLivePosition, WSTypeLivePosition},
+		{publish.TopicLiveAccount, WSTypeAccountUpdate},
 	}
 }
 

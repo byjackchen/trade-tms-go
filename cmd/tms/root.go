@@ -53,6 +53,7 @@ func newRootCmd() *cobra.Command {
 		newParityBacktestCmd(env),
 		newHyperoptCmd(env),
 		newLiveCmd(env),
+		newCtlCmd(env),
 		newEODCmd(env),
 		newAPICmd(env),
 	)

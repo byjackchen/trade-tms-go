@@ -95,6 +95,12 @@ type Options struct {
 	Logger zerolog.Logger
 	// OnKLine, if set, receives real-time K-line pushes. Optional.
 	OnKLine KLineHandler
+	// OnTrdOrder, if set, receives Trd_UpdateOrder pushes (order status
+	// changes). Invoked from the reader goroutine; must not block. Optional.
+	OnTrdOrder TrdOrderHandler
+	// OnTrdOrderFill, if set, receives Trd_UpdateOrderFill pushes (fill
+	// notifications). Invoked from the reader goroutine; must not block. Optional.
+	OnTrdOrderFill TrdOrderFillHandler
 	// rng is an injectable jitter source for deterministic backoff in tests;
 	// nil uses a time-seeded source.
 	rng *rand.Rand
@@ -159,6 +165,12 @@ type Client struct {
 	runCtx    context.Context
 	runCancel context.CancelFunc
 	wg        sync.WaitGroup
+
+	// trdOnce/trdSt lazily hold the Trd_* trading-surface state (push handlers +
+	// idempotency map); see trd_client.go. Market-data-only callers never touch
+	// it, so the Client zero value stays valid.
+	trdOnce sync.Once
+	trdSt   *trdState
 }
 
 // NewClient builds a client. It does not connect; call Start.
@@ -417,6 +429,12 @@ func (c *Client) dispatch(cs *connState, frame Frame) {
 	case ProtoQotUpdateKL:
 		c.handlePush(frame)
 		return
+	case ProtoTrdUpdateOrder:
+		c.handleTrdOrderPush(frame)
+		return
+	case ProtoTrdUpdateOrderFill:
+		c.handleTrdOrderFillPush(frame)
+		return
 	}
 	// Reply path: hand to the matching waiter.
 	c.mu.Lock()
@@ -472,14 +490,33 @@ func (c *Client) handlePush(frame Frame) {
 	}
 }
 
+// activeConnID returns the OpenD-assigned connID of the live connection, used
+// to populate moomoo write-op PacketIDs ({connID, serialNo}). ok is false when
+// the transport is down.
+func (c *Client) activeConnID() (uint64, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed || c.conn == nil {
+		return 0, false
+	}
+	return c.conn.connID, true
+}
+
 // roundTrip encodes req for protoID, sends it on the active connection, and
 // waits for the matching reply (or ctx/timeout). It returns the reply body.
 func (c *Client) roundTrip(ctx context.Context, protoID ProtoID, req proto.Message) ([]byte, error) {
+	return c.roundTripSerial(ctx, protoID, c.nextSerial(), req)
+}
+
+// roundTripSerial is roundTrip with a caller-supplied serial number. Trading
+// write ops (PlaceOrder/ModifyOrder) need the frame serialNo to MATCH the
+// serialNo embedded in their PacketID anti-replay token, so they reserve a
+// serial, build the PacketID with it, and route the frame through here.
+func (c *Client) roundTripSerial(ctx context.Context, protoID ProtoID, serial uint32, req proto.Message) ([]byte, error) {
 	body, err := proto.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("moomoo: marshal %s: %w", protoID, err)
 	}
-	serial := c.nextSerial()
 
 	c.mu.Lock()
 	if c.closed {

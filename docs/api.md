@@ -788,24 +788,72 @@ mutation surface). Body:
 | `halt` | `reason` | none (safety action — never blocked) |
 | `kill` | `reason` | none (kill switch — never blocked) |
 | `set_mode` | `mode` (`signal`\|`paper`\|`live`) | `confirm_token` required for `paper`/`live` |
+| `flatten` | `reason` | **`confirm_token` required** — closes ALL positions |
+| `emergency_kill` | `reason` | **`confirm_token` required** — halt + flatten + stop |
+| `reconcile` | — | none (read-only; broker vs strategy books) |
 
 - `202 { "command_id": 7, "status": "pending" }` on enqueue.
 - `412 {"error":{"code":"confirmation_required",...}}` for a `set_mode` to
-  `paper`/`live` without `confirm_token`.
+  `paper`/`live`, or `flatten` / `emergency_kill`, without `confirm_token`.
 - `400` for an unknown command or invalid mode.
 
 The `confirm_token` is consumed at the boundary and is **never persisted** (no
 secrets in the durable `ops.commands` row). The `tms-live` consumer applies the
-command idempotently (halt/resume/kill stop or resume **new-intent emission** +
-set/clear halt state; FLATTEN is deferred to P6) and writes a `tms.audit_log`
-row for every applied/rejected command.
+command idempotently (halt/resume/kill stop or resume **new-intent emission /
+opening orders** + set/clear halt state; in paper/live, `flatten` submits FLAT
+market orders closing every open position, `emergency_kill` halts + flattens +
+stops, `reconcile` compares broker vs strategy books) and writes a
+`tms.audit_log` row for every applied/rejected command.
+
+## Live trading (P6, paper/live)
+
+The paper/live trading read surface. All reads come from PG (the durable
+system-of-record); the cockpit follows the Redis `data.*` streams live and
+reconstructs from these on (re)connect. **READ-ONLY** (the trading mutation
+surface stays on the audited command channel above).
+
+### `GET /api/v1/live/orders?symbol=<sym>&limit=<n>`
+
+`{ "orders": [ { client_order_id, venue_order_id, strategy_id, symbol, side,
+qty, filled_qty, avg_fill_px, status, reason, ts } ] }` — newest first. Prices
+are floats (USD); `status` is the order lifecycle state
+(`SUBMITTED`/`ACCEPTED`/`PARTIALLY_FILLED`/`FILLED`/`REJECTED`/`CANCELED`).
+
+### `GET /api/v1/live/fills?symbol=<sym>&limit=<n>`
+
+`{ "fills": [ { trade_id, symbol, qty, price, commission, ts } ] }` — newest
+executions first.
+
+### `GET /api/v1/live/positions`
+
+`{ "positions": [ { strategy_id, symbol, signed_qty, avg_entry_px,
+realized_pnl, status } ] }` — the open (non-flat) position book.
+
+### `GET /api/v1/live/account`
+
+`{ total_assets, cash, available_funds, market_value, day_pnl, ts }` — the
+account / buying-power + day-P&L snapshot. Live buying-power / market-value
+ride the Redis `data.AccountUpdate` stream (broker funds); this endpoint derives
+day-P&L from the persisted position book.
+
+### `GET /api/v1/live/reconciliation`
+
+`{ ts, has_issues, tolerance_shares, matched, mismatches: [ { symbol,
+strategy_books_sum, broker_net, diff } ], symbols_only_in_strategies,
+symbols_only_at_broker }` — the latest reconciliation report (broker positions
+vs strategy books). `diff = broker_net − strategy_books_sum`. A mismatch
+**halts** the node + surfaces here; it is **never** auto-corrected by trading.
+Trigger an on-demand reconcile with the `reconcile` command.
 
 ### CLI twins
 
-`tms eod --as-of <YYYY-MM-DD> [--strategy multi --tickers ... --trader-id ...
---window-days 400 --enqueue]` runs (or enqueues) the idempotent EOD
-engine-replay refresh. `tms live --mode signal --trader-id <id> [--strategy ...
---tickers ... --moomoo-addr ... --bar-seconds 86400]` runs the live node.
+`tms eod --as-of <YYYY-MM-DD> [...]` runs (or enqueues) the idempotent EOD
+engine-replay refresh. `tms live --mode signal|paper|live --trader-id <id>
+[--strategy ... --tickers ... --moomoo-addr ... --bar-seconds 86400]` runs the
+live node (paper/live require the broker creds in `secrets/moomoo.env`).
+`tms ctl <reconcile|flatten|emergency-kill|halt|resume|stop|kill|set-mode>
+[--confirm]` enqueues an audited control command (the CLI twin of
+`POST /api/v1/live/commands`).
 
 ---
 
@@ -837,6 +885,10 @@ Every frame is one JSON text message with the envelope:
 | `portfolio_health` | `{day_pnl, day_pnl_pct, daily_loss_halt, halt_headroom_pct, concentration_pct, ts_event, ts_init}` | Redis stream `…:data.PortfolioHealthUpdate`. |
 | `watchlist` | `{symbols, ts_event, ts_init}` | Redis stream `…:data.WatchlistUpdate`. |
 | `position` | `{positions, ts_event, ts_init}` (empty in signal mode) | Redis stream `…:data.PositionUpdate`. |
+| `order_update` | `{client_order_id, venue_order_id, strategy_id, symbol, side, qty, filled_qty, avg_fill_px, status, reason, ts_event, ts_init}` | Redis stream `…:data.OrderUpdate` (P6 paper/live). |
+| `fill_update` | `{trade_id, client_order_id, venue_order_id, strategy_id, symbol, side, qty, price, commission, ts_event, ts_init}` | Redis stream `…:data.FillUpdate` (P6). |
+| `live_position` | `{positions:[{strategy_id, symbol, signed_qty, avg_px, realized_pnl}], ts_event, ts_init}` | Redis stream `…:data.LivePositionUpdate` (P6 — full book snapshot). |
+| `account_update` | `{total_assets, cash, available_funds, market_value, day_pnl, ts_event, ts_init}` | Redis stream `…:data.AccountUpdate` (P6 — broker funds / buying power). |
 
 The live-stream channels bridge the per-trader Redis **streams**
 (`trader-{id}:stream:{topic}`, the reference key shape — api-ws-redis.md

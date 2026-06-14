@@ -433,3 +433,350 @@ export async function haltRowCount(c: Client): Promise<number> {
   );
   return Number(rows[0].n);
 }
+
+// ---------------------------------------------------------------------------
+// Paper/live TRADING ground truth (tms.orders / fills / positions /
+// risk_events / reconciliation_reports — migration 000005_live; P6 trading
+// surface). The cockpit's paper-trading panels (blotter / positions / account
+// day-P&L / reconciliation) render the API's proxy of these tables; the API
+// reads come straight from PG (the durable system-of-record, decision 5). The
+// specs compare what the UI renders against these queries — the DB is the
+// truth, never a fabricated number.
+//
+// Money columns are BIGINT fixed-point 1e-4 USD (stored = dollars * 10000); the
+// API renders them as float64 USD. The *Usd helpers below decode to USD floats
+// so a spec can compare them against the rendered cards / API payloads directly.
+//
+// "Active session" here means the newest session (latestSession) — every order/
+// position/risk-event/halt row is scoped to a session, and the cockpit reads
+// the most-recent session's books. A spec that needs a paper session gates on
+// latestSession().mode === 'paper' && status === 'RUNNING'.
+// ---------------------------------------------------------------------------
+
+/** Total order rows for a session (the blotter's lifetime order count). */
+export async function orderCount(c: Client, sessionId: number): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM tms.orders WHERE session_id = $1`,
+    [sessionId],
+  );
+  return Number(rows[0].n);
+}
+
+/** One order's ground truth, decoded — the same row the blotter shows. */
+export type OrderTruth = {
+  clientOrderId: string;
+  venueOrderId: string | null;
+  strategyId: string;
+  symbol: string;
+  side: "BUY" | "SELL";
+  qty: number;
+  filledQty: number;
+  avgFillPxUsd: number | null;
+  status: string;
+  reason: string | null;
+};
+
+/** Up to `limit` newest orders for a session, newest first — the blotter rows.
+ * Decodes avg_fill_px from fixed-point 1e-4 to a USD float. */
+export async function recentOrders(
+  c: Client,
+  sessionId: number,
+  limit = 200,
+): Promise<OrderTruth[]> {
+  const { rows } = await c.query<{
+    client_order_id: string;
+    venue_order_id: string | null;
+    strategy_id: string;
+    symbol: string;
+    side: string;
+    qty: string;
+    filled_qty: string;
+    avg_fill_px: string | null;
+    status: string;
+    reason: string | null;
+  }>(
+    `SELECT client_order_id, venue_order_id, strategy_id, symbol, side,
+            qty::text AS qty, filled_qty::text AS filled_qty,
+            avg_fill_px::text AS avg_fill_px, status, reason
+       FROM tms.orders
+      WHERE session_id = $1
+      ORDER BY created_at DESC, id DESC
+      LIMIT $2`,
+    [sessionId, limit],
+  );
+  return rows.map((r) => ({
+    clientOrderId: r.client_order_id,
+    venueOrderId: r.venue_order_id,
+    strategyId: r.strategy_id,
+    symbol: r.symbol,
+    side: r.side as OrderTruth["side"],
+    qty: Number(r.qty),
+    filledQty: Number(r.filled_qty),
+    avgFillPxUsd: r.avg_fill_px != null ? Number(r.avg_fill_px) / 10000 : null,
+    status: r.status,
+    reason: r.reason,
+  }));
+}
+
+/** Count of FILLED orders for a session (the blotter's filled tally — the
+ * paper-trade success signal: a strategy order reached terminal FILLED). */
+export async function filledOrderCount(
+  c: Client,
+  sessionId: number,
+): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM tms.orders
+      WHERE session_id = $1 AND status = 'FILLED'`,
+    [sessionId],
+  );
+  return Number(rows[0].n);
+}
+
+/** Count of fills (executions) for a session — joins fills to orders so it is
+ * session-scoped (fills reference order_id, not session_id directly). */
+export async function fillCount(c: Client, sessionId: number): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM tms.fills f
+       JOIN tms.orders o ON o.id = f.order_id
+      WHERE o.session_id = $1`,
+    [sessionId],
+  );
+  return Number(rows[0].n);
+}
+
+/** One open-position row's ground truth, decoded. */
+export type PositionTruth = {
+  strategyId: string;
+  symbol: string;
+  signedQty: number;
+  avgEntryPxUsd: number | null;
+  realizedPnlUsd: number;
+  status: "OPEN" | "CLOSED";
+};
+
+/** The OPEN (non-flat) position book for a session — the positions-panel rows.
+ * Mirrors GET /api/v1/live/positions (status OPEN; signed_qty <> 0). */
+export async function openPositions(
+  c: Client,
+  sessionId: number,
+): Promise<PositionTruth[]> {
+  const { rows } = await c.query<{
+    strategy_id: string;
+    symbol: string;
+    signed_qty: string;
+    avg_entry_px: string | null;
+    realized_pnl_usd: string;
+    status: string;
+  }>(
+    `SELECT strategy_id, symbol,
+            signed_qty::text AS signed_qty,
+            avg_entry_px::text AS avg_entry_px,
+            realized_pnl_usd::text AS realized_pnl_usd,
+            status
+       FROM tms.positions
+      WHERE session_id = $1
+        AND status = 'OPEN'
+        AND signed_qty <> 0
+      ORDER BY symbol ASC`,
+    [sessionId],
+  );
+  return rows.map((r) => ({
+    strategyId: r.strategy_id,
+    symbol: r.symbol,
+    signedQty: Number(r.signed_qty),
+    avgEntryPxUsd:
+      r.avg_entry_px != null ? Number(r.avg_entry_px) / 10000 : null,
+    realizedPnlUsd: Number(r.realized_pnl_usd) / 10000,
+    status: r.status as PositionTruth["status"],
+  }));
+}
+
+/** Count of OPEN (non-flat) positions for a session — the positions-panel count
+ * that must drop to ZERO after a FLATTEN. */
+export async function openPositionCount(
+  c: Client,
+  sessionId: number,
+): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM tms.positions
+      WHERE session_id = $1 AND status = 'OPEN' AND signed_qty <> 0`,
+    [sessionId],
+  );
+  return Number(rows[0].n);
+}
+
+/** Day P&L for a session in USD — Σ realized_pnl over the position book, the
+ * same derivation GET /api/v1/live/account uses (handleLiveAccount). The account
+ * panel's "day P/L" card renders this number. */
+export async function sessionDayPnlUsd(
+  c: Client,
+  sessionId: number,
+): Promise<number> {
+  const { rows } = await c.query<{ pnl: string | null }>(
+    `SELECT (SUM(realized_pnl_usd))::text AS pnl
+       FROM tms.positions
+      WHERE session_id = $1`,
+    [sessionId],
+  );
+  const raw = rows[0]?.pnl;
+  return raw != null ? Number(raw) / 10000 : 0;
+}
+
+/** Total risk-event rows for a session (every gate decision worth auditing). */
+export async function riskEventCount(
+  c: Client,
+  sessionId: number,
+): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM tms.risk_events WHERE session_id = $1`,
+    [sessionId],
+  );
+  return Number(rows[0].n);
+}
+
+/** Count of REJECTED (approved=false) risk events for a session, optionally
+ * filtered to a specific rule_name. The portfolio-gate spec asserts a rejection
+ * row appears when an over-budget / over-concentration order is gated. The
+ * reference rule ids: allocator.budget_exceeded, risk.max_single_name,
+ * risk.concentration, risk.daily_loss_halt (portfolio-risk.md §2.4/§3.2). */
+export async function rejectedRiskEventCount(
+  c: Client,
+  sessionId: number,
+  rule?: string,
+): Promise<number> {
+  const params: Array<number | string> = [sessionId];
+  let sql = `SELECT COUNT(*)::text AS n
+               FROM tms.risk_events
+              WHERE session_id = $1 AND approved = false`;
+  if (rule) {
+    params.push(rule);
+    sql += ` AND rule_name = $2`;
+  }
+  const { rows } = await c.query<{ n: string }>(sql, params);
+  return Number(rows[0].n);
+}
+
+/** One rejected risk-event's identity — used to prove the gated order was NOT
+ * executed (it has a rejection row; no FILLED order for that client order). */
+export type RiskEventTruth = {
+  ruleName: string;
+  approved: boolean;
+  strategyId: string;
+  symbol: string;
+  side: "LONG" | "SHORT" | "FLAT";
+  reason: string;
+};
+
+/** Up to `limit` newest rejected risk events for a session, newest first. */
+export async function recentRejectedRiskEvents(
+  c: Client,
+  sessionId: number,
+  limit = 50,
+): Promise<RiskEventTruth[]> {
+  const { rows } = await c.query<{
+    rule_name: string;
+    approved: boolean;
+    strategy_id: string;
+    symbol: string;
+    side: string;
+    reason: string;
+  }>(
+    `SELECT rule_name, approved, strategy_id, symbol, side, reason
+       FROM tms.risk_events
+      WHERE session_id = $1 AND approved = false
+      ORDER BY ts DESC, id DESC
+      LIMIT $2`,
+    [sessionId, limit],
+  );
+  return rows.map((r) => ({
+    ruleName: r.rule_name,
+    approved: r.approved,
+    strategyId: r.strategy_id,
+    symbol: r.symbol,
+    side: r.side as RiskEventTruth["side"],
+    reason: r.reason,
+  }));
+}
+
+/** Whether a session has any ACTIVE daily_loss halt (the daily-loss-halt spec's
+ * durable proof: day P&L below -threshold halts the node, kind = daily_loss). */
+export async function activeDailyLossHalt(
+  c: Client,
+  sessionId: number,
+): Promise<boolean> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM tms.halts
+      WHERE session_id = $1 AND kind = 'daily_loss' AND cleared_at IS NULL`,
+    [sessionId],
+  );
+  return Number(rows[0].n) > 0;
+}
+
+/** The latest reconciliation report (any session), or null — the reconciliation
+ * panel's source. Mirrors GET /api/v1/live/reconciliation: the four lists +
+ * mismatches + has_issues (portfolio-risk.md §6). */
+export type ReconciliationTruth = {
+  hasIssues: boolean;
+  toleranceShares: number;
+  matched: string[];
+  mismatches: Array<{
+    symbol: string;
+    strategyBooksSum: number;
+    brokerNet: number;
+    diff: number;
+  }>;
+  symbolsOnlyInStrategies: string[];
+  symbolsOnlyAtBroker: string[];
+};
+
+export async function latestReconciliation(
+  c: Client,
+): Promise<ReconciliationTruth | null> {
+  const { rows } = await c.query<{
+    has_issues: boolean;
+    tolerance_shares: string;
+    matched: string[];
+    mismatches: Array<{
+      symbol: string;
+      strategy_books_sum: number;
+      broker_net: number;
+      diff: number;
+    }>;
+    symbols_only_in_strategies: string[];
+    symbols_only_at_broker: string[];
+  }>(
+    `SELECT has_issues, tolerance_shares::text AS tolerance_shares,
+            matched, mismatches,
+            symbols_only_in_strategies, symbols_only_at_broker
+       FROM tms.reconciliation_reports
+      ORDER BY ts DESC, id DESC
+      LIMIT 1`,
+  );
+  if (!rows.length) return null;
+  const r = rows[0];
+  return {
+    hasIssues: r.has_issues,
+    toleranceShares: Number(r.tolerance_shares),
+    matched: r.matched ?? [],
+    mismatches: (r.mismatches ?? []).map((m) => ({
+      symbol: m.symbol,
+      strategyBooksSum: Number(m.strategy_books_sum),
+      brokerNet: Number(m.broker_net),
+      diff: Number(m.diff),
+    })),
+    symbolsOnlyInStrategies: r.symbols_only_in_strategies ?? [],
+    symbolsOnlyAtBroker: r.symbols_only_at_broker ?? [],
+  };
+}
+
+/** Count of reconciliation reports — gates "has a reconcile run at all". */
+export async function reconciliationReportCount(c: Client): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM tms.reconciliation_reports`,
+  );
+  return Number(rows[0].n);
+}

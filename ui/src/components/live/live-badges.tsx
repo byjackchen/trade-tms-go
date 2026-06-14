@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { LiveMode, LiveStatus } from "@/lib/api/types";
+import type { LiveMode, LiveStatus, LiveOrderStatus } from "@/lib/api/types";
 
 /** Session lifecycle badge: RUNNING green, STOPPED muted, CRASHED destructive. */
 export function SessionStatusBadge({
@@ -63,6 +63,59 @@ export function IntentStateBadge({
   return (
     <Badge variant={v} data-testid={testId} data-state={s}>
       {state}
+    </Badge>
+  );
+}
+
+/**
+ * Order lifecycle badge (the moomoo→domain state machine, ADR-004). Terminal
+ * good = FILLED (green); in-flight = SUBMITTED/ACCEPTED/WORKING/PARTIALLY_FILLED
+ * (muted/warning); terminal bad = REJECTED/EXPIRED (destructive) and CANCELED
+ * (muted). Unknown states render neutral so a new status never breaks the
+ * blotter.
+ */
+export function OrderStatusBadge({
+  status,
+  "data-testid": testId = "order-status-badge",
+}: {
+  status: LiveOrderStatus;
+  "data-testid"?: string;
+}) {
+  const s = String(status).toUpperCase();
+  const v =
+    s === "FILLED"
+      ? "success"
+      : s === "PARTIALLY_FILLED"
+        ? "warning"
+        : s === "REJECTED" || s === "EXPIRED"
+          ? "destructive"
+          : s === "SUBMITTED" || s === "ACCEPTED" || s === "WORKING"
+            ? "secondary"
+            : "muted";
+  return (
+    <Badge variant={v} data-testid={testId} data-status={s}>
+      {s.replace(/_/g, " ")}
+    </Badge>
+  );
+}
+
+/** Buy/sell (or long/short) side badge — green for buy/long, red for sell/short. */
+export function SideBadge({
+  side,
+  "data-testid": testId = "side-badge",
+}: {
+  side: string;
+  "data-testid"?: string;
+}) {
+  const s = side.toLowerCase();
+  const buy = s === "buy" || s === "long" || s === "b";
+  return (
+    <Badge
+      variant={buy ? "success" : "destructive"}
+      data-testid={testId}
+      data-side={s}
+    >
+      {side.toUpperCase()}
     </Badge>
   );
 }

@@ -34,6 +34,10 @@ type MoomooClient interface {
 	Ready(ctx context.Context) error
 	Subscribe(ctx context.Context, symbols []string, kl qotcommon.KLType) error
 	RequestHistoryKL(ctx context.Context, symbol string, kl qotcommon.KLType, begin, end time.Time) ([]domain.Bar, error)
+	// TradeClient returns the native Trd_* trading surface (paper/live execution).
+	// The real *moomoo.Client returns itself; a market-data-only fake may return
+	// nil (signal mode never calls it).
+	TradeClient() moomoo.TradeClient
 	Close() error
 }
 

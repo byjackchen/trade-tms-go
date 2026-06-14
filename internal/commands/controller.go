@@ -59,6 +59,16 @@ func (h *HaltState) Halt(kind HaltKind, reason string) {
 	}
 }
 
+// HaltDailyLoss latches a daily-loss halt (HaltDailyLoss kind) with reason. It
+// is the livetrade.Halter entry point the pre-submit gate calls when day P&L
+// crosses -daily_loss_halt_pct*NAV. Idempotent: a re-halt keeps the first
+// trigger's timestamp/kind (so a manual halt already in effect is not
+// downgraded). After this latches, the gate rejects NEW opening orders; existing
+// positions stay open and FLAT/close orders still pass (portfolio-risk.md §3.3).
+func (h *HaltState) HaltDailyLoss(reason string) {
+	h.Halt(HaltDailyLoss, reason)
+}
+
 // Resume clears the halt flag (does NOT clear a stop request).
 func (h *HaltState) Resume() {
 	h.mu.Lock()
@@ -141,4 +151,16 @@ type Controller interface {
 	Stop(ctx context.Context, reason string) error
 	// Kill is the kill switch: halt + stop (hard).
 	Kill(ctx context.Context, reason string) error
+	// Flatten closes ALL open positions with FLAT market orders (P6 decision 7).
+	// Paper/live only (signal mode has no positions: a no-op/err). Idempotent +
+	// confirmation-gated upstream. Returns the count of closing orders submitted.
+	Flatten(ctx context.Context, reason string) (int, error)
+	// EmergencyKill is the panic button (P6 decision 5): halt + flatten + stop.
+	// It halts first (suppress new opens), flattens (close everything), then stops
+	// the node. Returns the count of closing orders submitted.
+	EmergencyKill(ctx context.Context, reason string) (int, error)
+	// Reconcile runs an on-demand reconciliation (P6 decision 5): compare broker
+	// positions vs strategy books, persist a report, alert on a mismatch. Returns
+	// whether the report had issues (drift). NO auto-correct.
+	Reconcile(ctx context.Context) (hasIssues bool, err error)
 }

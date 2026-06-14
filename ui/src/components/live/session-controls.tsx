@@ -9,6 +9,9 @@ import {
   OctagonX,
   ShieldAlert,
   Check,
+  Flame,
+  Scale,
+  Siren,
 } from "lucide-react";
 import { useLiveSession, useLiveCommand } from "@/lib/api/hooks";
 import { hasSession } from "@/lib/api/types";
@@ -26,6 +29,8 @@ type DialogKind =
   | { kind: "kill" }
   | { kind: "stop" }
   | { kind: "mode"; mode: "paper" | "live" }
+  | { kind: "flatten" }
+  | { kind: "emergency_kill" }
   | null;
 
 /**
@@ -65,6 +70,16 @@ export function SessionControls() {
   const mode: LiveMode = session?.mode ?? "signal";
   const halted = session?.halt != null;
   const running = status === "RUNNING";
+  const traderId = session?.trader_id ?? null;
+  // The live target account is server-side only (the real acc id never reaches
+  // the browser — safety). We surface the trader-id namespace the live node
+  // runs under (TMS-LIVE-REAL-001 for real money) plus any non-secret target
+  // label the session config carries, so the operator can verify what they are
+  // about to arm without ever exposing the account number.
+  const targetAccountLabel =
+    typeof session?.config?.["target_account"] === "string"
+      ? (session.config["target_account"] as string)
+      : null;
 
   const noReader =
     sessionQ.error instanceof ApiError && sessionQ.error.status === 503;
@@ -205,17 +220,59 @@ export function SessionControls() {
                 data-testid={m === "paper" ? "live-mode-switch-paper" : `control-mode-${m}`}
                 data-control={`control-mode-${m}`}
                 data-active={mode === m ? "true" : "false"}
+                // Live (real money) gets a destructive accent to make it
+                // unmistakable from signal/paper.
+                className={
+                  m === "live" && mode !== "live"
+                    ? "border-destructive/50 text-destructive hover:bg-destructive/10"
+                    : undefined
+                }
               >
                 {m.toUpperCase()}
-                {m !== "signal" ? (
-                  <span className="ml-1 text-[10px] opacity-60">(P6)</span>
-                ) : null}
               </Button>
             ))}
           </div>
           <p className="text-[11px] text-muted-foreground">
-            paper / live require a typed confirmation and a confirm token; order
-            placement lands in P6 — in signal mode no orders are ever submitted.
+            paper / live require a typed confirmation phrase + token (consumed at
+            the API boundary, never persisted). LIVE places real orders — it
+            shows the target account and demands an explicit confirmation. In
+            signal mode no orders are ever submitted.
+          </p>
+        </div>
+
+        {/* Position controls (paper/live) */}
+        <div className="space-y-2">
+          <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+            <Scale className="size-3.5" /> Positions
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={noReader || cmd.isPending}
+              onClick={() => openDialog({ kind: "flatten" })}
+              // `live-flatten-button` is the e2e contract (spec 26).
+              data-testid="live-flatten-button"
+              data-control="control-flatten"
+            >
+              <Flame /> Flatten all
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={noReader || cmd.isPending}
+              onClick={() =>
+                send("reconcile", undefined, "reconcile")
+              }
+              data-testid="control-reconcile"
+            >
+              <Scale /> Reconcile
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            FLATTEN submits market orders closing every open position (idempotent,
+            confirmation-gated). Reconcile compares broker positions to the
+            strategy books — read-only, never auto-corrects.
           </p>
         </div>
 
@@ -244,11 +301,20 @@ export function SessionControls() {
             >
               <Power /> Kill switch
             </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={noReader || cmd.isPending}
+              onClick={() => openDialog({ kind: "emergency_kill" })}
+              data-testid="control-emergency-kill"
+            >
+              <Siren /> Emergency kill
+            </Button>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Halt and kill stop new-intent emission immediately and set halt state.
-            Closing positions (FLATTEN) is deferred to P6; in signal mode there
-            are no positions.
+            Halt and kill stop new-intent emission + opening orders and set halt
+            state. EMERGENCY KILL additionally flattens ALL positions then stops —
+            the all-stop. In signal mode there are no positions to flatten.
           </p>
         </div>
       </CardContent>
@@ -322,9 +388,34 @@ export function SessionControls() {
             : "Switch mode"
         }
         description={
-          dialog?.kind === "mode" && dialog.mode === "live"
-            ? "LIVE mode will (in P6) place real orders. This requires a confirm token; the switch is audited."
-            : "PAPER mode (P6) simulates fills. This requires a confirm token; the switch is audited."
+          dialog?.kind === "mode" && dialog.mode === "live" ? (
+            <span className="space-y-2">
+              <span className="block font-medium text-destructive">
+                LIVE mode places REAL orders against the real-money account.
+              </span>
+              <span
+                className="block rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-2 text-xs"
+                data-testid="live-mode-target-account"
+              >
+                Target account:{" "}
+                <span className="font-mono font-medium">
+                  {targetAccountLabel ?? traderId ?? "the configured real account"}
+                </span>
+                <span className="mt-1 block text-muted-foreground">
+                  The real account id stays server-side and is never shown in the
+                  browser. The live node must already have it configured plus a
+                  successful UnlockTrade — there is no path to a real order
+                  otherwise.
+                </span>
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                This requires the typed confirm token below; the switch is
+                audited.
+              </span>
+            </span>
+          ) : (
+            "PAPER mode simulates fills against the SIMULATE account (no real money). This requires a confirm token; the switch is audited."
+          )
         }
         confirmPhrase={
           dialog?.kind === "mode" ? `SET ${dialog.mode.toUpperCase()}` : "SET"
@@ -350,6 +441,57 @@ export function SessionControls() {
           );
         }}
         data-testid="live-mode-confirm"
+      />
+      <ConfirmActionDialog
+        open={dialog?.kind === "flatten"}
+        onClose={closeDialog}
+        title="Flatten ALL positions"
+        description="Submits market orders that close EVERY open position. Idempotent — re-running is safe. FLAT/closing orders bypass the allocator budget and are allowed even under a daily-loss halt."
+        confirmPhrase="FLATTEN"
+        confirmLabel="Flatten all positions"
+        requireReason
+        pending={cmd.isPending}
+        errorMessage={dialog?.kind === "flatten" ? errorMessage : null}
+        typed={typed}
+        onTypedChange={setTyped}
+        reason={reason}
+        onReasonChange={setReason}
+        onConfirm={() =>
+          send(
+            "flatten",
+            { reason: reason.trim() || "operator flatten", confirm_token: typed.trim() },
+            "flatten",
+          )
+        }
+        data-testid="live-flatten-confirm"
+        reasonTestId="flatten-reason"
+      />
+      <ConfirmActionDialog
+        open={dialog?.kind === "emergency_kill"}
+        onClose={closeDialog}
+        title="EMERGENCY KILL"
+        description="The all-stop: halts new-intent emission + opening orders, FLATTENS every open position with market orders, then stops the session. Use when something is wrong and the book must be closed now."
+        confirmPhrase="EMERGENCY"
+        confirmLabel="Halt, flatten & stop"
+        requireReason
+        pending={cmd.isPending}
+        errorMessage={dialog?.kind === "emergency_kill" ? errorMessage : null}
+        typed={typed}
+        onTypedChange={setTyped}
+        reason={reason}
+        onReasonChange={setReason}
+        onConfirm={() =>
+          send(
+            "emergency_kill",
+            {
+              reason: reason.trim() || "operator emergency kill",
+              confirm_token: typed.trim(),
+            },
+            "emergency kill",
+          )
+        }
+        data-testid="emergency-kill-dialog"
+        reasonTestId="emergency-kill-reason"
       />
     </Card>
   );

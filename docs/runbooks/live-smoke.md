@@ -191,3 +191,144 @@ Steps:
   `status = STOPPED`, `ended_at` set.
 - The deterministic mock gate (CI) remains green for the same universe — the mock
   vs real switch is config-only.
+
+---
+
+# P6 — Paper-trade + live-canary order execution (DEFERRED to market hours)
+
+P6 adds the order-execution path (`internal/exec/moomoo`): the **MoomooExecutor**
+that replaces the signal-mode NoopExecutor for `paper` and `live` modes, the
+**order state machine**, the **mock trading venue** (`exec/moomoo.MockVenue`,
+the deterministic gate driver), and the **live-activation safety gate**. As in
+P5, real paper/live account smoke is **deferred** to market hours with a
+user-confirmed OpenD login + real accounts; the mock venue is the permanent CI
+gate. Green-on-mock is built to predict green-on-real (identical normalised
+`TradeClient` surface + cumulative-fill semantics).
+
+## What the deterministic gate already proves (no OpenD needed)
+
+- `submit -> accept -> fill` settles the position + PnL and feeds the engine
+  (`TestSubmitAcceptFillUpdatesPositionAndSink`).
+- reject path opens no position, emits no fill
+  (`TestRejectPathNoPositionNoFill`, `TestSubmitTimeRejectSurfacesRiskEvent`).
+- partial fills accumulate as per-fill deltas from cumulative pushes
+  (`TestPartialFillsAccumulate`, `TestSMPartialThenFullDeltas`).
+- duplicate pushes are no-ops (`TestIdempotentDoublePush`,
+  `TestSMDuplicateFillIsNoOp`, `TestSMDuplicatePartialNoReFill`).
+- cancel is terminal + sticky (`TestCancelTerminal`, `TestSMRejectTerminal`).
+- idempotent submission: a retried client-order-id never double-submits
+  (`TestIdempotentSubmitNoDoubleOrder`).
+- **LIVE SAFETY** (`safety_test.go`): a paper/signal config can NEVER place a
+  live order; live requires confirmation phrase + real acc id + UnlockTrade
+  success + `TMS-LIVE-REAL-001` trader-id; the venue refuses a REAL order before
+  unlock.
+- flatten-on-kill closes all positions, idempotently
+  (`TestFlattenOnKillClosesAllPositions`).
+- crash recovery rebuilds the cumulative-fill snapshot so post-restart pushes
+  apply correct deltas (`TestRestoreFromBrokerRebuildsCumulativeSnapshot`).
+
+### Session-level wiring proven (no OpenD needed)
+
+The full paper trading SESSION (gate + executor + reconcile + recovery +
+flatten) is proven against the mock venue in `internal/livetrade`:
+
+- `TestPaperOrderLifecycle` — signal → **pre-submit portfolio gate** → PlaceOrder
+  → accept/fill push → accounting + fill sink, end-to-end.
+- `TestGateRejection` — an over-budget open is rejected by the allocator/risk
+  gate; no order reaches the venue; a `live.risk_events` row is recorded.
+- `TestDailyLossHaltRejectsNewOpens` — when a held loss drives day-P&L below
+  −10% NAV the halt **latches**, NEW opens are rejected, existing positions stay
+  open, and a FLAT close still passes.
+- `TestReconciliationMismatchDetection` / `TestReconciliationClean` — broker vs
+  strategy-book drift is detected, persisted, and **alerted (halt, no
+  auto-correct)**; a matching book reconciles clean.
+- `TestCrashRecoveryResume` — a fresh session restores positions from the broker
+  and reconciles clean (idempotent: no double-seed).
+- `TestFlattenClosesAll` — flatten closes every open position (confirmation-
+  gated, idempotent).
+- `TestLiveActivationGateRejectsPaperMismatch` — a live session refuses a
+  paper-bound executor (and vice versa).
+- PG durability (`internal/runner.TestLivePersistRoundTrip`): order→fill→position
+  upserts roll up correctly + dedupe; risk events, reconciliation reports, and
+  strategy-state save/load round-trip against the real schema.
+
+## Paper-trade smoke (market hours, user-confirmed OpenD + paper acc id)
+
+1. Confirm OpenD is logged in and the moomoo **paper** account id is known. In
+   `secrets/moomoo.env` set `TMS_MOOMOO_PAPER_ACC_ID=<paper acc id>` and point
+   the node at OpenD (`TMS_MOOMOO_ADDR=127.0.0.1:11111`, or the mock address for
+   a dry run). Use a paper trader-id namespace (e.g. `PAPER-SMOKE-001`) —
+   distinct from the live namespace.
+
+2. Start the live node in `paper` mode for a tiny universe (1-2 liquid names,
+   small share counts):
+
+   ```sh
+   TMS_LIVE_MODE=paper TMS_LIVE_TRADER_ID=PAPER-SMOKE-001 \
+     docker compose --profile live up -d tms-live
+   # or, locally:
+   tms live --mode paper --trader-id PAPER-SMOKE-001 --strategy sector_rotation
+   ```
+
+   Verify in the logs: the executor bound to `SIMULATE`, push subscriptions
+   registered BEFORE the first order, crash-recovery restore + initial
+   reconcile ran at startup.
+
+3. Let a strategy fire (or inject a scripted entry). Confirm:
+   - `GET /api/v1/live/orders` shows an order reaching `FILLED` (or
+     `PARTIALLY_FILLED` → `FILLED`);
+   - `GET /api/v1/live/fills` shows matching per-execution fills (no double-count);
+   - `GET /api/v1/live/positions` shows the expected signed qty + avg price;
+   - `tms ctl reconcile` (or `GET /api/v1/live/reconciliation`) reports `matched`
+     with no mismatch / one-sided drift.
+
+4. Issue **flatten** and confirm it closes every open position:
+
+   ```sh
+   tms ctl flatten --confirm --reason "paper smoke flatten"
+   ```
+
+   After fills, `GET /api/v1/live/positions` is empty and the broker is flat.
+
+5. Kill the process mid-session, restart, and confirm crash recovery: the node
+   restores positions from the broker (`RestoreFromBroker`) + strategy SG state
+   from `tms.strategy_state`, the startup reconcile passes, and subsequent
+   behaviour is identical (no re-counted fills, positions intact).
+
+## Live-canary smoke (real money — EXTREME caution, user-driven only)
+
+> NEVER auto-activate. Live requires, ALL of: the typed confirmation phrase
+> `I CONFIRM LIVE REAL MONEY TRADING TMS-LIVE-REAL-001`, an explicitly-configured
+> real acc id that EXISTS under the REAL env, a successful `UnlockTrade`, and the
+> `TMS-LIVE-REAL-001` trader-id namespace. Any missing piece -> activation is
+> refused and NO executor exists (no real order is reachable).
+
+1. With OpenD logged into the REAL account, in `secrets/moomoo.env` set ALL of:
+   `TMS_MOOMOO_LIVE_ACC_ID=<real acc id>`, `TMS_MOOMOO_UNLOCK_PASSWORD=<pwd>`,
+   `TMS_LIVE_TRADER_ID=TMS-LIVE-REAL-001`, and
+   `TMS_LIVE_CONFIRM=I CONFIRM LIVE REAL MONEY TRADING TMS-LIVE-REAL-001`.
+   Activate `live` mode (`TMS_LIVE_MODE=live`) for a SINGLE liquid name, MINIMUM
+   share count (1 share), during regular trading hours. The node REFUSES to
+   start if any of the four is missing.
+
+2. Confirm activation logs: `GetAccList(REAL)` found the acc id, `UnlockTrade`
+   succeeded, executor bound `REAL`. Confirm the order fills, `live.{orders,
+   fills,positions}` are written (`GET /api/v1/live/*`), and `tms ctl reconcile`
+   matches the broker.
+
+3. Immediately **flatten** (`tms ctl flatten --confirm`) — or
+   `tms ctl emergency-kill --confirm` (halt + flatten + stop) — to close the
+   canary position. Confirm the broker is flat and the audit log records the
+   flatten orders.
+
+## Acceptance
+
+- Paper: submit/accept/fill/partial/cancel + reject all behave as the mock gate
+  predicts; `live.{orders,fills,positions}` are correct + idempotent;
+  reconciliation matches; flatten-on-kill flattens; crash recovery resumes
+  cleanly with positions intact.
+- Live: activation is unreachable without all four gates; the 1-share canary
+  fills + reconciles + flattens; no real order is ever placed by a signal/paper
+  configuration.
+- The deterministic mock gate (CI) stays green for the same flows — the mock vs
+  real switch is config-only.

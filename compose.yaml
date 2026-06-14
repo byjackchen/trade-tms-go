@@ -237,10 +237,16 @@ services:
     # default SF1 universe when --tickers is empty, but that universe is empty on
     # a stack with no bars — so the safe shipped default avoids SEPA.) Override
     # via TMS_LIVE_STRATEGY (+ pass --tickers for sepa/multi) when bars are loaded.
+    # TMS_LIVE_MODE selects the execution mode: signal (default; no orders) |
+    # paper (SIMULATE broker account) | live (REAL money — requires the full
+    # activation gate: real acc id + TMS_LIVE_CONFIRM phrase + the
+    # TMS-LIVE-REAL-001 trader id, all from ./secrets/moomoo.env; the node
+    # refuses live without them). Paper/live also need the mock or real OpenD
+    # trading venue on TMS_MOOMOO_ADDR.
     command:
       - "live"
       - "--mode"
-      - "signal"
+      - "${TMS_LIVE_MODE:-signal}"
       - "--strategy"
       - "${TMS_LIVE_STRATEGY:-sector_rotation}"
       - "--trader-id"
@@ -269,6 +275,14 @@ services:
       TMS_WORKER_HEALTH_ADDR: 0.0.0.0:18090
       TMS_LOG_LEVEL: ${TMS_LOG_LEVEL:-info}
       TMS_LOG_FORMAT: json
+      # Paper/live trading config (P6). The broker account ids + the live
+      # activation phrase + unlock password are SECRETS — set them ONLY in
+      # ./secrets/moomoo.env (gitignored, env_file above), never here / in .env.
+      # Defaulted empty so a signal-mode stack needs none; paper/live REQUIRE the
+      # corresponding values and the node refuses to start without them.
+      TMS_MOOMOO_PAPER_ACC_ID: ${TMS_MOOMOO_PAPER_ACC_ID:-}
+      TMS_MOOMOO_LIVE_ACC_ID: ${TMS_MOOMOO_LIVE_ACC_ID:-}
+      TMS_RECONCILE_INTERVAL: ${TMS_RECONCILE_INTERVAL:-5m}
     extra_hosts:
       # Reach the host's OpenD (127.0.0.1:11111 on the host) from inside the
       # container as host.docker.internal:11111 (real-OpenD path).

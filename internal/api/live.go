@@ -188,7 +188,7 @@ func (s *Server) handleLiveCommand(w http.ResponseWriter, r *http.Request) {
 	name := commands.Name(strings.TrimSpace(body.Name))
 	if !name.IsValid() {
 		writeError(w, http.StatusBadRequest, "invalid_command",
-			"unknown command (want start|stop|set_mode|halt|resume|kill)")
+			"unknown command (want start|stop|set_mode|halt|resume|kill|flatten|emergency_kill|reconcile)")
 		return
 	}
 	actor := actorFromRequest(r)
@@ -204,7 +204,7 @@ func (s *Server) handleLiveCommand(w http.ResponseWriter, r *http.Request) {
 	})
 	if errors.Is(err, commands.ErrConfirmationRequired) {
 		writeError(w, http.StatusPreconditionFailed, "confirmation_required",
-			"paper/live mode switch requires a confirm_token")
+			"this command requires a confirm_token (paper/live mode switch, flatten, or emergency_kill)")
 		return
 	}
 	if err != nil {

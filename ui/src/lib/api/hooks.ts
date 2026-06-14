@@ -38,6 +38,11 @@ import type {
   WatchlistResponse,
   LiveCommandRequest,
   LiveCommandResponse,
+  LiveOrdersResponse,
+  LiveFillsResponse,
+  LivePositionsResponse,
+  LiveAccount,
+  LiveReconciliationResponse,
 } from "./types";
 import { ApiError } from "./client";
 
@@ -385,6 +390,77 @@ export function useWatchlist(): UseQueryResult<WatchlistResponse, Error> {
     queryKey: ["live", "watchlist"],
     queryFn: () => apiGet<WatchlistResponse>("watchlist"),
     refetchInterval: 30000,
+    retry: liveRetry,
+  });
+}
+
+// ---- Live trading (P6, paper/live) ----
+//
+// PG-backed snapshots; the WS push (useLiveStream order_update/fill_update/
+// live_position/account_update) layers real-time deltas on top. A 503 means the
+// API has no trading reader (signal-only deployment) — an expected degraded
+// state, surfaced rather than retried (liveRetry).
+
+export function useLiveOrders(
+  symbol?: string,
+): UseQueryResult<LiveOrdersResponse, Error> {
+  return useQuery({
+    queryKey: ["live", "orders", symbol ?? "all"],
+    queryFn: () =>
+      apiGet<LiveOrdersResponse>("live/orders", { symbol, limit: 200 }),
+    // WS pushes order-state transitions live; this poll is the reconnect-
+    // reconciliation backstop and the initial hydrate.
+    refetchInterval: 15000,
+    retry: liveRetry,
+  });
+}
+
+export function useLiveFills(
+  symbol?: string,
+): UseQueryResult<LiveFillsResponse, Error> {
+  return useQuery({
+    queryKey: ["live", "fills", symbol ?? "all"],
+    queryFn: () =>
+      apiGet<LiveFillsResponse>("live/fills", { symbol, limit: 200 }),
+    refetchInterval: 15000,
+    retry: liveRetry,
+  });
+}
+
+export function useLivePositions(): UseQueryResult<
+  LivePositionsResponse,
+  Error
+> {
+  return useQuery({
+    queryKey: ["live", "positions"],
+    queryFn: () => apiGet<LivePositionsResponse>("live/positions"),
+    // The live_position WS frame replaces the book; poll backstops reconnect.
+    refetchInterval: 15000,
+    retry: liveRetry,
+  });
+}
+
+export function useLiveAccount(): UseQueryResult<LiveAccount, Error> {
+  return useQuery({
+    queryKey: ["live", "account"],
+    queryFn: () => apiGet<LiveAccount>("live/account"),
+    // account_update rides the Redis stream; poll keeps day-PnL fresh.
+    refetchInterval: 15000,
+    retry: liveRetry,
+  });
+}
+
+export function useLiveReconciliation(): UseQueryResult<
+  LiveReconciliationResponse,
+  Error
+> {
+  return useQuery({
+    queryKey: ["live", "reconciliation"],
+    queryFn: () =>
+      apiGet<LiveReconciliationResponse>("live/reconciliation"),
+    // Reconciliation runs periodically + on demand; poll at 20s so a fresh
+    // report (or a mismatch-triggered halt) surfaces without a reload.
+    refetchInterval: 20000,
     retry: liveRetry,
   });
 }

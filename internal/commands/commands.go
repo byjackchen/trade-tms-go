@@ -41,12 +41,23 @@ const (
 	NameHalt    Name = "halt"
 	NameResume  Name = "resume"
 	NameKill    Name = "kill"
+	// NameFlatten closes ALL open positions with FLAT market orders (P6 decision
+	// 7). Paper/live only; confirmation-gated. signal mode has no positions.
+	NameFlatten Name = "flatten"
+	// NameEmergencyKill is the panic button (P6 decision 5): halt + flatten +
+	// stop, in that order. Confirmation-gated.
+	NameEmergencyKill Name = "emergency_kill"
+	// NameReconcile triggers an on-demand reconciliation (P6 decision 5): the
+	// live node compares broker positions vs strategy books and writes a report.
+	// Read-only (no auto-correct), so no confirmation required.
+	NameReconcile Name = "reconcile"
 )
 
 // IsValid reports whether n is a known command.
 func (n Name) IsValid() bool {
 	switch n {
-	case NameStart, NameStop, NameSetMode, NameHalt, NameResume, NameKill:
+	case NameStart, NameStop, NameSetMode, NameHalt, NameResume, NameKill,
+		NameFlatten, NameEmergencyKill, NameReconcile:
 		return true
 	default:
 		return false
@@ -60,12 +71,18 @@ func (n Name) IsValid() bool {
 //
 // The argument is the resolved mode for set_mode ("" for other commands). Only
 // set_mode->paper|live requires confirmation; set_mode->signal does not.
+// flatten + emergency_kill (destructive position close) ALWAYS require
+// confirmation (P6 decision 5/7).
 func RequiresConfirmation(n Name, mode string) bool {
-	if n != NameSetMode {
+	switch n {
+	case NameFlatten, NameEmergencyKill:
+		return true
+	case NameSetMode:
+		m := strings.ToLower(strings.TrimSpace(mode))
+		return m == "paper" || m == "live"
+	default:
 		return false
 	}
-	m := strings.ToLower(strings.TrimSpace(mode))
-	return m == "paper" || m == "live"
 }
 
 // Command is one decoded control-plane request from tms.commands.

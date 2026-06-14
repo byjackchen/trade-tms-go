@@ -84,6 +84,26 @@ e2e/
                           (412 confirmation_required); session mode unchanged (DB-checked)
     23-live-console       zero severe console errors on /live (placeholder OR real
                           cockpit; opening+dismissing the halt dialog stays clean)
+    24-paper-blotter      paper session over the mock venue: blotter rows == tms.orders
+                          (>=1 FILLED), positions panel == open book, account day-P&L
+                          card == Σ realized (all DB-checked; self-skips if signal-only)
+    25-portfolio-gate     an over-budget/over-concentration order is REJECTED: a
+                          tms.risk_events row (approved=false, a real reference rule id)
+                          exists and the gated order never FILLs (DB-checked; safety)
+    26-flatten            flatten WITHOUT confirm_token -> 412 (API guard); the cockpit
+                          flatten control's typed-phrase dialog closes ALL positions
+                          (open-position count -> 0; paper-only, never live)
+    27-daily-loss-halt    day P&L below threshold -> active tms.halts(daily_loss) +
+                          halt banner; NEW opens rejected (risk.daily_loss_halt) but no
+                          daily_loss rejection carries side=FLAT (FLAT still passes)
+    28-live-safety        set_mode->live w/o confirm_token -> 412 (mode unchanged, never
+                          live); switch-to-live opens a phrase dialog (wrong phrase never
+                          arms; canceled -> no switch); NO direct-to-live affordance
+    29-reconciliation     reconciliation panel == latest tms.reconciliation_reports
+                          (has_issues, mismatch diff = broker_net - strategy_sum); a
+                          mismatch is VISUALLY FLAGGED; clean report is not flagged
+    30-paper-console      zero severe console errors on the paper cockpit (trading
+                          panels render clean; opening+dismissing flatten stays clean)
 ```
 
 ### Strategies specs and build order
@@ -162,6 +182,57 @@ postgres (`tms.sessions` / `tms.signal_intents` (as_of NULL) / `tms.halts`) and
 the API — no fabricated values. The mode-switch guard is asserted at BOTH the UI
 (disabled-until-phrase dialog) and the API boundary (412 `confirmation_required`
 without a `confirm_token`); neither test ever completes a real mode switch.
+
+### Paper-trading specs and build order (P6)
+
+Specs 24-30 cover the **paper-trading cockpit + safety** and ship in P6, after
+the P5 signal cockpit. The gate runs `tms-live --mode paper` against the in-repo
+**mock trading venue** (the P5 mock OpenD extended to accept `Trd_PlaceOrder` and
+simulate accept->fill / reject + push `Trd_UpdateOrder` / `Trd_UpdateOrderFill`,
+P6 decision 9), so a strategy order flows through the portfolio gate (decision 4),
+the `MoomooExecutor` (decision 2) and the order-state machine (decision 3) into
+`tms.orders` / `fills` / `positions` / `risk_events` (decision 5, the durable
+system-of-record). The real paper/live-account smoke is **deferred** to market
+hours (`docs/runbooks/live-smoke.md`).
+
+Contract these specs assert (`docs/api.md` "Live trading (P6, paper/live)";
+`docs/spec/portfolio-risk.md`). API reads: `GET /live/{orders,fills,positions,
+account,reconciliation}` (503 when no trading reader — gated via
+`liveTradingAvailable()`). Commands: `flatten` / `emergency_kill` / `set_mode`
+to `paper`/`live` require a `confirm_token` (412 `confirmation_required` without
+it). Conventional `data-testid`s the paper cockpit must expose:
+- blotter `live-blotter` with `live-blotter-order-row` [`data-client-order-id` /
+  `data-symbol` / `data-status` / `data-filled-qty`];
+- positions `live-positions` with `live-position-row` [`data-symbol` /
+  `data-signed-qty`];
+- account `live-account` with `live-account-day-pnl` [`data-day-pnl-usd`];
+- gate decisions `live-risk-events` with `live-risk-event-row`
+  [`data-rule-name` / `data-symbol` / `data-approved`];
+- flatten `live-flatten-button` -> `live-flatten-confirm` with
+  `live-flatten-confirm-phrase` + a `live-flatten-confirm-submit` DISABLED until
+  the phrase (`FLATTEN`) is typed + `live-flatten-confirm-cancel`;
+- reconciliation `live-reconciliation` [`data-has-issues`] with
+  `live-reconciliation-mismatch` (the visible flag) + `live-recon-mismatch-row`
+  [`data-symbol` / `data-diff` / `data-broker-net` / `data-strategy-sum`];
+- the switch-to-live control `control-mode-live` reuses the shared
+  `live-mode-confirm` phrase dialog (same guard as paper).
+
+**SAFETY is the top acceptance criterion.** The live-safety spec (28) and the
+flatten spec (26) assert the dangerous guards at BOTH the UI (disabled-until-
+phrase dialog; a wrong/near-miss phrase never arms) AND the API boundary (412
+without a `confirm_token`), and **never** complete a real live switch or a
+flatten against a non-paper session — there is no real account in this gate. The
+gate (25/27) is proven by durable `tms.risk_events` rejections carrying the
+byte-identical reference rule ids (`allocator.budget_exceeded`,
+`risk.max_single_name`, `risk.concentration`, `risk.daily_loss_halt`); a gated
+order **never** reaches a FILLED state, and a `daily_loss` rejection **never**
+carries `side=FLAT` (FLAT/close orders still pass during a halt by design).
+Every order / fill / position / day-P&L / reconciliation drift the UI renders is
+compared to ground truth queried independently from postgres (lib/db, money
+decoded from fixed-point 1e-4) and the API — no fabricated values. While the
+paper-trading panels are not built, the API has no trading reader (503), or no
+paper session has run / no order filled this run, the specs **self-skip** cleanly
+so the gate stays green; once wired the assertions bind and never weaken.
 
 ### Backtests specs and build order
 

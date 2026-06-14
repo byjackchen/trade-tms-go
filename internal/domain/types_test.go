@@ -357,6 +357,7 @@ func TestFill(t *testing.T) {
 	}{
 		{"empty trade id", mut(func(x *Fill) { x.TradeID = "" })},
 		{"empty order id", mut(func(x *Fill) { x.ClientOrderID = "" })},
+		{"empty strategy id", mut(func(x *Fill) { x.StrategyID = "" })},
 		{"empty symbol", mut(func(x *Fill) { x.Symbol = "" })},
 		{"bad side", mut(func(x *Fill) { x.Side = "X" })},
 		{"zero qty (duplicate push)", mut(func(x *Fill) { x.Qty = 0 })},

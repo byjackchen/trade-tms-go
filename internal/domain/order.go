@@ -130,6 +130,16 @@ func (f Fill) Validate() error {
 	if f.ClientOrderID == "" {
 		return fmt.Errorf("%w: fill %s has empty client_order_id", ErrInvalidArgument, f.TradeID)
 	}
+	// StrategyID is REQUIRED: a fill with no strategy attribution would settle
+	// into accounting under an empty-strategy key, creating an orphan per-strategy
+	// position + a spurious reconciliation entry (the post-crash-recovery drift
+	// class). Every legitimate fill descends from an Order (whose Validate already
+	// requires a strategy id) or a recovery seed (which carries a recovery
+	// pseudo-strategy), so this never rejects a correctly-attributed fill — it
+	// fails loud on the mis-attributed one instead of drifting silently.
+	if f.StrategyID == "" {
+		return fmt.Errorf("%w: fill %s has empty strategy_id", ErrInvalidArgument, f.TradeID)
+	}
 	if f.Symbol == "" {
 		return fmt.Errorf("%w: fill %s has empty symbol", ErrInvalidArgument, f.TradeID)
 	}

@@ -81,20 +81,36 @@ test.describe("live cockpit — mode-switch confirmation guard", () => {
 
     const before = await withDb((c) => latestSession(c));
 
-    // The mode-switch control. The cockpit exposes a switch-to-paper affordance
-    // guarded behind a confirmation-phrase dialog; if the control is not present
-    // (paper/live deferred to P6 and the UI may hide it), the test skips — but
-    // the API guard (other test) still proves the boundary protection exists.
-    const modeSwitch = page.getByTestId("live-mode-switch-paper");
-    if (!(await modeSwitch.count())) {
+    // The mode-switch controls. Switching to paper OR live opens a
+    // confirmation-phrase dialog (signal switches directly — no money at risk —
+    // so it is not a dialog guard). The button for the mode the node is ALREADY
+    // in is (correctly) disabled: you cannot switch to the current mode. So we
+    // target paper/live, whichever is NOT the running session's mode, ensuring an
+    // ENABLED control that opens the guard dialog regardless of the running mode.
+    //   - paper button:  data-testid=live-mode-switch-paper
+    //   - live  button:  data-testid=control-mode-live
+    const dialogTargets: Array<{ mode: string; testid: string }> = [
+      { mode: "paper", testid: "live-mode-switch-paper" },
+      { mode: "live", testid: "control-mode-live" },
+    ];
+    let modeSwitch = null as ReturnType<typeof page.getByTestId> | null;
+    for (const t of dialogTargets) {
+      if (t.mode === before?.mode) continue;
+      const ctl = page.getByTestId(t.testid).first();
+      if ((await ctl.count()) && (await ctl.isEnabled().catch(() => false))) {
+        modeSwitch = ctl;
+        break;
+      }
+    }
+    if (!modeSwitch) {
       test.skip(
         true,
-        "mode-switch-to-paper control not surfaced (paper deferred to P6).",
+        "no enabled paper/live mode-switch control surfaced (mode-switch dialog not exercisable).",
       );
       return;
     }
 
-    await modeSwitch.first().click();
+    await modeSwitch.click();
 
     // A confirmation-phrase dialog opens. Its submit must be DISABLED until the
     // exact phrase is typed (the destructive-action guard). We assert the guard,

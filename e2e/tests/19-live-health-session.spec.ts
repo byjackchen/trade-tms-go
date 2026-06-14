@@ -53,8 +53,13 @@ test.describe("live cockpit — health + session", () => {
       expect(["RUNNING", "STOPPED", "CRASHED"]).toContain(status);
     }
 
-    // The session strip names the mode in human text too (signal cockpit).
-    await expect(sessionStrip).toContainText(/signal/i);
+    // The session strip names the mode in human text too. Assert it matches the
+    // ACTUAL running session's mode (signal in P5; paper/live in P6) rather than
+    // hardcoding signal, so the same spec is correct regardless of which mode the
+    // node is running.
+    await expect(sessionStrip).toContainText(
+      new RegExp(session.mode, "i"),
+    );
 
     // Connected indicator: in the gate, tms-live is attached to the mock feed,
     // so the cockpit's connection indicator should report connected once the WS

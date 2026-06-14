@@ -181,6 +181,12 @@ func (s *Server) Routes() *chi.Mux {
 			r.Get("/live/intents", s.handleLiveIntents)
 			r.Get("/live/health", s.handleLiveHealth)
 			r.Get("/watchlist", s.handleWatchlist)
+			// Paper/live trading read surface (P6 task 6).
+			r.Get("/live/orders", s.handleLiveOrders)
+			r.Get("/live/fills", s.handleLiveFills)
+			r.Get("/live/positions", s.handleLivePositions)
+			r.Get("/live/account", s.handleLiveAccount)
+			r.Get("/live/reconciliation", s.handleLiveReconciliation)
 			r.Post("/live/commands", s.handleLiveCommand)
 		})
 	})

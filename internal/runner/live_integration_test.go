@@ -200,6 +200,19 @@ func (c *fakeController) Kill(_ context.Context, _ string) error {
 	c.calls = append(c.calls, "kill")
 	return nil
 }
+func (c *fakeController) Flatten(_ context.Context, _ string) (int, error) {
+	c.calls = append(c.calls, "flatten")
+	return 0, nil
+}
+func (c *fakeController) EmergencyKill(_ context.Context, _ string) (int, error) {
+	c.halted, c.stopped = true, true
+	c.calls = append(c.calls, "emergency_kill")
+	return 0, nil
+}
+func (c *fakeController) Reconcile(_ context.Context) (bool, error) {
+	c.calls = append(c.calls, "reconcile")
+	return false, nil
+}
 
 type assertErr string
 

@@ -395,7 +395,12 @@ export type WsEventType =
   | "strategy_state"
   | "portfolio_health"
   | "watchlist"
-  | "position";
+  | "position"
+  // P6 paper/live trading frames.
+  | "order_update"
+  | "fill_update"
+  | "live_position"
+  | "account_update";
 
 export type WsEnvelope = {
   type: WsEventType;
@@ -680,7 +685,12 @@ export type CommandName =
   | "set_mode"
   | "halt"
   | "resume"
-  | "kill";
+  | "kill"
+  // P6 paper/live trading controls (confirm_token required for flatten /
+  // emergency_kill; reconcile is read-only).
+  | "flatten"
+  | "emergency_kill"
+  | "reconcile";
 
 /** POST /api/v1/live/commands body. confirm_token is consumed, never persisted. */
 export type LiveCommandRequest = {
@@ -735,6 +745,172 @@ export type WsWatchlist = {
 /** `position` frame payload (positions empty in signal mode). */
 export type WsPosition = {
   positions: unknown[];
+  ts_event: number;
+  ts_init: number;
+};
+
+// ---- Live trading (P6, paper/live) ----
+//
+// The paper/live read surface (docs/api.md §"Live trading (P6, paper/live)").
+// All reads come from PG (the durable system-of-record); the cockpit follows the
+// Redis `data.*` streams live (WsOrderUpdate / WsFillUpdate / WsLivePosition /
+// WsAccountUpdate) and reconstructs from these on (re)connect. READ-ONLY — the
+// trading mutation surface stays on the audited command channel.
+
+/**
+ * Order lifecycle status (the moomoo→domain state machine, ADR-004). UPPERCASE
+ * on the wire. Unknown values render neutral so a new state never breaks the
+ * blotter.
+ */
+export type LiveOrderStatus =
+  | "SUBMITTED"
+  | "ACCEPTED"
+  | "WORKING"
+  | "PARTIALLY_FILLED"
+  | "FILLED"
+  | "REJECTED"
+  | "CANCELED"
+  | "EXPIRED"
+  | string;
+
+/** One order row (GET /api/v1/live/orders). Prices are floats (USD). */
+export type LiveOrder = {
+  client_order_id: string;
+  venue_order_id?: string;
+  strategy_id: string;
+  symbol: string;
+  side: string;
+  qty: number;
+  filled_qty: number;
+  avg_fill_px: number;
+  status: LiveOrderStatus;
+  reason?: string;
+  ts: string;
+};
+
+export type LiveOrdersResponse = { orders: LiveOrder[] };
+
+/** One execution (GET /api/v1/live/fills). */
+export type LiveFill = {
+  trade_id: string;
+  symbol: string;
+  qty: number;
+  price: number;
+  commission: number;
+  ts: string;
+};
+
+export type LiveFillsResponse = { fills: LiveFill[] };
+
+/** One open position (GET /api/v1/live/positions). */
+export type LiveTradePosition = {
+  strategy_id: string;
+  symbol: string;
+  signed_qty: number;
+  avg_entry_px: number;
+  realized_pnl: number;
+  status: string;
+};
+
+export type LivePositionsResponse = { positions: LiveTradePosition[] };
+
+/** Account / buying-power + day-PnL snapshot (GET /api/v1/live/account). */
+export type LiveAccount = {
+  total_assets: number;
+  cash: number;
+  available_funds: number; // buying power
+  market_value: number;
+  day_pnl: number;
+  ts: string;
+};
+
+/** One reconciliation mismatch row (diff = broker_net − strategy_books_sum). */
+export type ReconMismatch = {
+  symbol: string;
+  strategy_books_sum: number;
+  broker_net: number;
+  diff: number;
+};
+
+/** The latest reconciliation report (GET /api/v1/live/reconciliation). */
+export type LiveReconciliation = {
+  ts: string;
+  has_issues: boolean;
+  tolerance_shares: number;
+  matched: string[];
+  mismatches: ReconMismatch[];
+  symbols_only_in_strategies: string[];
+  symbols_only_at_broker: string[];
+};
+
+/** `{ reconciliation: null }` before any reconcile ran; the report otherwise. */
+export type LiveReconciliationResponse =
+  | LiveReconciliation
+  | { reconciliation: null };
+
+/** Narrows the union: true when a reconciliation report exists. */
+export function hasReconciliation(
+  r: LiveReconciliationResponse | undefined,
+): r is LiveReconciliation {
+  return !!r && (r as LiveReconciliation).ts !== undefined;
+}
+
+// ---- Live trading WS push payloads (P6; bridged Redis streams) ----
+
+/** `order_update` frame payload. */
+export type WsOrderUpdate = {
+  client_order_id: string;
+  venue_order_id?: string;
+  strategy_id: string;
+  symbol: string;
+  side: string;
+  qty: number;
+  filled_qty: number;
+  avg_fill_px: number;
+  status: LiveOrderStatus;
+  reason?: string;
+  ts_event: number;
+  ts_init: number;
+};
+
+/** `fill_update` frame payload. */
+export type WsFillUpdate = {
+  trade_id: string;
+  client_order_id: string;
+  venue_order_id?: string;
+  strategy_id: string;
+  symbol: string;
+  side: string;
+  qty: number;
+  price: number;
+  commission: number;
+  ts_event: number;
+  ts_init: number;
+};
+
+/** One position row in a `live_position` book snapshot. */
+export type WsLivePositionRow = {
+  strategy_id: string;
+  symbol: string;
+  signed_qty: number;
+  avg_px: number;
+  realized_pnl: number;
+};
+
+/** `live_position` frame payload (full book snapshot — replace, not delta). */
+export type WsLivePosition = {
+  positions: WsLivePositionRow[];
+  ts_event: number;
+  ts_init: number;
+};
+
+/** `account_update` frame payload (broker funds / buying power). */
+export type WsAccountUpdate = {
+  total_assets: number;
+  cash: number;
+  available_funds: number;
+  market_value: number;
+  day_pnl: number;
   ts_event: number;
   ts_init: number;
 };

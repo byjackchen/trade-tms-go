@@ -9,6 +9,10 @@ import type {
   WsPortfolioHealth,
   WsWatchlist,
   WsPosition,
+  WsOrderUpdate,
+  WsFillUpdate,
+  WsLivePosition,
+  WsAccountUpdate,
 } from "./types";
 
 /**
@@ -27,6 +31,11 @@ export type LiveStreamHandlers = {
   onPortfolioHealth?: (p: WsPortfolioHealth) => void;
   onWatchlist?: (p: WsWatchlist) => void;
   onPosition?: (p: WsPosition) => void;
+  // P6 paper/live trading frames.
+  onOrderUpdate?: (p: WsOrderUpdate) => void;
+  onFillUpdate?: (p: WsFillUpdate) => void;
+  onLivePosition?: (p: WsLivePosition) => void;
+  onAccountUpdate?: (p: WsAccountUpdate) => void;
 };
 
 export function useLiveStream(handlers: LiveStreamHandlers): {
@@ -60,6 +69,18 @@ export function useLiveStream(handlers: LiveStreamHandlers): {
             break;
           case "position":
             h.onPosition?.(env.payload as unknown as WsPosition);
+            break;
+          case "order_update":
+            h.onOrderUpdate?.(env.payload as unknown as WsOrderUpdate);
+            break;
+          case "fill_update":
+            h.onFillUpdate?.(env.payload as unknown as WsFillUpdate);
+            break;
+          case "live_position":
+            h.onLivePosition?.(env.payload as unknown as WsLivePosition);
+            break;
+          case "account_update":
+            h.onAccountUpdate?.(env.payload as unknown as WsAccountUpdate);
             break;
           default:
             break;

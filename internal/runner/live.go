@@ -26,13 +26,17 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
+	"github.com/byjackchen/trade-tms-go/internal/accounting"
 	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/pb/qotcommon"
 	"github.com/byjackchen/trade-tms-go/internal/commands"
 	"github.com/byjackchen/trade-tms-go/internal/core"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
+	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
+	"github.com/byjackchen/trade-tms-go/internal/livetrade"
+	"github.com/byjackchen/trade-tms-go/internal/portfolio"
 	"github.com/byjackchen/trade-tms-go/internal/publish"
 )
 
@@ -62,6 +66,24 @@ type LiveConfig struct {
 	ParamsDir string
 	// DrainTimeout bounds graceful shutdown.
 	DrainTimeout time.Duration
+
+	// --- paper/live trading config (P6) ---
+
+	// PaperAccID is the moomoo SIMULATE account id (required for paper mode).
+	PaperAccID uint64
+	// LiveAccID is the moomoo REAL account id (required for live mode; never
+	// defaulted — there is no path to real money without an explicit acc id).
+	LiveAccID uint64
+	// UnlockPassword unlocks the REAL account (live mode only; from a secret env).
+	UnlockPassword string
+	// LiveConfirmationPhrase must equal moexec.LiveConfirmationPhrase to activate
+	// live mode (typed confirmation, decision 8). Empty => live activation refused.
+	LiveConfirmationPhrase string
+	// ReconcileInterval is the periodic reconciliation cadence (paper/live;
+	// default 5m). On-demand reconciliation is always available via the command.
+	ReconcileInterval time.Duration
+	// ReconcileTolerance absorbs tiny position diffs (shares; default 0 = exact).
+	ReconcileTolerance int64
 }
 
 // liveUnhealthyAfter is the number of CONSECUTIVE failed session
@@ -115,6 +137,12 @@ type Live struct {
 	sessionRunning  bool
 	sessionFailures int
 	sessionLastErr  string
+
+	// active trade-session handle (paper/live), guarded by mu. The flatten /
+	// emergency-kill / reconcile commands operate on it. nil in signal mode or
+	// between sessions.
+	tradeSession *livetrade.TradeSession
+	reconciler   *livetrade.Reconciler
 }
 
 // NewLive builds a live node. rdb may be nil (Redis-less: no streams, no command
@@ -127,8 +155,27 @@ func NewLive(pool *pgxpool.Pool, rdb *redis.Client, cfg LiveConfig, log zerolog.
 	if mode == "" {
 		mode = string(livengine.ModeSignal)
 	}
-	if mode != string(livengine.ModeSignal) {
-		return nil, fmt.Errorf("runner: live mode %q not wired in P5 (signal only; paper/live deferred to P6)", mode)
+	switch livengine.Mode(mode) {
+	case livengine.ModeSignal:
+	case livengine.ModePaper:
+		if cfg.PaperAccID == 0 {
+			return nil, fmt.Errorf("runner: paper mode requires a SIMULATE acc id (TMS_MOOMOO_PAPER_ACC_ID)")
+		}
+	case livengine.ModeLive:
+		// SAFETY (decision 8): live mode needs the real acc id + the typed
+		// confirmation phrase configured up front. The MoomooExecutor re-asserts
+		// the full gate (phrase + acc id + UnlockTrade + trader-id) at activation.
+		if cfg.LiveAccID == 0 {
+			return nil, fmt.Errorf("runner: live mode requires a REAL acc id (TMS_MOOMOO_LIVE_ACC_ID) — refusing to activate")
+		}
+		if cfg.LiveConfirmationPhrase != moexec.LiveConfirmationPhrase {
+			return nil, fmt.Errorf("runner: live mode requires the exact confirmation phrase (TMS_LIVE_CONFIRM) — refusing to activate")
+		}
+		if cfg.TraderID != moexec.LiveTraderID {
+			return nil, fmt.Errorf("runner: live mode requires trader-id %q (the distinct real-money namespace)", moexec.LiveTraderID)
+		}
+	default:
+		return nil, fmt.Errorf("runner: unknown live mode %q (want signal|paper|live)", mode)
 	}
 	if cfg.BarSeconds <= 0 {
 		cfg.BarSeconds = 86400 // daily
@@ -196,12 +243,32 @@ func (l *Live) Mode() string {
 	return l.mode
 }
 
-// SetMode requests a mode switch (commands.Controller). P5 accepts only
-// "signal"; paper/live are rejected (deferred to P6). A successful switch to the
-// SAME mode is a no-op; a switch is applied via graceful session restart.
+// SetMode requests a mode switch (commands.Controller). signal/paper/live are
+// all valid; a switch to paper/live requires the corresponding broker creds to
+// have been configured at node start (the confirmation gate is enforced at the
+// API boundary + the MoomooExecutor activation). A switch to the SAME mode is a
+// no-op; a switch is applied via a graceful session restart.
+//
+// SAFETY: switching TO live requires the live acc id + confirmation phrase to
+// have been configured (NewLive enforced them). A node started without live
+// creds can never switch to live at runtime — there is no code path to real
+// money without the up-front gate.
 func (l *Live) SetMode(_ context.Context, mode string) error {
-	if mode != string(livengine.ModeSignal) {
-		return fmt.Errorf("mode %q not wired in P5 (signal only; paper/live deferred to P6)", mode)
+	switch livengine.Mode(mode) {
+	case livengine.ModeSignal:
+	case livengine.ModePaper:
+		if l.cfg.PaperAccID == 0 {
+			return fmt.Errorf("cannot switch to paper: no SIMULATE acc id configured")
+		}
+	case livengine.ModeLive:
+		if l.cfg.LiveAccID == 0 || l.cfg.LiveConfirmationPhrase != moexec.LiveConfirmationPhrase {
+			return fmt.Errorf("cannot switch to live: real acc id + confirmation phrase not configured (refusing real money)")
+		}
+		if l.cfg.TraderID != moexec.LiveTraderID {
+			return fmt.Errorf("cannot switch to live: trader-id must be the %q namespace", moexec.LiveTraderID)
+		}
+	default:
+		return fmt.Errorf("unknown mode %q (want signal|paper|live)", mode)
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -214,6 +281,91 @@ func (l *Live) SetMode(_ context.Context, mode string) error {
 	default:
 	}
 	return nil
+}
+
+// Flatten closes all open positions in the active paper/live session (decision
+// 7). signal mode has no positions, so it is a no-op error. The flatten is
+// idempotent + audited (the executor tracks each closing order).
+func (l *Live) Flatten(ctx context.Context, reason string) (int, error) {
+	ts := l.activeTradeSession()
+	if ts == nil {
+		return 0, fmt.Errorf("flatten: no active paper/live trading session (signal mode has no positions)")
+	}
+	coids, err := ts.Flatten(ctx, livetrade.FlattenConfirmationPhrase, reason)
+	if err != nil {
+		return 0, err
+	}
+	l.log.Warn().Int("orders", len(coids)).Str("reason", reason).Msg("FLATTEN: closing all positions")
+	return len(coids), nil
+}
+
+// EmergencyKill is the panic button (decision 5): halt + flatten + stop, in that
+// order. It halts first (suppress NEW opens), flattens all positions, records a
+// halt row, then stops the node. Returns the count of closing orders submitted.
+func (l *Live) EmergencyKill(ctx context.Context, reason string) (int, error) {
+	if reason == "" {
+		reason = "emergency kill"
+	}
+	// 1. Halt (suppress new opens immediately).
+	l.halt.Halt(commands.HaltManual, reason)
+	l.recordHalt(ctx, commands.HaltManual, reason)
+	// 2. Flatten (close everything). A signal-mode node has nothing to flatten.
+	n := 0
+	if ts := l.activeTradeSession(); ts != nil {
+		coids, ferr := ts.Flatten(ctx, livetrade.FlattenConfirmationPhrase, "emergency-kill: "+reason)
+		if ferr != nil {
+			l.log.Error().Err(ferr).Msg("emergency-kill: flatten failed (continuing to stop)")
+		}
+		n = len(coids)
+	}
+	// 3. Stop the node (hard).
+	l.halt.Stop()
+	select {
+	case l.restartCh <- struct{}{}:
+	default:
+	}
+	l.log.Warn().Str("reason", reason).Int("flattened_orders", n).Msg("EMERGENCY KILL (halt + flatten + stop)")
+	return n, nil
+}
+
+// activeTradeSession returns the running paper/live trade session (nil in signal
+// mode / between sessions).
+func (l *Live) activeTradeSession() *livetrade.TradeSession {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.tradeSession
+}
+
+// setTradeSession records the active paper/live trade session + reconciler (or
+// clears them when a session ends).
+func (l *Live) setTradeSession(ts *livetrade.TradeSession, rec *livetrade.Reconciler) {
+	l.mu.Lock()
+	l.tradeSession = ts
+	l.reconciler = rec
+	l.mu.Unlock()
+}
+
+// Reconcile runs an on-demand reconciliation against the active paper/live
+// session (commands.Controller; the 'tms reconcile' command). It persists the
+// report (-> tms.reconciliation_reports, read by the endpoint) and alerts on a
+// mismatch (halt + cockpit, NO auto-correct). Returns whether drift was found.
+func (l *Live) Reconcile(ctx context.Context) (bool, error) {
+	l.mu.RLock()
+	rec := l.reconciler
+	l.mu.RUnlock()
+	if rec == nil {
+		return false, fmt.Errorf("reconcile: no active paper/live trading session (signal mode has no broker positions)")
+	}
+	r, err := rec.Reconcile(ctx)
+	if err != nil {
+		return false, err
+	}
+	if r.HasIssues() {
+		l.log.Warn().Str("summary", r.Summary()).Msg("on-demand reconciliation found drift")
+	} else {
+		l.log.Info().Int("matched", len(r.Matched)).Msg("on-demand reconciliation clean")
+	}
+	return r.HasIssues(), nil
 }
 
 // Halt stops emitting new intents + records a tms.halts row (commands.Controller).
@@ -394,25 +546,18 @@ func (l *Live) runSession(ctx context.Context, client MoomooClient, feed *Moomoo
 		Logger:    l.log,
 	})
 
-	sess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModeSignal,
-		Strategies:      as.Assembly.Strategies,
-		Portfolio:       as.Assembly.Portfolio,
-		Context:         as.Assembly.Context,
-		SPYSymbol:       as.SPYSymbol,
-		Warmup:          warmup,
-		WarmupSymbols:   as.WarmupSymbols,
-		StartingBalance: startMoney,
-		Sink:            sink,
-		EmitGate:        l.halt.Emitting, // halt = stop emitting NEW intents
-	})
+	// Build the runnable session by mode: signal -> livengine.Session (NoopExecutor),
+	// paper/live -> livetrade.TradeSession (gated MoomooExecutor). Both share the
+	// SAME assembled strategies / gate / context / warmup.
+	stream, primeFn, cleanup, err := l.buildRunnable(ctx, mode, as, warmup, startMoney, sink, sessionID, client, warmupEnd)
 	if err != nil {
-		return fmt.Errorf("runner: building live session: %w", err)
+		return err
 	}
+	defer cleanup()
 
-	// Prime warmup from moomoo history (out-of-band, before the loop).
-	if err := sess.Prime(ctx); err != nil {
-		return fmt.Errorf("runner: priming warmup: %w", err)
+	// Prime warmup (signal) / restore-state + warmup (paper/live), out of band.
+	if err := primeFn(ctx); err != nil {
+		return fmt.Errorf("runner: priming session: %w", err)
 	}
 
 	// Publish the watchlist for cockpit continuity (best-effort).
@@ -425,7 +570,7 @@ func (l *Live) runSession(ctx context.Context, client MoomooClient, feed *Moomoo
 	// loop: mark it healthy (clears any prior crash-loop failure count — finding 2).
 	l.markSessionRunning()
 	l.log.Info().Str("mode", mode).Int("instruments", len(as.Tickers)).
-		Int("warmup_symbols", len(as.WarmupSymbols)).Msg("live session running (signal mode)")
+		Int("warmup_symbols", len(as.WarmupSymbols)).Msg("live session running")
 
 	// runCtx is cancelled when ctx is cancelled OR a restart/stop is requested.
 	runCtx, cancelRun := context.WithCancel(ctx)
@@ -442,7 +587,7 @@ func (l *Live) runSession(ctx context.Context, client MoomooClient, feed *Moomoo
 	}()
 
 	// Run the streaming session over the wall clock + moomoo feed.
-	err = sess.RunStream(runCtx, feed, core.StreamWall, nil)
+	err = stream.RunStream(runCtx, feed, core.StreamWall, nil)
 	cancelRun()
 	watchWG.Wait()
 
@@ -451,6 +596,188 @@ func (l *Live) runSession(ctx context.Context, client MoomooClient, feed *Moomoo
 		return nil
 	}
 	return err
+}
+
+// streamRunner is the minimal run surface shared by the signal Session and the
+// paper/live TradeSession's underlying session.
+type streamRunner interface {
+	RunStream(ctx context.Context, feed livengine.StreamFeed, mode core.StreamClockMode, vc *core.VirtualClock) error
+}
+
+// buildRunnable constructs the mode-appropriate runnable: for signal a plain
+// livengine.Session; for paper/live a fully-wired livetrade.TradeSession (account
+// + gated MoomooExecutor + reconciler + PG persistence) over the SAME assembled
+// strategies. It returns the stream runner, the prime function, and a cleanup
+// that detaches the active trade session.
+func (l *Live) buildRunnable(ctx context.Context, mode string, as *Assembled, warmup livengine.WarmupProvider, startMoney domain.Money, sink *Sink, sessionID int64, client MoomooClient, warmupEnd time.Time) (streamRunner, func(context.Context) error, func(), error) {
+	if livengine.Mode(mode) == livengine.ModeSignal {
+		sess, err := livengine.NewSession(livengine.Config{
+			Mode:            livengine.ModeSignal,
+			Strategies:      as.Assembly.Strategies,
+			Portfolio:       as.Assembly.Portfolio,
+			Context:         as.Assembly.Context,
+			SPYSymbol:       as.SPYSymbol,
+			Warmup:          warmup,
+			WarmupSymbols:   as.WarmupSymbols,
+			StartingBalance: startMoney,
+			Sink:            sink,
+			EmitGate:        l.halt.Emitting,
+		})
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("runner: building signal session: %w", err)
+		}
+		return sess, sess.Prime, func() {}, nil
+	}
+
+	// Paper/live: wire the trading stack.
+	tmode := livengine.Mode(mode)
+	accID := l.cfg.PaperAccID
+	if tmode == livengine.ModeLive {
+		accID = l.cfg.LiveAccID
+	}
+
+	persist := NewLivePersist(l.pool, l.publisher, sessionID, l.cfg.TraderID, "MOOMOO", l.log)
+	acct := accounting.NewAccount(startMoney, nil)
+	account := livetrade.NewAccountAdapter(acct)
+
+	execCfg := moexec.Config{
+		Mode:     moexec.Mode(mode),
+		Client:   client.TradeClient(),
+		AccID:    accID,
+		TraderID: l.cfg.TraderID,
+		// The executor settles fills into Account + persists + publishes them; the
+		// Sink only needs to be a non-nil terminal (the engine equity feed is the
+		// account itself in paper/live).
+		Sink:     noopFillSink{},
+		Account:  account,
+		Persist:  persist,
+		Risk:     persist,
+		Strategy: persist, // re-key restored in-flight orders to their strategy (recovery)
+		Logf:     func(f string, a ...any) { l.log.Warn().Msgf("exec: "+f, a...) },
+	}
+	if tmode == livengine.ModeLive {
+		execCfg.ConfirmationPhrase = l.cfg.LiveConfirmationPhrase
+		execCfg.UnlockPassword = l.cfg.UnlockPassword
+	}
+	exec, err := moexec.New(ctx, execCfg)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("runner: activating %s executor: %w", mode, err)
+	}
+
+	ts, err := livetrade.NewTradeSession(livetrade.TradeSessionConfig{
+		Mode:          tmode,
+		Strategies:    as.Assembly.Strategies,
+		Gate:          as.Assembly.Portfolio,
+		Context:       as.Assembly.Context,
+		SPYSymbol:     as.SPYSymbol,
+		Warmup:        warmup,
+		WarmupSymbols: as.WarmupSymbols,
+		Account:       account,
+		Executor:      exec,
+		Halt:          l.halt,
+		Risk:          persist,
+		NAV:           startMoney,
+		IntentSink:    sink,
+		EmitGate:      l.halt.Emitting,
+		StateStore:    persist,
+		HealthSink:    persist,
+	})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("runner: building %s trade session: %w", mode, err)
+	}
+
+	// Build the reconciler (periodic + on-demand for the flatten/reconcile cmds).
+	rec, err := livetrade.NewReconciler(livetrade.ReconcilerConfig{
+		Broker:          client.TradeClient(),
+		Books:           account,
+		Sink:            persist,
+		Alerter:         l.reconcileAlerter(),
+		AccID:           accID,
+		Env:             execEnv(tmode),
+		ToleranceShares: l.cfg.ReconcileTolerance,
+	})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("runner: building reconciler: %w", err)
+	}
+
+	// CRASH RECOVERY (decision 6): restore broker positions + run a reconcile
+	// before the loop. The strategy SG state is restored inside ts.Prime.
+	//
+	// RestoreFromBroker returns the broker positions AND (separately) any
+	// per-strategy attribution gap on a restored in-flight order. A nil positions
+	// slice means a hard restore failure (continue cold); a non-nil slice with a
+	// non-nil error means positions were seeded but at least one in-flight order
+	// could not be re-keyed to its strategy — we surface that loudly (a restored
+	// fill on such an order would be rejected by Fill.Validate, not mis-attributed)
+	// yet STILL reconcile, since the netted position book is authoritative.
+	restoredPos, rerr := ts.RestoreFromBroker(ctx)
+	if restoredPos == nil && rerr != nil {
+		l.log.Warn().Err(rerr).Msg("recovery: restore from broker failed (continuing cold)")
+	} else {
+		if rerr != nil {
+			l.log.Error().Err(rerr).Msg("recovery: in-flight order strategy attribution gap " +
+				"(positions seeded; affected fills will be rejected until reconciled)")
+		}
+		if _, recErr := rec.Reconcile(ctx); recErr != nil {
+			l.log.Warn().Err(recErr).Msg("recovery: initial reconciliation failed")
+		}
+	}
+
+	l.setTradeSession(ts, rec)
+
+	// Periodic reconciliation in the background.
+	reconcileEvery := l.cfg.ReconcileInterval
+	if reconcileEvery <= 0 {
+		reconcileEvery = 5 * time.Minute
+	}
+	reconcileCtx, cancelReconcile := context.WithCancel(ctx)
+	var reconcileWG sync.WaitGroup
+	reconcileWG.Add(1)
+	go func() {
+		defer reconcileWG.Done()
+		rec.RunPeriodic(reconcileCtx, reconcileEvery, func(e error) {
+			l.log.Warn().Err(e).Msg("periodic reconciliation failed")
+		})
+	}()
+
+	cleanup := func() {
+		cancelReconcile()
+		reconcileWG.Wait()
+		l.setTradeSession(nil, nil)
+	}
+	return ts.Session(), ts.Prime, cleanup, nil
+}
+
+// reconcileAlerter halts the node on a reconciliation mismatch + surfaces it to
+// the cockpit (NO auto-correct, decision 5).
+func (l *Live) reconcileAlerter() livetrade.MismatchAlerter {
+	return reconcileAlerterFunc(func(ctx context.Context, r portfolio.ReconciliationReport) {
+		l.halt.Halt(commands.HaltReconciliation, "reconciliation mismatch detected (no auto-correct)")
+		l.recordHalt(ctx, commands.HaltReconciliation, "reconciliation mismatch: "+r.Summary())
+		l.log.Error().Str("summary", r.Summary()).Msg("RECONCILIATION MISMATCH — halted; human resolution required")
+	})
+}
+
+// reconcileAlerterFunc adapts a func to livetrade.MismatchAlerter.
+type reconcileAlerterFunc func(context.Context, portfolio.ReconciliationReport)
+
+func (f reconcileAlerterFunc) OnReconciliationMismatch(ctx context.Context, r portfolio.ReconciliationReport) {
+	f(ctx, r)
+}
+
+// noopFillSink is the terminal executor fill sink for paper/live (accounting +
+// persistence + publish are done by the executor's effect handler; the sink is
+// the engine-feed seam, unused here).
+type noopFillSink struct{}
+
+func (noopFillSink) EmitFill(domain.Fill) error { return nil }
+
+// execEnv maps a trade mode to the broker env (paper -> SIMULATE, live -> REAL).
+func execEnv(mode livengine.Mode) moomoo.TrdEnv {
+	if mode == livengine.ModeLive {
+		return moomoo.TrdEnvReal
+	}
+	return moomoo.TrdEnvSimulate
 }
 
 // takeRestartMode returns the pending restart mode (or the current mode) and

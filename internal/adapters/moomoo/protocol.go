@@ -73,6 +73,19 @@ const (
 	ProtoQotGetKL            ProtoID = 3006 // pull cached K-line
 	ProtoQotUpdateKL         ProtoID = 3007 // PUSH: real-time K-line
 	ProtoQotRequestHistoryKL ProtoID = 3103 // pull historical K-line (paged)
+
+	// Trd_* (trading) protocol ids, copied verbatim from constant.py's ProtoId
+	// class. These drive the P6 native trading client + mock trading venue.
+	ProtoTrdGetAccList       ProtoID = 2001 // list trading accounts
+	ProtoTrdUnlockTrade      ProtoID = 2005 // unlock/lock trade (live only)
+	ProtoTrdGetFunds         ProtoID = 2101 // account funds / buying power
+	ProtoTrdGetPositionList  ProtoID = 2102 // broker positions
+	ProtoTrdGetOrderList     ProtoID = 2201 // order list
+	ProtoTrdPlaceOrder       ProtoID = 2202 // place order
+	ProtoTrdModifyOrder      ProtoID = 2205 // modify/cancel order
+	ProtoTrdUpdateOrder      ProtoID = 2208 // PUSH: order status change
+	ProtoTrdGetOrderFillList ProtoID = 2211 // order fills
+	ProtoTrdUpdateOrderFill  ProtoID = 2218 // PUSH: fill notification
 )
 
 // String renders the protocol id with its symbolic name where known, for
@@ -99,6 +112,26 @@ func (p ProtoID) String() string {
 		return "Qot_UpdateKL(3007)"
 	case ProtoQotRequestHistoryKL:
 		return "Qot_RequestHistoryKL(3103)"
+	case ProtoTrdGetAccList:
+		return "Trd_GetAccList(2001)"
+	case ProtoTrdUnlockTrade:
+		return "Trd_UnlockTrade(2005)"
+	case ProtoTrdGetFunds:
+		return "Trd_GetFunds(2101)"
+	case ProtoTrdGetPositionList:
+		return "Trd_GetPositionList(2102)"
+	case ProtoTrdGetOrderList:
+		return "Trd_GetOrderList(2201)"
+	case ProtoTrdPlaceOrder:
+		return "Trd_PlaceOrder(2202)"
+	case ProtoTrdModifyOrder:
+		return "Trd_ModifyOrder(2205)"
+	case ProtoTrdUpdateOrder:
+		return "Trd_UpdateOrder(2208)"
+	case ProtoTrdGetOrderFillList:
+		return "Trd_GetOrderFillList(2211)"
+	case ProtoTrdUpdateOrderFill:
+		return "Trd_UpdateOrderFill(2218)"
 	default:
 		return fmt.Sprintf("Proto(%d)", uint32(p))
 	}

@@ -81,7 +81,7 @@ func newLiveCmd(env *runtimeEnv) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&modeStr, "mode", "signal", "execution mode: signal (paper/live deferred to P6)")
+	cmd.Flags().StringVar(&modeStr, "mode", "signal", "execution mode: signal | paper | live (live requires real acc id + TMS_LIVE_CONFIRM + the TMS-LIVE-REAL-001 trader id)")
 	cmd.Flags().StringVar(&traderID, "trader-id", "SIGNAL-001", "trader id (Redis namespace + sessions.trader_id)")
 	cmd.Flags().StringVar(&strategy, "strategy", "multi", "strategy: sepa | sector_rotation | pairs | orb | multi")
 	cmd.Flags().StringVar(&tickersCSV, "tickers", "", "comma-separated stock universe (SEPA/multi); strategy derives ETFs/legs/SPY from params")
@@ -124,9 +124,6 @@ func runLive(parent context.Context, env *runtimeEnv, a liveArgs) error {
 	mode := livengine.Mode(a.mode)
 	if !mode.IsValid() {
 		return fmt.Errorf("--mode %q invalid (want signal|paper|live)", a.mode)
-	}
-	if mode != livengine.ModeSignal {
-		return fmt.Errorf("--mode %q not wired yet: P5 is signal-only; paper/live (orders, fills, flatten) is deferred to P6", a.mode)
 	}
 	if a.traderID == "" {
 		return fmt.Errorf("--trader-id is required (Redis namespace + sessions.trader_id)")
@@ -180,18 +177,30 @@ func runLive(parent context.Context, env *runtimeEnv, a liveArgs) error {
 		}
 	}
 
+	// Paper/live trading config from the secret env (never logged): the broker
+	// account ids + the live-activation material (decision 8). Signal mode ignores
+	// these; paper/live require them (NewLive enforces).
+	paperAccID := parseUintEnv("TMS_MOOMOO_PAPER_ACC_ID")
+	liveAccID := parseUintEnv("TMS_MOOMOO_LIVE_ACC_ID")
+	reconcileEvery := parseDurationEnv("TMS_RECONCILE_INTERVAL", 5*time.Minute)
+
 	node, err := runner.NewLive(pool, redisClient, runner.LiveConfig{
-		TraderID:        a.traderID,
-		Mode:            a.mode,
-		Strategy:        a.strategy,
-		Tickers:         tickers,
-		ORBSymbol:       a.orbSymbol,
-		StartingBalance: a.startBalance,
-		MoomooAddr:      moomooAddr,
-		MoomooMaxSub:    env.cfg.MoomooMaxSub,
-		BarSeconds:      a.barSeconds,
-		ParamsDir:       env.cfg.StrategyParamsDir,
-		DrainTimeout:    a.drainTimeout,
+		TraderID:               a.traderID,
+		Mode:                   a.mode,
+		Strategy:               a.strategy,
+		Tickers:                tickers,
+		ORBSymbol:              a.orbSymbol,
+		StartingBalance:        a.startBalance,
+		MoomooAddr:             moomooAddr,
+		MoomooMaxSub:           env.cfg.MoomooMaxSub,
+		BarSeconds:             a.barSeconds,
+		ParamsDir:              env.cfg.StrategyParamsDir,
+		DrainTimeout:           a.drainTimeout,
+		PaperAccID:             paperAccID,
+		LiveAccID:              liveAccID,
+		UnlockPassword:         strings.TrimSpace(os.Getenv("TMS_MOOMOO_UNLOCK_PASSWORD")),
+		LiveConfirmationPhrase: strings.TrimSpace(os.Getenv("TMS_LIVE_CONFIRM")),
+		ReconcileInterval:      reconcileEvery,
 	}, log)
 	if err != nil {
 		return err
@@ -205,8 +214,9 @@ func runLive(parent context.Context, env *runtimeEnv, a liveArgs) error {
 
 	log.Info().
 		Str("moomoo_addr", moomooAddr).
+		Str("mode", a.mode).
 		Float64("health_nav", a.startBalance).
-		Msg("live node starting (signal mode)")
+		Msg("live node starting")
 
 	runErr := node.Run(ctx)
 
@@ -273,6 +283,34 @@ func startLiveHealthServer(addr string, node *runner.Live, log zerolog.Logger) (
 	}()
 	hlog.Info().Str("addr", ln.Addr().String()).Msg("live health endpoint listening")
 	return &liveHealthServer{srv: srv}, nil
+}
+
+// parseUintEnv reads an unsigned-int env var, returning 0 when unset/invalid
+// (the SAFE default: a missing acc id can only fall back to "not configured",
+// never to a wrong account).
+func parseUintEnv(key string) uint64 {
+	s := strings.TrimSpace(os.Getenv(key))
+	if s == "" {
+		return 0
+	}
+	var v uint64
+	if _, err := fmt.Sscanf(s, "%d", &v); err != nil {
+		return 0
+	}
+	return v
+}
+
+// parseDurationEnv reads a duration env var, returning def when unset/invalid.
+func parseDurationEnv(key string, def time.Duration) time.Duration {
+	s := strings.TrimSpace(os.Getenv(key))
+	if s == "" {
+		return def
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d <= 0 {
+		return def
+	}
+	return d
 }
 
 // probeLiveHealth is the --health container-healthcheck mode: GET /healthz on
