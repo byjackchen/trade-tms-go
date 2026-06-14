@@ -213,3 +213,204 @@ bound).
 - After any change to the engine, accounting, or strategies, re-run the parity
   gate (`go test ./internal/...` + the `parity-*` make targets where a stack is
   available) — **never** trade determinism/parity for throughput.
+
+---
+
+## Go vs Python — hyperopt
+
+This section is an **apples-to-apples** comparison of one hyper-parameter
+optimization **trial's cost** — and, by extension, a full study's wall clock —
+between the two engines that run the same study:
+
+- **Go** — the self-written deterministic NSGA-II (`internal/hyperopt/nsga2`)
+  driving the deterministic event-loop backtest engine, evaluating every fold
+  over a **shared, read-only, in-process** bar dataset (locked decision 5).
+- **Python** (`trade-multi-strategies`) — Optuna's `NSGAIISampler` driving
+  Nautilus Trader backtests, fanned out across a `ProcessPoolExecutor` (spawn).
+
+The optimizer overhead is negligible on both sides (deliverable (b) above: the
+Go optimizer dispatches ~64k trials/sec at P16; Optuna's ask/tell is likewise
+sub-millisecond). **End-to-end study time is bounded entirely by the per-trial
+objective cost — a walk-forward backtest — so that is what this section
+measures.**
+
+### Methodology (and why a full Python study is impractical)
+
+One Python objective evaluation is **minutes-to-tens-of-minutes** of Nautilus
+backtesting (see below), so running a real Python study to completion at the
+same trial budget as Go is not feasible in a benchmark window. The honest design
+is therefore:
+
+1. **One identical study config**, run on the **same underlying bars**, on both
+   sides (table below). The walk-forward splits depend only on
+   `(start, end, folds, embargo)` and are **byte-identical** across Go and
+   Python (already parity-verified): for this config both produce exactly
+   `fold0 = 2022-09-06 .. 2023-05-04` and `fold1 = 2023-05-05 .. 2023-12-31`.
+2. **Confirm same data.** Both sides read the **same Sharadar SFP (fund/ETF)
+   parquet cache** for SPY + the 11 SPDR sector ETFs. The Go side normally reads
+   bars from Postgres; the comparison harness loaded the identical SFP bars into
+   the in-memory `engine.SliceFeed` through the exact same price bridge
+   (`float64 → shortest-repr decimal → 1e-4 fixed point`) used in production, so
+   no Postgres/compose was started.
+3. **Per-trial cost** — wall-clock for **one** objective evaluation (= run the
+   strategy over the **2 folds** for one fixed param set) on each side, repeated
+   for a stable median.
+4. **Go full study** — an actual `pop=8 × gen=3 = 24`-trial study end-to-end,
+   plus a parallel-scaling sweep.
+5. **Python throughput within a time budget** — measured the dominant Python
+   per-fold cost directly (a full `run_backtest`) rather than letting an
+   unbounded study run.
+6. **Compute + extrapolate** a 200-trial (`pop=20 × gen=10`) full study on both
+   sides, stating clearly which figures are measured and which extrapolated.
+
+### Study configuration (identical both sides)
+
+| Knob | Value |
+| --- | --- |
+| Strategy | `sector_rotation` (11 SPDR sector ETFs + SPY context) |
+| Window | `2022-01-01 .. 2023-12-31` |
+| Walk-forward | anchored expanding, **2 folds**, 5-day embargo (byte-identical splits) |
+| Search space | `momentum_lookback ∈ [42,126]` (int), `top_k ∈ [2,5]` (int) |
+| Objectives | `(sharpe, calmar)`, both **maximize** |
+| Seed | 42 |
+| Starting balance | $100,000 |
+| Bars | Sharadar **SFP** daily, SPY + XLK/XLF/XLE/XLV/XLY/XLP/XLU/XLB/XLI/XLRE/XLC |
+
+### Hardware
+
+| | |
+| --- | --- |
+| CPU | Apple **M4 Max**, 16 cores (12 performance + 4 efficiency), `hw.ncpu=16` |
+| RAM | 128 GB |
+| OS | macOS (darwin/arm64) |
+| Go | go1.26.1 |
+| Python | 3.12, Optuna NSGA-II + Nautilus Trader + `ProcessPoolExecutor` (spawn) |
+
+### Per-trial cost (the core apples-to-apples number)
+
+A trial = run the strategy over **both folds** for one fixed param set. Median
+of 11 reps, plus a sweep across the search space to show the cost is real
+(non-trading vs trading trials), all in one process over the shared dataset.
+
+| Side | per-trial (2 folds) | notes |
+| --- | ---: | --- |
+| **Go** | **≈ 2.4 ms** (median; range 1.7–3.6 ms) | trading genome `lb=126,topK=5` → 20 orders, sharpe 0.286 / calmar 0.320. No-trade genomes ≈ 1.7 ms; 24-order genomes ≈ 3.6 ms. |
+| **Python** | **≈ 30–40+ min** (see derivation) | one fold of the **real** config did **not finish in 20.7 min** of wall clock (killed); per-fold cost confirmed below. |
+
+> **Go is ~3 ms; Python is ~30+ minutes — a ~10⁵–10⁶× per-trial gap.** The two
+> are NOT doing the same amount of *work*, and that asymmetry is itself the key
+> finding (next section) — but this is the honest, measured cost of one
+> `sector_rotation` hyperopt trial on each stack.
+
+#### Why the Python per-trial is minutes, not milliseconds
+
+Python's `run_backtest` (`scripts/multi_strategy_backtest.py`), which
+`research/workers.run_trial_worker` calls **once per fold**, **always** loads the
+entire survivor-bias-free SF1 stock universe and runs the **full multi-strategy
+portfolio** (SEPA over ~5,500 stocks + SectorRotation + Pairs) through Nautilus —
+even for a `sector_rotation`-only trial — because the portfolio gate that
+produces the objective is defined over the whole book. Measured directly on this
+machine:
+
+| Python phase | measured |
+| --- | ---: |
+| SF1 universe size for the window | **5,547** tradable stocks |
+| Universe **bar load** alone (one short window, 4,650 stocks) | **80 s** |
+| Full `run_backtest` over a **2-week** window (4,650 stocks → Nautilus) | **261 s** (4.35 min) |
+| Full `run_backtest` over one **real fold** (~5–8 months) | **> 20 min** (killed incomplete at 20.7 min) |
+
+The Go `sector_rotation` study, by contrast, loads only the **12 instruments**
+the strategy actually trades (SPY + 11 ETFs, ~850 bars each) into the shared
+in-process dataset and replays them — hence single-digit milliseconds.
+
+> **Objective parity holds despite the cost gap.** For an identical param set
+> through the identical folds, the two engines produce the **same**
+> `(sharpe, calmar)` to within **3.55e-6** (already proven by the parity gate).
+> The per-trial *cost* differs by orders of magnitude; the per-trial *result*
+> does not. (The baseline genome `lb=63,topK=3` genuinely makes **0 trades** on
+> this 2022–23 window on **both** sides — a real, parity-faithful outcome — which
+> is why the headline Go number uses a trading genome so the cost is not
+> understated.)
+
+### Go full study — measured
+
+`pop=8 × gen=3 = 24` trials, real NSGA-II + per-trial backtest + artifact writes,
+nil DB sink (artifact-only), over the shared dataset:
+
+| Metric | Value |
+| --- | ---: |
+| Total wall clock | **≈ 0.17 s** (24 trials) |
+| Throughput | **≈ 138 trials/sec** |
+| Effective ms/trial (incl. optimizer + artifacts) | **≈ 7 ms** |
+
+**Parallel scaling** (per-trial work ≈ 2.4 ms is tiny, so the
+generation-boundary sync dominates and scaling is shallow — `pop=16 × gen=2`):
+
+| Workers | trials/sec | speedup vs P1 |
+| ---: | ---: | ---: |
+| 1  | ~124 | 1.00× |
+| 2  | ~141 | 1.14× |
+| 4  | ~149 | 1.20× |
+| 8  | ~156 | 1.26× |
+| 16 | ~160 | 1.29× |
+
+> This shallow scaling is **expected and honest**: when one trial is only ~2.4 ms
+> of CPU, the optimizer's ask/aggregate-in-id-order per generation is a
+> significant fraction of the wall time, so adding workers helps little. With a
+> *large* per-trial cost the same code scales near-linearly through the 12
+> performance cores — see deliverable (b) above, where a fixed CPU-bound trial
+> reaches **8.3×** at P16. Python, conversely, has so much per-trial work
+> (minutes) that its `ProcessPoolExecutor` scales ~linearly with worker count
+> until cores saturate — when Python's per-trial cost is this high, the
+> ProcessPool is exactly the right tool and gives it good *relative* scaling.
+
+### Throughput + extrapolated full study (200 trials = `pop=20 × gen=10`)
+
+| | Go | Python (`workers=1`) | Python (`workers=14`, 14/16 cores) |
+| --- | ---: | ---: | ---: |
+| per-trial (2 folds) | ~2.4 ms | ~30–40 min¹ | ~30–40 min (per worker) |
+| trials/sec (effective) | ~138 (measured, 24-trial) | ~0.0005 | ~0.006 |
+| **200-trial study** | **~1.5 s** (measured-rate) | **~110 h** (extrapolated) | **~8–10 h** (extrapolated) |
+
+¹ Lower bound: one real fold did not finish in 20.7 min; a 2-fold trial is
+therefore conservatively 30–40+ min. The 2-week-window datapoint (261 s/fold)
+scales up with window length, consistent with the >20-min single-fold result.
+
+> **Headline.** On the identical study, **Go runs a 200-trial `sector_rotation`
+> hyperopt in ~1.5 seconds; the same study in Python is an ~8–10 hour job even
+> with a 14-process pool** (and ~110 h single-process) — a roughly
+> **10⁴–10⁵× wall-clock advantage** for the Go stack. A *real* Python full study
+> at this budget is impractical, which is exactly why it is extrapolated from the
+> measured per-fold cost.
+
+### Caveats (read these)
+
+- **The per-trial workloads are not identical, by Python's design.** Python's
+  `run_backtest` runs the full ~5,500-stock multi-strategy book per fold even for
+  a single-strategy trial; the Go `sector_rotation` study loads only the 12
+  instruments the strategy trades. This is the dominant reason for the cost gap.
+  It is a fair statement of *what a `sector_rotation` hyperopt trial costs on each
+  stack as shipped*, not a claim that the two run the same number of bars. (A
+  hypothetical Python build that loaded only the 12 ETFs would be far faster than
+  the numbers here — but that is not how the Python pipeline is wired.)
+- **In-process shared bars vs forked processes.** Go shares one immutable
+  in-memory dataset across all trial goroutines (zero copy, zero per-trial DB
+  hit); Python forks worker processes (spawn) that each re-load bars from the
+  parquet cache. The fork + re-load overhead is part of Python's real per-trial
+  cost and is included above.
+- **Optuna's RNG differs**, so the **trial sequences** the two optimizers explore
+  are different — you cannot diff trial *N* across the two. What *is* comparable
+  is (a) the **per-trial objective cost** measured here and (b) the **objective
+  values** for any given param set, which match to 3.55e-6.
+- **Numbers scale with the host**; the *ratios* (and the order-of-magnitude
+  conclusion) are the signal.
+
+### Reproducing
+
+Go side: a throwaway harness (`tmp/hyperbench/`, deleted after the run) built the
+production `study.Evaluator` / `study.Coordinator` over an `engine.SliceFeed`
+loaded from the Sharadar SFP parquet — no Postgres, no compose, no product-code
+changes. Python side: timed `research.workers.run_trial_worker` /
+`scripts.multi_strategy_backtest.run_backtest` directly against the read-only
+parquet cache (dumps disabled; the Python repo was not modified). No state was
+left running; no DB or compose stack was started.
