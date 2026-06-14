@@ -15,6 +15,96 @@ OpenD client.
 
 ---
 
+## 0. System at a glance
+
+### 0.1 Deployment topology (Docker Compose)
+
+```mermaid
+flowchart TB
+    browser([Browser])
+    subgraph host["Host machine"]
+      opend["moomoo OpenD<br/>(host-installed)<br/>:11111"]
+    end
+    subgraph compose["docker compose · single tms image, multi-role"]
+      ui["tmsgo-ui<br/>Next.js cockpit · :13000"]
+      api["tmsgo-api<br/>chi REST + WS · :18080"]
+      worker["tmsgo-worker<br/>backtest / hyperopt / eod jobs<br/>(scale N)"]
+      live["tmsgo-live<br/>signal · paper · live"]
+      migrate["tms-migrate<br/>(run-once)"]
+      pg[("tms-postgres<br/>TimescaleDB · :55432<br/>SINGLE SOURCE OF TRUTH")]
+      redis[("tms-redis · :56379<br/>transport only · reconstructable")]
+    end
+    browser -->|REST + WS| ui
+    ui -->|bearer token, server-side| api
+    api -->|enqueue ops.jobs| worker
+    api <-->|pub/sub| redis
+    api -->|ops.commands| live
+    worker --> pg
+    live --> pg
+    api --> pg
+    live <-->|pub/sub| redis
+    live -->|protobuf-over-TCP<br/>host.docker.internal:11111| opend
+    migrate -->|schema| pg
+    worker <--> redis
+
+    classDef db fill:#1d3b53,stroke:#4aa,color:#fff
+    class pg,redis db
+```
+
+### 0.2 Five modes, one engine (the thesis)
+
+```mermaid
+flowchart TB
+    subgraph core["internal/core — deterministic single-goroutine event loop"]
+      direction LR
+      strat["Strategy ×4<br/>SEPA · Pairs<br/>Sector · ORB"]
+      port["Portfolio<br/>allocator + risk gate"]
+      acct["Accounting<br/>NETTING · PnL · equity"]
+      ind["Indicators"]
+    end
+    note["Five modes share 100% of strategy / portfolio / accounting / warmup code.<br/>Only Clock + DataFeed + Executor are swapped."]
+    core --- note
+
+    bt["**backtest**<br/>SimClock<br/>Parquet/PG feed<br/>SimExecutor (fee/slip/fill)"]
+    ho["**hyperopt**<br/>SimClock ×N<br/>shared RO bars<br/>SimExecutor · NSGA-II"]
+    sig["**live-signal**<br/>WallClock<br/>moomoo Qot stream<br/>NoopExecutor (0 orders)"]
+    pa["**paper**<br/>WallClock<br/>moomoo Qot stream<br/>MoomooExecutor (paper acct)"]
+    lv["**live**<br/>WallClock<br/>moomoo Qot stream<br/>MoomooExecutor (real acct)<br/>4-factor gate"]
+
+    core --> bt & ho & sig & pa & lv
+```
+
+### 0.3 Control + data flow
+
+```mermaid
+flowchart TB
+    subgraph uiplane["UI control plane — fully observable + controllable"]
+      obs["Observe: coverage · equity · pareto<br/>positions · orders · PnL · reconciliation"]
+      ctl["Control: refresh data · run backtest<br/>run hyperopt · promote params<br/>mode-switch · halt · flatten"]
+    end
+    api["tmsgo-api<br/>auth · audit every control action · enqueue"]
+    worker["worker<br/>backtest/optimize/eod"]
+    live["live<br/>halt / flatten / mode-switch"]
+    pg[("PostgreSQL + TimescaleDB<br/>marketdata · strategy · research · live · ops")]
+    redis[("redis · transport (FLUSH → rebuild from PG)")]
+    oracle["trade-multi-strategies<br/>(Python, read-only parity oracle —<br/>NOT in production image)"]
+
+    uiplane -->|POST control / WS stream| api
+    api -->|ops.jobs SKIP LOCKED| worker
+    api -->|ops.commands idempotent + audit| live
+    worker --> pg
+    live --> pg
+    api --> pg
+    live <--> redis
+    api <--> redis
+    pg -. "byte-level parity verified against" .- oracle
+
+    classDef db fill:#1d3b53,stroke:#4aa,color:#fff
+    class pg,redis db
+```
+
+---
+
 ## 1. Hexagonal design (ports and adapters)
 
 The system is layered so the deterministic core has zero I/O dependencies and
