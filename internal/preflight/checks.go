@@ -254,28 +254,63 @@ func checkWarmupAvailable(ctx context.Context, cfg Config, p Probes) CheckResult
 		return result(CheckWarmupAvailable, StatusFail, SeverityBlocker, "probing bar depth: %v", err)
 	}
 
-	var shortfalls []string
+	// minScreenedWarmFraction is the floor below which a SCREENED strategy's
+	// universe is considered too cold to trade — well under any healthy universe
+	// (SEPA typically warms ~93%). Above it, an under-warmed tail (newly-listed /
+	// illiquid / no-price names the strategy skips at runtime) is informational,
+	// not a blocker.
+	const minScreenedWarmFraction = 0.5
+
+	var (
+		shortfalls []string // FIXED-basket cold legs / too-cold screened universe (blocker)
+		tails      []string // SCREENED under-warmed tails (informational, PASS)
+	)
 	for _, s := range res.Strategies {
 		if len(s.WarmupSymbols) == 0 {
 			shortfalls = append(shortfalls, fmt.Sprintf("%s: no warmup symbols resolved", s.Name))
 			continue
 		}
-		// The worst-covered symbol decides the strategy: a single under-warmed
-		// instrument leaves that strategy's state partially cold.
-		worstSym, worst := "", -1
+		warm, worstSym, worst := 0, "", -1
 		for _, sym := range s.WarmupSymbols {
 			d := depth[sym]
+			if d >= s.LookbackBars {
+				warm++
+			}
 			if worst < 0 || d < worst {
 				worst, worstSym = d, sym
 			}
 		}
-		if worst < s.LookbackBars {
+		total := len(s.WarmupSymbols)
+		if !s.Screened {
+			// FIXED basket (sector ETFs, pair legs): every leg must warm — one
+			// cold instrument leaves the strategy partially cold.
+			if worst < s.LookbackBars {
+				shortfalls = append(shortfalls,
+					fmt.Sprintf("%s: %s has %d bars < %d lookback", s.Name, worstSym, worst, s.LookbackBars))
+			}
+			continue
+		}
+		// SCREENED universe (SEPA): a survivor-bias-free universe legitimately
+		// holds names too short-historied to warm yet; the strategy skips them at
+		// runtime until they reach lookback. Block only if too FEW names warm.
+		frac := float64(warm) / float64(total)
+		switch {
+		case warm == 0 || frac < minScreenedWarmFraction:
 			shortfalls = append(shortfalls,
-				fmt.Sprintf("%s: %s has %d bars < %d lookback", s.Name, worstSym, worst, s.LookbackBars))
+				fmt.Sprintf("%s: only %d/%d names warm (%.0f%% < %.0f%% floor)",
+					s.Name, warm, total, frac*100, minScreenedWarmFraction*100))
+		case warm < total:
+			tails = append(tails,
+				fmt.Sprintf("%s: %d/%d names warm (%d under-warmed, skipped until they reach %d bars)",
+					s.Name, warm, total, total-warm, s.LookbackBars))
 		}
 	}
 	if len(shortfalls) > 0 {
 		return result(CheckWarmupAvailable, StatusFail, SeverityBlocker, "warmup shortfall: %s", joinDetail(shortfalls))
+	}
+	if len(tails) > 0 {
+		return result(CheckWarmupAvailable, StatusPass, SeverityBlocker,
+			"all strategies warmable; screened tail: %s", joinDetail(tails))
 	}
 	return result(CheckWarmupAvailable, StatusPass, SeverityBlocker,
 		"all %d strategies have enough warmup bars (%d symbols probed)", len(res.Strategies), len(syms))

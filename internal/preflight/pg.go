@@ -233,6 +233,7 @@ func (p *PGProbes) ResolveStrategy(ctx context.Context, cfg Config) (*ResolvedSe
 		res.Strategies = append(res.Strategies, EnabledStrategy{
 			Name: name, WarmupSymbols: syms, LookbackBars: lookback,
 			Promoted: promoted, ParamSource: source,
+			Screened: name == "sepa", // SEPA screens a survivor-bias-free universe; others trade fixed baskets.
 		})
 	}
 

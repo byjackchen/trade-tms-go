@@ -80,6 +80,13 @@ type EnabledStrategy struct {
 	Promoted bool
 	// ParamSource is the human-readable provenance ("db" | "file" | "baseline").
 	ParamSource string
+	// Screened is true when the strategy trades a survivor-bias-free SCREENED
+	// universe (SEPA) rather than a FIXED basket (sector ETFs, pair legs). A
+	// screened universe legitimately contains newly-listed / short-history names
+	// the strategy skips at runtime until they reach their lookback, so the
+	// warmup check tolerates an under-warmed tail for screened strategies but
+	// requires every symbol of a fixed basket.
+	Screened bool
 }
 
 // ResolvedSession is the live-equivalent resolution of the session: the enabled
