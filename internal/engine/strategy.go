@@ -141,6 +141,33 @@ type WarmupConsumer interface {
 	WarmupBars(sym string, history []domain.Bar)
 }
 
+// BatchWarmupConsumer is a MULTI-SYMBOL strategy that primes its internal state
+// from a pre-window bar stream that must be delivered INTERLEAVED across symbols
+// (dispatch-ordered: ascending by ts, registration order within a ts), not the
+// per-symbol fan-out of WarmupConsumer.
+//
+// SectorRotation and Pairs build their state from CROSS-SYMBOL on_bar calls (a
+// month-rollover rebalance needs every ETF's latest close; a pair's z-score
+// needs both legs in-sync at the same date). Feeding their warmup per-symbol —
+// all of E1's bars, then all of E2's — would break the month-rollover / pair-sync
+// detection. They therefore consume the whole interleaved pre-window stream at
+// once and replay it through their pure generator's OnBar (discarding the emitted
+// signals), reaching EXACTLY the state a backtest that processed those same
+// pre-window bars in-loop would have — WITHOUT submitting any orders or mutating
+// any account. This is what makes a warmed live sector/pairs session consistent
+// with a backtest over [start-lookback, end].
+//
+// SEPA implements the per-symbol WarmupConsumer instead (its generator is
+// single-symbol and its Python counterpart warms per-ticker). A strategy
+// implements at most ONE of the two warmup seams.
+type BatchWarmupConsumer interface {
+	// WarmupBatch primes the strategy from the interleaved pre-window bar stream
+	// (ascending by ts, all strictly before the run window). It MUST NOT submit
+	// orders or mutate the account — pure state priming, identical to what an
+	// in-loop replay of the same bars would build minus the order side effects.
+	WarmupBatch(bars []domain.Bar)
+}
+
 // StrategyContext is the per-bar context a ContextConsumer may read. Fields are
 // optional; a zero value means "not provided".
 type StrategyContext struct {

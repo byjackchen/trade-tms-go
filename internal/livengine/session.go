@@ -69,8 +69,16 @@ type Config struct {
 	// as engine.WarmupConfig.
 	Warmup WarmupProvider
 	// WarmupSymbols are the symbols to query the WarmupProvider for at start.
-	// Typically the SEPA stock universe. Empty => no warmup.
+	// Typically the SEPA stock universe. Empty => no per-symbol warmup.
 	WarmupSymbols []string
+	// WarmupBatch, when non-empty, is the INTERLEAVED (dispatch-ordered) pre-window
+	// bar stream used to prime BatchWarmupConsumer strategies (SectorRotation /
+	// Pairs) before the loop. Unlike the per-symbol WarmupSymbols fan-out (SEPA),
+	// these strategies need every symbol's bars interleaved by timestamp to rebuild
+	// their cross-symbol state (month-rollover ranking / pair sync). The bars MUST
+	// be strictly before the run-window start (look-ahead-safe); priming submits no
+	// orders. Empty => no batch warmup. Same semantics as engine.PrimeWarmupBatch.
+	WarmupBatch []domain.Bar
 	// StartingBalance seeds the informational portfolio-health NAV used for the
 	// daily-loss-halt headroom in signal mode (no real account exists).
 	StartingBalance domain.Money
@@ -240,13 +248,37 @@ func (s *Session) Submitter() engine.OrderSubmitter { return s.sub }
 // in sorted order (priming is per-symbol independent; a stable order keeps logs
 // reproducible).
 func (s *Session) Prime(ctx context.Context) error {
+	return s.PrimeExcept(ctx, nil)
+}
+
+// PrimeExcept is Prime with a skip set: strategies whose ID is in skip are NOT
+// warmed (neither the batch nor the per-symbol seam). The skip set carries the
+// IDs of strategies whose state was already RESTORED from a crash-recovery
+// snapshot. Re-warming a recovered strategy over its restored state corrupts it —
+// the batch seam APPENDS pre-window bars onto the already-restored cross-symbol
+// ring (sector month-rollover / pairs spread window), and even the per-symbol
+// SEPA path is only re-warm-safe because it REPLACES its buffer; the contract is
+// "recovery supersedes warmup; warmup is for COLD strategies" (livetrade/session.go
+// Prime). The paper/live recovery path passes the restored IDs here; the
+// signal-mode / EOD / backtest path (no recovery) passes nil, identical to Prime.
+func (s *Session) PrimeExcept(ctx context.Context, skip map[string]bool) error {
+	// (1) Multi-symbol BatchWarmupConsumers (SectorRotation / Pairs): replay the
+	// interleaved pre-window stream through the SHARED engine.PrimeWarmupBatch seam.
+	// Pure state priming, no orders, look-ahead-safe (caller supplies strictly
+	// pre-window dispatch-ordered bars). Restored strategies are skipped (recovery
+	// supersedes warmup). Runs FIRST so the per-symbol SEPA priming below is
+	// independent of it (the two seams target disjoint strategies).
+	engine.PrimeWarmupBatchExcept(s.cfg.Strategies, s.cfg.WarmupBatch, skip)
+
+	// (2) Per-symbol WarmupConsumers (SEPA): fan out the WarmupProvider history.
 	if s.cfg.Warmup == nil || len(s.cfg.WarmupSymbols) == 0 {
 		return nil
 	}
 	// Drive the SHARED engine.PrimeWarmup loop (per-symbol fan-out + per-strategy
 	// WarmupConsumer self-filter is identical to the batch path; F3). The only
 	// difference is the bar source: here a WarmupProvider query (which may error).
-	return engine.PrimeWarmup(s.cfg.Strategies, s.cfg.WarmupSymbols, func(sym string) ([]domain.Bar, error) {
+	// Restored strategies are skipped (recovery supersedes warmup).
+	return engine.PrimeWarmupExcept(s.cfg.Strategies, s.cfg.WarmupSymbols, skip, func(sym string) ([]domain.Bar, error) {
 		hist, err := s.cfg.Warmup.WarmupBars(ctx, sym)
 		if err != nil {
 			return nil, fmt.Errorf("livengine: warmup %s: %w", sym, err)

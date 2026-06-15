@@ -66,12 +66,25 @@ func InjectContextInto(cons []ContextConsumer, asOf time.Time, st *portfolio.Sha
 // WarmupConsumers and never reach here), so offering every warmup symbol to every
 // consumer is correct and order-independent. An empty symbol set is a no-op.
 func PrimeWarmup(strategies []Strategy, symbols []string, barsFor func(sym string) ([]domain.Bar, error)) error {
+	return PrimeWarmupExcept(strategies, symbols, nil, barsFor)
+}
+
+// PrimeWarmupExcept is PrimeWarmup with a skip set: strategies whose ID is in
+// skip are NOT primed. The skip set carries the IDs of strategies whose state was
+// already RESTORED from a crash-recovery snapshot — re-warming a recovered
+// strategy over its restored state would corrupt it (recovery supersedes warmup;
+// see livetrade/session.go Prime). A nil/empty skip set is identical to
+// PrimeWarmup (the signal-mode / backtest path, which never recovers).
+func PrimeWarmupExcept(strategies []Strategy, symbols []string, skip map[string]bool, barsFor func(sym string) ([]domain.Bar, error)) error {
 	if len(symbols) == 0 {
 		return nil
 	}
 	syms := append([]string(nil), symbols...)
 	sort.Strings(syms)
 	for _, st := range strategies {
+		if skip[st.ID()] {
+			continue
+		}
 		wc, ok := st.(WarmupConsumer)
 		if !ok {
 			continue
@@ -87,4 +100,49 @@ func PrimeWarmup(strategies []Strategy, symbols []string, barsFor func(sym strin
 		}
 	}
 	return nil
+}
+
+// PrimeWarmupBatch feeds an INTERLEAVED (dispatch-ordered) pre-window bar stream
+// into every BatchWarmupConsumer strategy (SectorRotation / Pairs), BEFORE the
+// loop runs — no executor, no account mutation, no sampling, pure state priming.
+// It is the multi-symbol counterpart of PrimeWarmup: where PrimeWarmup fans out
+// per-symbol (SEPA), this delivers the WHOLE cross-symbol stream at once so the
+// generator's month-rollover / pair-sync logic sees the same bar ordering an
+// in-loop backtest replay would, reaching the same state at the run-window start
+// WITHOUT submitting orders.
+//
+// bars must be ascending by ts (dispatch order), all strictly before the run
+// window; the caller (the assembler / engine) guarantees look-ahead safety. Each
+// BatchWarmupConsumer receives its OWN copy-free view of the SAME stream and
+// self-filters out-of-universe symbols (its pure generator ignores them), so
+// offering the full stream to every consumer is correct. An empty stream or no
+// batch consumers is a no-op.
+func PrimeWarmupBatch(strategies []Strategy, bars []domain.Bar) {
+	PrimeWarmupBatchExcept(strategies, bars, nil)
+}
+
+// PrimeWarmupBatchExcept is PrimeWarmupBatch with a skip set: BatchWarmupConsumer
+// strategies whose ID is in skip are NOT primed. The skip set carries the IDs of
+// strategies whose cross-symbol state (sector month-rollover ring / pairs spread
+// window) was already RESTORED from a crash-recovery snapshot. The batch seam
+// APPENDS the pre-window bars by replaying them through the generator's OnBar
+// (ring push, bounded deque), so re-warming a recovered strategy would push the
+// pre-window bars onto the already-restored ring — resetting lastUniverseDate to
+// an OLDER pre-window month (scrambling the next-bar month rollover) and
+// corrupting the momentum window. Skipping restored strategies enforces the
+// "recovery supersedes warmup" invariant (livetrade/session.go Prime). A
+// nil/empty skip set is identical to PrimeWarmupBatch (signal/backtest, no
+// recovery).
+func PrimeWarmupBatchExcept(strategies []Strategy, bars []domain.Bar, skip map[string]bool) {
+	if len(bars) == 0 {
+		return
+	}
+	for _, st := range strategies {
+		if skip[st.ID()] {
+			continue
+		}
+		if bw, ok := st.(BatchWarmupConsumer); ok {
+			bw.WarmupBatch(bars)
+		}
+	}
 }

@@ -32,11 +32,12 @@ func New(id string, sg *sectorrotation.SignalGenerator) (*Strategy, error) {
 
 // Compile-time capability assertions.
 var (
-	_ engine.Strategy        = (*Strategy)(nil)
-	_ engine.IntentEvaluator = (*Strategy)(nil)
-	_ engine.StateSummarizer = (*Strategy)(nil)
-	_ engine.StatePersister  = (*Strategy)(nil)
-	_ engine.SymbolScoped    = (*Strategy)(nil)
+	_ engine.Strategy            = (*Strategy)(nil)
+	_ engine.IntentEvaluator     = (*Strategy)(nil)
+	_ engine.StateSummarizer     = (*Strategy)(nil)
+	_ engine.StatePersister      = (*Strategy)(nil)
+	_ engine.SymbolScoped        = (*Strategy)(nil)
+	_ engine.BatchWarmupConsumer = (*Strategy)(nil)
 )
 
 // ID returns the engine strategy id.
@@ -75,6 +76,24 @@ func (s *Strategy) OnBar(sub engine.OrderSubmitter, bar domain.Bar) error {
 		}
 	}
 	return nil
+}
+
+// WarmupBatch primes the generator from the interleaved pre-window bar stream
+// (engine.BatchWarmupConsumer): every bar is replayed through the SAME
+// SignalGenerator.OnBar the run loop uses, building the rolling momentum history
+// + currentPositions + month-rollover state EXACTLY as an in-loop backtest over
+// those bars would — but the emitted rebalance signals are DISCARDED, so no order
+// is ever submitted during priming (pure state build). The generator's state
+// machine is self-contained (it updates currentPositions internally, not via the
+// executor), so the post-warmup state is identical to a backtest that processed
+// the same pre-window bars. Out-of-universe bars are ignored by the generator.
+//
+// LOOK-AHEAD SAFETY is the caller's contract: bars must be strictly before the
+// run-window start (the assembler loads only [start-lookback, start) history).
+func (s *Strategy) WarmupBatch(bars []domain.Bar) {
+	for _, b := range bars {
+		_ = s.sg.OnBar(b)
+	}
 }
 
 // EvaluateIntentJSON returns the per-ETF SectorRotationIntent slice for asOf as

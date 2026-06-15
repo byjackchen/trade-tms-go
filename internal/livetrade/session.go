@@ -89,6 +89,9 @@ type TradeSessionConfig struct {
 	Warmup livengine.WarmupProvider
 	// WarmupSymbols are the symbols to prime.
 	WarmupSymbols []string
+	// WarmupBatch is the interleaved pre-window bar stream priming the multi-symbol
+	// BatchWarmupConsumer strategies (sector / pairs) before the loop (may be nil).
+	WarmupBatch []domain.Bar
 	// Account is the accounting adapter the executor settles into (required).
 	Account *AccountAdapter
 	// Executor is the paper/live MoomooExecutor (required).
@@ -166,6 +169,7 @@ func NewTradeSession(cfg TradeSessionConfig) (*TradeSession, error) {
 		SPYSymbol:       cfg.SPYSymbol,
 		Warmup:          cfg.Warmup,
 		WarmupSymbols:   cfg.WarmupSymbols,
+		WarmupBatch:     cfg.WarmupBatch,
 		StartingBalance: navOrDefault(cfg.NAV),
 		Sink:            sink,
 		EmitGate:        cfg.EmitGate,
@@ -188,13 +192,20 @@ func (t *TradeSession) GatedSubmitter() *GatedSubmitter { return t.gated }
 
 // Prime restores strategy state (recovery) then primes warmup. The state restore
 // runs BEFORE warmup priming so a recovered strategy is not re-warmed over its
-// restored state — warmup is for COLD strategies; recovery supersedes it. The
-// caller invokes RestoreFromBroker + Reconcile separately around Prime.
+// restored state — warmup is for COLD strategies; recovery supersedes it. The IDs
+// of restored strategies are threaded into PrimeExcept so the warmup seams SKIP
+// them: the batch seam (sector/pairs) APPENDS pre-window bars onto the restored
+// cross-symbol ring, which would reset lastUniverseDate to an older pre-window
+// month (scrambling the next-bar month rollover) and corrupt the momentum/spread
+// window — the invariant this comment promises was previously NOT enforced for the
+// append-based batch consumers (only SEPA's replace-based seam was idempotent).
+// The caller invokes RestoreFromBroker + Reconcile separately around Prime.
 func (t *TradeSession) Prime(ctx context.Context) error {
-	if err := t.RestoreStrategyState(ctx); err != nil {
+	restored, err := t.RestoreStrategyState(ctx)
+	if err != nil {
 		return err
 	}
-	return t.session.Prime(ctx)
+	return t.session.PrimeExcept(ctx, restored)
 }
 
 // postTimestamp is the livengine PostTimestamp hook (decision 4+6): after each
@@ -258,24 +269,32 @@ func (t *TradeSession) PersistStrategyState(ctx context.Context) error {
 // RestoreStrategyState loads each StatePersister strategy's last persisted SG
 // state from the StateStore and applies it (decision 6). A strategy with no
 // stored state is left cold (the warmup path primes it). A nil StateStore is a
-// no-op.
-func (t *TradeSession) RestoreStrategyState(ctx context.Context) error {
+// no-op. It returns the set of strategy IDs whose state was actually restored, so
+// the caller can SKIP re-warming them (recovery supersedes warmup) — a nil/empty
+// map when nothing was restored (all-cold start), which makes warmup behave
+// exactly as a fresh session.
+func (t *TradeSession) RestoreStrategyState(ctx context.Context) (map[string]bool, error) {
 	if t.cfg.StateStore == nil {
-		return nil
+		return nil, nil
 	}
+	var restored map[string]bool
 	for _, sp := range t.statePersisters {
 		state, ok, err := t.cfg.StateStore.LoadState(ctx, sp.id)
 		if err != nil {
-			return fmt.Errorf("livetrade: load state %s: %w", sp.id, err)
+			return nil, fmt.Errorf("livetrade: load state %s: %w", sp.id, err)
 		}
 		if !ok || len(state) == 0 {
 			continue
 		}
 		if err := sp.sp.LoadStateJSON(state); err != nil {
-			return fmt.Errorf("livetrade: restore state %s: %w", sp.id, err)
+			return nil, fmt.Errorf("livetrade: restore state %s: %w", sp.id, err)
 		}
+		if restored == nil {
+			restored = make(map[string]bool, len(t.statePersisters))
+		}
+		restored[sp.id] = true
 	}
-	return nil
+	return restored, nil
 }
 
 // openPositions returns the account's open (non-flat) positions.

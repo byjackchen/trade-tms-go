@@ -551,6 +551,19 @@ func (l *Live) runSession(ctx context.Context, client MoomooClient, feed *Moomoo
 	warmupEnd := time.Date(asOf.Year, asOf.Month, asOf.Day, 0, 0, 0, 0, time.UTC)
 	warmup := NewMoomooWarmup(client, klType, warmupBegin, warmupEnd)
 
+	// Multi-symbol BatchWarmupConsumer strategies (sector / pairs) prime from the
+	// INTERLEAVED pre-window history of their instruments. Unlike the EOD replay —
+	// which builds this state in-band from the replayed window — the LIVE feed only
+	// delivers bars from "now" forward, so without this the sector momentum ranking
+	// / pairs spread would start COLD (all no_setup) until ~lookback live bars
+	// accumulate (months). Build the interleaved stream over the moomoo warmup
+	// history (strictly before warmupEnd / "now"), so a freshly-started live
+	// sector/pairs session emits actionable states from the first bar.
+	warmupBatch, err := l.assembler.BuildWarmupBatch(ctx, as, warmup, warmupEnd)
+	if err != nil {
+		return fmt.Errorf("runner: building batch warmup: %w", err)
+	}
+
 	startMoney, err := domain.MoneyFromFloat64(l.startingBalance())
 	if err != nil {
 		return fmt.Errorf("runner: invalid starting balance: %w", err)
@@ -567,7 +580,7 @@ func (l *Live) runSession(ctx context.Context, client MoomooClient, feed *Moomoo
 	// Build the runnable session by mode: signal -> livengine.Session (NoopExecutor),
 	// paper/live -> livetrade.TradeSession (gated MoomooExecutor). Both share the
 	// SAME assembled strategies / gate / context / warmup.
-	stream, primeFn, cleanup, err := l.buildRunnable(ctx, mode, as, warmup, startMoney, sink, sessionID, client, warmupEnd)
+	stream, primeFn, cleanup, err := l.buildRunnable(ctx, mode, as, warmup, warmupBatch, startMoney, sink, sessionID, client, warmupEnd)
 	if err != nil {
 		return err
 	}
@@ -588,7 +601,9 @@ func (l *Live) runSession(ctx context.Context, client MoomooClient, feed *Moomoo
 	// loop: mark it healthy (clears any prior crash-loop failure count — finding 2).
 	l.markSessionRunning()
 	l.log.Info().Str("mode", mode).Int("instruments", len(as.Tickers)).
-		Int("warmup_symbols", len(as.WarmupSymbols)).Msg("live session running")
+		Int("warmup_symbols", len(as.WarmupSymbols)).
+		Int("batch_warmup_symbols", len(as.WarmupBatchSymbols)).
+		Int("batch_warmup_bars", len(warmupBatch)).Msg("live session running")
 
 	// runCtx is cancelled when ctx is cancelled OR a restart/stop is requested.
 	runCtx, cancelRun := context.WithCancel(ctx)
@@ -627,7 +642,7 @@ type streamRunner interface {
 // + gated MoomooExecutor + reconciler + PG persistence) over the SAME assembled
 // strategies. It returns the stream runner, the prime function, and a cleanup
 // that detaches the active trade session.
-func (l *Live) buildRunnable(ctx context.Context, mode string, as *Assembled, warmup livengine.WarmupProvider, startMoney domain.Money, sink *Sink, sessionID int64, client MoomooClient, warmupEnd time.Time) (streamRunner, func(context.Context) error, func(), error) {
+func (l *Live) buildRunnable(ctx context.Context, mode string, as *Assembled, warmup livengine.WarmupProvider, warmupBatch []domain.Bar, startMoney domain.Money, sink *Sink, sessionID int64, client MoomooClient, warmupEnd time.Time) (streamRunner, func(context.Context) error, func(), error) {
 	if livengine.Mode(mode) == livengine.ModeSignal {
 		sess, err := livengine.NewSession(livengine.Config{
 			Mode:            livengine.ModeSignal,
@@ -637,6 +652,7 @@ func (l *Live) buildRunnable(ctx context.Context, mode string, as *Assembled, wa
 			SPYSymbol:       as.SPYSymbol,
 			Warmup:          warmup,
 			WarmupSymbols:   as.WarmupSymbols,
+			WarmupBatch:     warmupBatch,
 			StartingBalance: startMoney,
 			Sink:            sink,
 			EmitGate:        l.halt.Emitting,
@@ -690,6 +706,7 @@ func (l *Live) buildRunnable(ctx context.Context, mode string, as *Assembled, wa
 		SPYSymbol:     as.SPYSymbol,
 		Warmup:        warmup,
 		WarmupSymbols: as.WarmupSymbols,
+		WarmupBatch:   warmupBatch,
 		Account:       account,
 		Executor:      exec,
 		Halt:          l.halt,

@@ -37,6 +37,34 @@ import (
 // out-of-band SEPA warmup before the window start.
 const sepaWarmupCalendarDays = 400
 
+// tradingDaysToCalendarDays converts a count of TRADING bars (the lookback params
+// are expressed in trading days) into the calendar-day horizon needed to load at
+// least that many daily bars, padded for weekends/holidays (~252 trading days a
+// year => ~365/252 ≈ 1.45 calendar days per trading day) plus a safety margin.
+func tradingDaysToCalendarDays(tradingDays int) int {
+	if tradingDays <= 0 {
+		return 0
+	}
+	return int(math.Ceil(float64(tradingDays)*1.55)) + 10
+}
+
+// sectorWarmupCalendarDays sizes the LIVE batch-warmup horizon for SectorRotation:
+// enough daily history that (a) every universe ETF has > momentum_lookback closes
+// AND (b) at least one MONTH-rollover rebalance has fired before session start, so
+// the momentum ranking + currentPositions are fully formed (not all no_setup). The
+// rebalance cadence is monthly, so we add ~2 extra months (~63 trading days) on top
+// of the lookback window to guarantee a formed ranking spanning a rebalance.
+func sectorWarmupCalendarDays(momentumLookback int) int {
+	return tradingDaysToCalendarDays(momentumLookback + 1 + 63)
+}
+
+// pairsWarmupCalendarDays sizes the LIVE batch-warmup horizon for Pairs: enough
+// daily history that each leg has >= lookback closes so the OLS/z-score spread is
+// formed at session start (a few extra bars let the z-score state machine settle).
+func pairsWarmupCalendarDays(lookback int) int {
+	return tradingDaysToCalendarDays(lookback + 20)
+}
+
 // AssemblyInput selects what live/EOD strategy set to build.
 type AssemblyInput struct {
 	// Strategy is "sepa" | "sector_rotation" | "pairs" | "orb" | "multi".
@@ -60,8 +88,20 @@ type Assembled struct {
 	Tickers []string
 	// Warmup is the out-of-band SEPA warmup provider (nil when no warmup).
 	Warmup livengine.WarmupProvider
-	// WarmupSymbols are the symbols to prime (the SEPA stock universe).
+	// WarmupSymbols are the per-symbol prime symbols (the SEPA stock universe) fed
+	// to WarmupConsumer strategies.
 	WarmupSymbols []string
+	// WarmupBatchSymbols are the symbols whose INTERLEAVED pre-window history primes
+	// the multi-symbol BatchWarmupConsumer strategies (SectorRotation ETFs + SPY,
+	// Pairs legs). Empty for a pure-SEPA session. The LIVE path turns these into an
+	// interleaved bar stream (BuildWarmupBatch) — the EOD path leaves them unused
+	// because its replay already covers the full [as_of-window, as_of] in-band.
+	WarmupBatchSymbols []string
+	// WarmupCalendarDays is the per-session warmup horizon (max of the per-strategy
+	// lookbacks resolved below): how many calendar days of pre-window history the
+	// LIVE batch warmup must load so every strategy's rolling state is fully formed
+	// at session start. 0 when no batch warmup is needed.
+	WarmupCalendarDays int
 	// SPYSymbol is the context heartbeat instrument.
 	SPYSymbol string
 }
@@ -125,7 +165,12 @@ func (a *Assembler) Assemble(ctx context.Context, in AssemblyInput, start, end c
 	var (
 		warmup        livengine.WarmupProvider
 		warmupSymbols []string
-		err           error
+		// batchDays is the LIVE batch-warmup horizon (max per-strategy lookback in
+		// calendar days). The interleaved pre-window history that primes the
+		// multi-symbol BatchWarmupConsumer strategies (sector / pairs) is loaded over
+		// it by the live path; 0 means no batch warmup (sepa-only / orb).
+		batchDays int
+		err       error
 	)
 	switch in.Strategy {
 	case "sepa":
@@ -142,10 +187,12 @@ func (a *Assembler) Assemble(ctx context.Context, in AssemblyInput, start, end c
 		if asmIn.Params.Sector, _, err = a.loader.SectorRotation(ctx); err != nil {
 			return nil, fmt.Errorf("runner: resolve sector params: %w", err)
 		}
+		batchDays = sectorWarmupCalendarDays(int(asmIn.Params.Sector.MomentumLookback))
 	case "pairs":
 		if asmIn.Params.Pairs, _, err = a.loader.Pairs(ctx); err != nil {
 			return nil, fmt.Errorf("runner: resolve pairs params: %w", err)
 		}
+		batchDays = pairsWarmupCalendarDays(int(asmIn.Params.Pairs.Lookback))
 	case "orb":
 		if asmIn.ORBSymbol == "" {
 			if len(in.Tickers) == 1 {
@@ -173,6 +220,13 @@ func (a *Assembler) Assemble(ctx context.Context, in AssemblyInput, start, end c
 		if warmup, warmupSymbols, err = a.buildWarmup(ctx, start, in.Tickers); err != nil {
 			return nil, err
 		}
+		// The multi set's batch horizon is the MAX of the sector + pairs lookbacks
+		// (each multi-symbol generator is primed over the same interleaved stream;
+		// the longer-lookback strategy dictates how far back the stream must reach).
+		batchDays = max(
+			sectorWarmupCalendarDays(int(asmIn.Params.Sector.MomentumLookback)),
+			pairsWarmupCalendarDays(int(asmIn.Params.Pairs.Lookback)),
+		)
 	}
 
 	asm, err := strategyassembly.Assemble(asmIn)
@@ -184,12 +238,23 @@ func (a *Assembler) Assemble(ctx context.Context, in AssemblyInput, start, end c
 	// moves). The fallback equity is the informational NAV — exactly what the
 	// reference signal path sizes against (no real book).
 	tickers := unionTickers(asm.ExtraTickers, in.Tickers)
+	// The multi-symbol BatchWarmupConsumer strategies (sector / pairs) prime from
+	// the interleaved pre-window history of THEIR instruments — the assembled
+	// ExtraTickers (sector universe / pair legs; SPY heartbeat is harmlessly
+	// included and self-filtered by the generators). Only populated when a
+	// batch-warmup strategy is present (batchDays > 0).
+	var batchSyms []string
+	if batchDays > 0 {
+		batchSyms = append([]string(nil), asm.ExtraTickers...)
+	}
 	return &Assembled{
-		Assembly:      asm,
-		Tickers:       tickers,
-		Warmup:        warmup,
-		WarmupSymbols: warmupSymbols,
-		SPYSymbol:     asm.SPYSymbol,
+		Assembly:           asm,
+		Tickers:            tickers,
+		Warmup:             warmup,
+		WarmupSymbols:      warmupSymbols,
+		WarmupBatchSymbols: batchSyms,
+		WarmupCalendarDays: batchDays,
+		SPYSymbol:          asm.SPYSymbol,
 	}, nil
 }
 
@@ -222,6 +287,50 @@ func (a *Assembler) LoadWindowBars(ctx context.Context, as *Assembled, start, en
 		}
 		sort.SliceStable(bars, func(i, j int) bool { return bars[i].TS.Before(bars[j].TS) })
 		instruments = append(instruments, engine.InstrumentBars{Symbol: t, Bars: bars})
+	}
+	return livengine.BatchBars(instruments), nil
+}
+
+// BuildWarmupBatch turns the per-symbol pre-window history served by a
+// WarmupProvider into a single INTERLEAVED (dispatch-ordered) bar stream that
+// primes the multi-symbol BatchWarmupConsumer strategies (sector / pairs) in the
+// LIVE path. It queries the provider for each of as.WarmupBatchSymbols, drops any
+// bar dated at/after runStart (look-ahead safety: warmup bars must be strictly
+// before the session start), then interleaves per-symbol series by timestamp via
+// the SAME BatchBars merge the backtest seed uses — so the generators see the bar
+// ordering an in-loop backtest replay would, and the primed state matches a
+// backtest over [runStart-lookback, runStart). A nil provider, no batch symbols,
+// or an empty result is a no-op (returns nil), leaving the cold-start behaviour.
+//
+// runStart is the run-window start (UTC, day-aligned "now" for live). The EOD
+// replay path does NOT call this — its replay already covers the full window
+// in-band, so batch-priming there would double-build the state.
+func (a *Assembler) BuildWarmupBatch(ctx context.Context, as *Assembled, provider livengine.WarmupProvider, runStart time.Time) ([]domain.Bar, error) {
+	if provider == nil || len(as.WarmupBatchSymbols) == 0 {
+		return nil, nil
+	}
+	syms := append([]string(nil), as.WarmupBatchSymbols...)
+	sort.Strings(syms)
+	instruments := make([]engine.InstrumentBars, 0, len(syms))
+	for _, sym := range syms {
+		hist, err := provider.WarmupBars(ctx, sym)
+		if err != nil {
+			return nil, fmt.Errorf("runner: batch warmup %s: %w", sym, err)
+		}
+		bars := make([]domain.Bar, 0, len(hist))
+		for _, b := range hist {
+			if !b.TS.UTC().Before(runStart) {
+				continue // strictly-before-start guard (look-ahead safety)
+			}
+			bars = append(bars, b)
+		}
+		sort.SliceStable(bars, func(i, j int) bool { return bars[i].TS.Before(bars[j].TS) })
+		if len(bars) > 0 {
+			instruments = append(instruments, engine.InstrumentBars{Symbol: sym, Bars: bars})
+		}
+	}
+	if len(instruments) == 0 {
+		return nil, nil
 	}
 	return livengine.BatchBars(instruments), nil
 }
