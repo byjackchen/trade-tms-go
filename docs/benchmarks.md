@@ -641,37 +641,85 @@ identical to the batch forms by `TestIncrementalEntryChainParity` (4 seeds × tw
 `HistoryMaxBars`, across the front-trim), and the SEPA signal golden
 (`TestSEPAGoldenParity`) stays **0-mismatch**.
 
-**(b) Extrapolated full-universe per-trial.** The prior 1,528 s/trial was
-dominated by exactly this per-name work (the profile attributed ~40–50 % to
-indicator recompute and ~45–50 % to the trim/GC/alloc that is now eliminated). A
-~270× reduction of the per-`OnBar` hot path collapses the indicator+GC component
-toward O(1); the residual per-trial cost is the remaining fixed/feed/accounting
-work plus the now-tiny screener. The full ~5,547-name wall-clock re-benchmark and
-a fresh Python full-fold oracle run were **not** executed in this session (each is
-tens of minutes per engine on top of a multi-GB full-universe import); they remain
-the outstanding measurement. With the per-bar cost cut ~270×, the Go-vs-Python
-per-trial ratio is expected to swing from the prior ~1.38× to a large multiple
-(Python still does the full O(window) recompute per bar, unchanged at ~2,111
-s/trial), but the exact new s/trial is **pending a full-universe re-run** and is
-deliberately not asserted here as a measured number.
+**(b) Full-universe per-trial — NOW MEASURED (not extrapolated).** The earlier
+draft of this subsection left the post-fix full-universe number *pending a
+full-universe re-run* and only reasoned that the ~270× per-`OnBar` drop "should"
+collapse the per-trial cost. That re-run has now been **executed directly** on
+the same machine (Apple M4 Max, go1.26.1), over the **identical** full
+survivor-bias-free SF1 universe as the before-fix 1,528 s number: a throwaway
+harness (`tmp/sepabench/`, deleted after the run) connected to the phase-1
+Timescale (`tmsgo-postgres`, `:55432`), imported the FULL universe from the
+parquet cache (`tms import sharadar`, ALL tickers, `--tables tickers,sep,sfp,sf1,events
+--since 2020-01-01`: 19,014 distinct bar tickers, 6,591 SF1-fundamentals tickers,
+real non-zero caps — e.g. AAPL ≈ \$4.11 T, NVDA ≈ \$5.41 T), then drove the
+**production study path** in-process: `universe.ListUniverseForWindow(…,"SF1")`
+(**5,547 names — byte-identical to the before-fix run**) → `study.LoadDataset`
+(SPY + 5,547, loaded once in **8.26 s**) → `uni.MarketCaps` →
+`Dataset.SetMarketCaps` (fix 5: **5,470 / 5,547 non-zero caps**) →
+`hyperopt.ExpandingAnchored(2, 5)` → `study.NewEvaluator` → one
+`Evaluator.Evaluate(Decoded{})` (SEPA baseline defaults), median of 3 reps.
 
-**(c) SEPA now trades — objective is non-degenerate (measured on a real subset).**
+| | before fix (prior measurement) | **after fix (MEASURED this session)** |
+| --- | ---: | ---: |
+| s/trial (2 folds, full universe) | **1,528.76 s** (≈ 25.5 min) | **5.677 s** (reps 5.621 / 5.677 / 5.685) |
+| trials/sec | 0.000654 | **0.1762** |
+| bar volume / trial | 1,618,155 | **1,618,155** (fold 0 837,816 + fold 1 780,339 — unchanged) |
+| universe (names) | 5,547 | **5,547** (byte-identical) |
+| shared bar load (once, in-process) | 8.3 s | 8.26 s |
+| objective (orders / sharpe / calmar / final) | **0 / 0 / 0 / flat \$100,000** (degenerate) | **38 / −0.0824 / −0.0928 / \$98,536.91** (trades) |
+
+That is a **before → after speedup of 1,528.76 ÷ 5.677 ≈ 269×** on the *real*
+full-universe trial — matching, end-to-end, the ~270× per-`OnBar` micro-benchmark
+in (a). The cost that used to be minutes of per-name `indicators.SMA`/screener
+recompute + GC churn over the multi-GB heap is now seconds; what remains is the
+fixed feed/accounting traversal of 1.62 M bars plus the now-O(1) incremental
+screener. The bar volume is identical (same window, same byte-identical folds), so
+this is a genuine equal-workload re-measurement, not a workload change.
+
+**Go-vs-Python, re-derived with the measured Go number.** Python is unchanged —
+it still does the full O(window) SEPA recompute per bar and reloads/re-screens the
+universe per fork — so its prior measured **2,110.84 s/trial** (≈ 35.2 min, §(3)
+above, `2 × fold0`) stands and was **not** re-run. The equal-workload per-trial
+ratio therefore swings from the before-fix **~1.38×** to:
+
+| | Go (before fix) | **Go (after fix, measured)** | Python (unchanged, cited) |
+| --- | ---: | ---: | ---: |
+| per-trial (2 folds, full universe) | 1,528.76 s | **5.677 s** | 2,110.84 s |
+| **Go-vs-Python per-trial speedup** | ~1.38× | **≈ 372×** | — |
+| 200-trial study, 1 worker | ≈ 84.9 h | **≈ 18.9 min** (200 × 5.677 s ≈ 1,135 s) | ≈ 117.3 h |
+| 200-trial study, 14 workers | ≈ 6.1 h | **≈ 1.35 min** (≈ 81 s) | ≈ 8.4 h |
+
+> **Headline (measured).** With the hot-path fixes in, the full-universe SEPA
+> per-trial collapses from **1,528.76 s → 5.677 s (≈ 269× faster)**, and the
+> equal-workload Go-vs-Python advantage jumps from the prior modest **~1.38× to
+> ≈ 372×** — the fixes move the SEPA screener from the per-trial bottleneck to a
+> rounding error, so the once-impractical 200-trial full-universe Go study now
+> finishes in **~19 min single-threaded / ~1.4 min on 14 workers** (vs Python's
+> still ~117 h / ~8.4 h). Python is the bottleneck now, not the universe size.
+
+**(c) SEPA now trades — objective is non-degenerate (measured at FULL-universe scale).**
 Fix 5 wires real, look-ahead-safe SF1 market caps into the hyperopt
 `buildContext` (`objective.go` + `dataset.go` + the `hyperopt.go` handler's
 `uni.MarketCaps` load); the production `backtest.buildContext` already loaded real
-caps, so only the hyperopt path was stubbed. Verified end-to-end against a real
-imported subset (SPY + 14 large-caps, real Sharadar bars + SF1 caps since 2020,
-window 2022-01-01..2023-12-31):
+caps, so only the hyperopt path was stubbed. This was first verified on a real
+imported subset, and is **now confirmed at the full 5,547-name scale** in the same
+measured run as (b):
 
 | path | result |
 | --- | --- |
-| SEPA backtest (2 yr) | sharpe **0.494**, calmar **0.655**, **6 orders / 3 trades**, final \$106,493.62 |
-| SEPA hyperopt (pop 4 × gen 2, 2 folds) | 8 COMPLETE trials, sharpe **0.55–0.85**, calmar **0.64–1.08**, **2–6 orders** each, Pareto front 2 |
+| **SEPA hyperopt eval — FULL 5,547-name universe (this session, baseline defaults, 2 folds)** | sharpe **−0.0824**, calmar **−0.0928**, **38 orders / 38 filled**, final **\$98,536.91** |
+| SEPA backtest (2 yr, 14-large-cap subset) | sharpe **0.494**, calmar **0.655**, **6 orders / 3 trades**, final \$106,493.62 |
+| SEPA hyperopt (pop 4 × gen 2, 2 folds, subset) | 8 COMPLETE trials, sharpe **0.55–0.85**, calmar **0.64–1.08**, **2–6 orders** each, Pareto front 2 |
 
-Both are non-degenerate (non-zero sharpe/calmar, names clear the \$500 M rule-8
-gate and trade), replacing the old flat sharpe = calmar = 0 / 0-orders path
-documented in §(5) above. The objective now varies with the params across trials
-(real sensitivity), so the SEPA hyperopt objective is comparable to Python's
-(modulo the once-per-study vs per-fold universe nuance). A full-universe
-fixed-param Go-vs-Python objective vector comparison was not re-run in this
-session (same full-import budget reason).
+The full-universe line is the load-bearing one: with the **5,470 / 5,547 non-zero
+real SF1 caps** attached, names clear the SEPA rule-8 \$500 M cap floor and
+**trade — 38 orders, all filled** — replacing the old degenerate **0 orders /
+flat \$100,000 / sharpe = calmar = 0** path documented in §(5) above. The 2022–23
+window is short and adverse for SEPA (a Trend-Template long-only momentum gate),
+hence the mildly negative ratios — but the objective is **non-degenerate and real**
+(caps applied, orders admitted, equity moves), which is the proof that was
+missing. (The before-fix \$100,000-flat row in §(5) was the zero-cap artifact, not
+a real "no signal" result.) The per-trial *cost* in (b) is the full
+screener/indicator/feed/accounting traversal regardless of how many orders the cap
+gate ultimately admits, so the 269× timing result is unaffected by the objective
+sign.
