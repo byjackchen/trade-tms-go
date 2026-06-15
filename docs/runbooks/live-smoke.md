@@ -47,17 +47,52 @@
 >   `Trd_*`/`PlaceOrder`/`UnlockTrade`/`ModifyOrder` and no trade password in any
 >   live-node log.
 >
-> **Operational finding (intraday back-pressure)**: at `KLType_1Min`, moomoo
-> pushes the *forming* bar many times per second per symbol (~16/s × 12 syms).
-> The `MoomooFeed` push channel (default buffer 1024) saturates and the runner
-> logs `moomoo feed push channel full; dropping bar (consumer fell behind)`
-> (~800 warns/2 min); the signal-engine loop cannot drain the forming-bar flood,
-> so after the first ~2 minutes the intent cadence stalls until the session is
-> restarted (each restart re-warms and emits a fresh generation). The session
-> stays RUNNING (no crash) and zero-order safety is unaffected. Follow-up
-> (non-blocking for the signal smoke): debounce/coalesce forming-bar pushes to
-> the last update per (symbol, bar-minute), or only forward on bar close, so
-> intraday cadence is sustained without drops.
+> **Operational finding (intraday back-pressure) — ✅ RESOLVED 2026-06-15**: at
+> `KLType_1Min`, moomoo pushes the *forming* bar many times per second per symbol
+> (~16/s × 12 syms). The original `MoomooFeed` forwarded EVERY push, so the push
+> channel (default buffer 1024) saturated and the runner logged `moomoo feed push
+> channel full; dropping bar (consumer fell behind)` (~800 warns/2 min); the
+> signal-engine loop could not drain the forming-bar flood, so after the first ~2
+> minutes the intent cadence stalled until the session was restarted. The engine's
+> `ErrTimeReversal` guard also meant only the FIRST (incomplete) forming bar of
+> each minute was ever processed — so signals were computed on the forming bar,
+> not the close.
+>
+> **Fix** (`internal/runner/feed.go`, feed path only — no engine/strategy/exec
+> change): `PushHandler` now maintains a per-symbol mutex-guarded `pending` forming
+> bar and emits via **close-detect** — on a strictly-newer `barTS` it emits the
+> just-closed prior bar (final OHLCV) and tracks the new one; same `barTS`
+> coalesces (keep latest, emit nothing); older `barTS` is ignored. `FlushPending`
+> (called from `Open`'s ctx-cancel drain) emits the last still-forming minute at
+> shutdown. The daily (`KLType_Day`) path is unchanged (direct forward). This
+> collapses the ~16/s/symbol flood to ONE closed emit per (symbol, minute) IN TS
+> ORDER, so the channel never saturates and the engine sees the CLOSED bar.
+>
+> **Deterministic proof** (`internal/runner/feed_coalesce_test.go`, `-race`):
+> 1152 forming pushes (12 syms × 6 min × 16/min) collapse to 60 closed emits (19×
+> reduction) with a deliberately tiny 64-slot buffer and **ZERO drops**; each emit
+> carries the minute's FINAL OHLCV in strict TS order; pending map bounded to
+> `#symbols`; daily path verified un-coalesced. Full `go test ./... -race`,
+> livengine cross-path (`TestLiveStreamEqualsBatchReplay`,
+> `TestBatchEqualsStreamingIntents`), determinism, and Nautilus parity all green.
+>
+> **Real-OpenD sustained-cadence re-verify** (2026-06-15, market OPEN, ~11:04 ET):
+> `tmsgo-live` signal mode → real OpenD (`host.docker.internal:11111`),
+> `KLType_1Min`, 11-ETF `sector_rotation` universe, run for ~5 min of market time.
+> - **Dropped-bar warnings: `0`** over the full run (was ~800/2 min before) —
+>   `grep -c "dropping bar"` and `"push channel full"` both `0`; zero `warn`/`error`
+>   log lines total.
+> - **Sustained per-minute cadence with NO stall, NO restart**: `tms.signal_intents`
+>   shows generations 1→6 at bar-ts `15:04:00, 15:05:00, …, 15:09:00`, each with
+>   **11 intents across all 11 ETFs** (11×6 = 66 rows, one full-universe generation
+>   per minute) — the prior ~2-min stall is gone, the container stayed `healthy`
+>   the whole time.
+> - **Intents on the CLOSED bar**: every intent `ts` is minute-aligned
+>   (`EXTRACT(second FROM ts)=0` for all rows) — the engine processed the final
+>   minute bar, not the forming bar.
+> - **Zero-order invariant intact**: `tms.orders=0`, `tms.fills=0`,
+>   `tms.positions=0`, `tms.trades=0`; no `Trd_*`/unlock/password in any log;
+>   NoopExecutor throughout. Graceful SIGTERM drain (FlushPending) clean.
 >
 > Reproduce: seed warmup daily bars from real OpenD (`tmp/realopend_loader`),
 > bring up `--profile app`, then `tmsgo-live` with command override

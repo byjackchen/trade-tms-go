@@ -16,6 +16,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -52,6 +53,36 @@ type MoomooFeed struct {
 	// client's Options before Start). The feed drains it into the BarEvent
 	// stream the live loop consumes.
 	pushCh chan domain.Bar
+
+	// coalesce gates the per-symbol pending-bar close-detect path. For intraday
+	// K-line types (e.g. KLType_1Min) moomoo re-pushes the FORMING (current) bar
+	// many times per second; without coalescing those ~16x/sec/symbol forming
+	// pushes saturate pushCh and the engine (which rejects same-TS events as time
+	// reversals) only ever sees the FIRST, incomplete bar of each minute. With
+	// coalescing the feed emits exactly ONE bar per (symbol, period) downstream —
+	// the CLOSED (final OHLCV) one, detected when a strictly-newer barTS arrives.
+	// The daily path (one push per day already) keeps the original direct forward,
+	// preserving its prompt-forward + flush-on-close semantics.
+	coalesce bool
+	mu       sync.Mutex            // guards pending
+	pending  map[string]domain.Bar // per-symbol forming bar awaiting close
+}
+
+// intraday reports whether kl is a sub-daily K-line type whose pushes carry a
+// forming (not-yet-closed) current bar that must be coalesced + close-detected.
+// Day/Week/Month/Quarter/Year push one closed bar per period and need no gating.
+func intraday(kl qotcommon.KLType) bool {
+	switch kl {
+	case qotcommon.KLType_KLType_1Min,
+		qotcommon.KLType_KLType_3Min,
+		qotcommon.KLType_KLType_5Min,
+		qotcommon.KLType_KLType_15Min,
+		qotcommon.KLType_KLType_30Min,
+		qotcommon.KLType_KLType_60Min:
+		return true
+	default:
+		return false
+	}
 }
 
 // NewMoomooFeed builds a feed for the given universe + K-line type. buffer sizes
@@ -63,30 +94,103 @@ func NewMoomooFeed(symbols []string, kl qotcommon.KLType, buffer int, log zerolo
 		buffer = 1024
 	}
 	return &MoomooFeed{
-		symbols: symbols,
-		kl:      kl,
-		buffer:  buffer,
-		log:     log.With().Str("component", "moomoo-feed").Logger(),
-		pushCh:  make(chan domain.Bar, buffer),
+		symbols:  symbols,
+		kl:       kl,
+		buffer:   buffer,
+		log:      log.With().Str("component", "moomoo-feed").Logger(),
+		pushCh:   make(chan domain.Bar, buffer),
+		coalesce: intraday(kl),
+		pending:  make(map[string]domain.Bar),
 	}
 }
 
 // PushHandler is the moomoo.KLineHandler to wire into the client's
-// Options.OnKLine. It forwards each pushed bar onto the feed's internal channel,
-// dropping (with a warning) only if the consumer has fallen catastrophically
-// behind (back-pressure safety — a wedged consumer must not block the client's
-// single reader goroutine). Bars of the wrong K-line type are ignored.
+// Options.OnKLine. Bars of the wrong K-line type are ignored.
+//
+// For the daily (and coarser) path each push is already a single CLOSED bar per
+// period, so the bar is forwarded directly (preserving prompt-forward semantics).
+//
+// For the intraday path moomoo re-pushes the FORMING current bar many times per
+// second; PushHandler coalesces per symbol and emits only on close-detect:
+//   - barTS  > pending.TS: the pending bar just CLOSED -> emit pending downstream
+//     (its final OHLCV), then track the new forming bar as pending.
+//   - barTS == pending.TS: same minute still forming -> coalesce (keep the latest
+//     OHLCV as pending; emit nothing).
+//   - barTS  < pending.TS: stale/out-of-order -> ignore.
+//
+// This collapses the ~16x/sec/symbol forming flood to ONE emit per (symbol,
+// period) IN TS ORDER, so pushCh never saturates and the engine sees the closed
+// bar. The pending map holds at most #symbols entries (bounded memory).
 func (f *MoomooFeed) PushHandler(symbol string, kl qotcommon.KLType, bars []domain.Bar) {
 	if kl != f.kl {
 		return
 	}
-	for _, b := range bars {
-		select {
-		case f.pushCh <- b:
-		default:
-			f.log.Warn().Str("symbol", symbol).Time("ts", b.TS).
-				Msg("moomoo feed push channel full; dropping bar (consumer fell behind)")
+	if !f.coalesce {
+		for _, b := range bars {
+			f.emit(symbol, b)
 		}
+		return
+	}
+	for _, b := range bars {
+		f.mu.Lock()
+		prev, ok := f.pending[symbol]
+		switch {
+		case !ok || b.TS.After(prev.TS):
+			// New (later) period started: the previous forming bar (if any) just
+			// closed. Capture it to emit AFTER releasing the lock; never hold the
+			// mutex across a channel send.
+			f.pending[symbol] = b
+			f.mu.Unlock()
+			if ok {
+				f.emit(symbol, prev)
+			}
+		case b.TS.Equal(prev.TS):
+			// Same period still forming: keep the latest OHLCV, emit nothing.
+			f.pending[symbol] = b
+			f.mu.Unlock()
+		default:
+			// Stale (older barTS): ignore.
+			f.mu.Unlock()
+		}
+	}
+}
+
+// FlushPending emits every still-forming pending bar downstream and clears the
+// pending map. It is the close-detect counterpart at stream shutdown: intraday
+// close-detect normally emits a minute's bar when the NEXT minute's first push
+// arrives, so the final (most recent) forming minute has no successor to close
+// it. The runner calls this on ctx cancellation (Open's drain loop) so the last
+// minute is not silently lost. No-op for the daily path (pending stays empty).
+func (f *MoomooFeed) FlushPending() {
+	f.mu.Lock()
+	pend := f.pending
+	f.pending = make(map[string]domain.Bar)
+	f.mu.Unlock()
+	// Emit in deterministic TS-then-symbol order for reproducible shutdown drains.
+	rest := make([]domain.Bar, 0, len(pend))
+	for _, b := range pend {
+		rest = append(rest, b)
+	}
+	sort.Slice(rest, func(i, j int) bool {
+		if rest[i].TS.Equal(rest[j].TS) {
+			return rest[i].Symbol < rest[j].Symbol
+		}
+		return rest[i].TS.Before(rest[j].TS)
+	})
+	for _, b := range rest {
+		f.emit(b.Symbol, b)
+	}
+}
+
+// emit forwards a (closed) bar onto the feed's internal channel, dropping (with a
+// warning) only if the consumer has fallen catastrophically behind (back-pressure
+// safety — a wedged consumer must not block the client's single reader goroutine).
+func (f *MoomooFeed) emit(symbol string, b domain.Bar) {
+	select {
+	case f.pushCh <- b:
+	default:
+		f.log.Warn().Str("symbol", symbol).Time("ts", b.TS).
+			Msg("moomoo feed push channel full; dropping bar (consumer fell behind)")
 	}
 }
 
@@ -101,7 +205,22 @@ func (f *MoomooFeed) Open(ctx context.Context) (core.StreamSource, error) {
 		for {
 			select {
 			case <-ctx.Done():
-				return
+				// Stream shutdown: flush the final still-forming intraday bar(s)
+				// (no successor push will close them), then drain whatever is
+				// already buffered in pushCh into ch best-effort, and exit.
+				f.FlushPending()
+				for {
+					select {
+					case b := <-f.pushCh:
+						select {
+						case ch <- core.StreamEvent{Event: core.BarEvent{Bar: b}}:
+						default:
+							return
+						}
+					default:
+						return
+					}
+				}
 			case b := <-f.pushCh:
 				select {
 				case ch <- core.StreamEvent{Event: core.BarEvent{Bar: b}}:
