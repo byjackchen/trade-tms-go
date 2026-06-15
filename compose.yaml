@@ -11,7 +11,7 @@
 # (all app + live services active):
 #   docker compose --profile app up -d
 
-name: tms
+name: tmsgo
 
 services:
   postgres:
