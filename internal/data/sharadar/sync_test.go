@@ -81,6 +81,11 @@ func (f *fakeClient) callDatasets() []string {
 type memStore struct {
 	lastSync map[string]time.Time
 	counts   map[string]int64
+	// frontier holds an explicit DATA frontier per dataset (the max stored
+	// bar/datekey date). When a dataset has an entry, DataFrontier returns it
+	// with ok=true; otherwise ok=false (EnsureFresh then falls back to the
+	// lastSync watermark date). Real pgStore reads this from tms.bars_daily.
+	frontier map[string]calendar.Date
 
 	merged      map[string]map[string][]any // dataset -> key -> row
 	tickers     [][]any
@@ -107,6 +112,7 @@ func newMemStore() *memStore {
 	return &memStore{
 		lastSync:  map[string]time.Time{},
 		counts:    map[string]int64{},
+		frontier:  map[string]calendar.Date{},
 		merged:    map[string]map[string][]any{},
 		failMerge: map[string]error{},
 	}
@@ -115,6 +121,11 @@ func newMemStore() *memStore {
 func (m *memStore) Watermark(_ context.Context, dataset string) (time.Time, int64, bool, error) {
 	ts, ok := m.lastSync[dataset]
 	return ts, m.counts[dataset], ok, nil
+}
+
+func (m *memStore) DataFrontier(_ context.Context, dataset string) (calendar.Date, bool, error) {
+	d, ok := m.frontier[dataset]
+	return d, ok, nil
 }
 
 func (m *memStore) RecordSync(_ context.Context, dataset string, rowCount int64) error {
@@ -309,6 +320,77 @@ func TestEnsureFreshAlreadyFresh(t *testing.T) {
 	assert.False(t, report.DidWork())
 	assert.Zero(t, report.DaysAttempted)
 	assert.Empty(t, fc.calls)
+}
+
+// TestEnsureFreshDataFrontierDrivesCatchupAfterImport is the data-freshness
+// regression: after a bulk parquet import the watermark records last_sync=now
+// (today) even though the newest stored bar is days old. Keying the catchup
+// window off last_sync would compute an empty window and skip catchup ("store
+// fresh"); the fix keys it off the DATA frontier (max stored SEP date), so
+// the missing days through T-1 are caught up with no manual watermark reset.
+func TestEnsureFreshDataFrontierDrivesCatchupAfterImport(t *testing.T) {
+	fc := &fakeClient{responses: map[string]fakeResponse{
+		"SHARADAR/SEP":     sepRows("AAPL"),
+		"SHARADAR/SFP":     sepRows("SPY"),
+		"SHARADAR/TICKERS": tickersUniverseResponse(),
+		"SHARADAR/SF1":     sf1Response(1),
+		"SHARADAR/EVENTS":  eventsResponse(1),
+	}}
+	ms := newMemStore()
+	// Importer parity: last_sync = now (today, NY), but the data frontier is
+	// 2026-05-27 (the newest imported bar). Clock is Fri 2026-06-12 -> T-1 =
+	// Thu 2026-06-11.
+	lastSyncAt(t, ms, DatasetSEP, 2026, time.June, 12)
+	ms.frontier[DatasetSEP] = calendar.NewDate(2026, time.May, 27)
+	s := newTestSyncer(t, fc, ms)
+
+	report, err := s.EnsureFresh(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, report.SkippedReason, "must NOT skip as not-bootstrapped")
+	assert.True(t, report.DidWork(), "must catch up from the data frontier, not report 'store fresh'")
+
+	// Window [2026-05-27, 2026-06-11] inclusive over NYSE trading days. The
+	// first per-day SEP call carries the frontier date itself (idempotent
+	// repull); the last carries T-1.
+	require.NotEmpty(t, fc.calls)
+	assert.Equal(t, DateRangeFilters("2026-05-27", "2026-05-27"), fc.calls[0].filters,
+		"catchup starts at the data frontier, not last_sync")
+
+	cal, err := calendar.NewNYSE()
+	require.NoError(t, err)
+	wantDays := tradingDays(cal, calendar.NewDate(2026, time.May, 27), calendar.NewDate(2026, time.June, 11))
+	assert.Equal(t, len(wantDays), report.DaysAttempted)
+	assert.Greater(t, report.DaysAttempted, 0)
+
+	// The last per-day bar call (SEP then SFP interleaved -> SFP at index
+	// 2*len-1) targets T-1.
+	lastBarCall := fc.calls[2*len(wantDays)-1]
+	assert.Equal(t, DateRangeFilters("2026-06-11", "2026-06-11"), lastBarCall.filters,
+		"catchup runs through T-1")
+}
+
+// TestEnsureFreshFrontierFallsBackToWatermark proves the watermark date is
+// still the basis when the data table is empty (ok=false), preserving the
+// pre-fix behavior for the degraded/empty-table case.
+func TestEnsureFreshFrontierFallsBackToWatermark(t *testing.T) {
+	fc := &fakeClient{responses: map[string]fakeResponse{
+		"SHARADAR/SEP":     sepRows("AAPL"),
+		"SHARADAR/SFP":     sepRows("SPY"),
+		"SHARADAR/TICKERS": tickersUniverseResponse(),
+		"SHARADAR/SF1":     sf1Response(1),
+		"SHARADAR/EVENTS":  eventsResponse(1),
+	}}
+	ms := newMemStore()
+	// No frontier entry (table empty); watermark is 2026-06-08.
+	lastSyncAt(t, ms, DatasetSEP, 2026, time.June, 8)
+	s := newTestSyncer(t, fc, ms)
+
+	report, err := s.EnsureFresh(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, fc.calls)
+	assert.Equal(t, DateRangeFilters("2026-06-08", "2026-06-08"), fc.calls[0].filters,
+		"fallback to the watermark date when no data frontier exists")
+	assert.Greater(t, report.DaysAttempted, 0)
 }
 
 func TestEnsureFreshFullFlowOracle(t *testing.T) {

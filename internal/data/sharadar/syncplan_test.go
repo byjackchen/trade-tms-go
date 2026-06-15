@@ -111,14 +111,11 @@ func TestTradingDays(t *testing.T) {
 }
 
 func TestCatchupWindow(t *testing.T) {
-	cal, err := calendar.NewNYSE()
-	require.NoError(t, err)
-	ny := cal.Location()
-
-	// A sync at 2026-06-10 01:30 UTC is 2026-06-09 21:30 in New York: the
-	// watermark date is the NY date (locked decision 2), and target = T-1.
-	last := time.Date(2026, time.June, 10, 1, 30, 0, 0, time.UTC)
-	start, target := catchupWindow(last, d(2026, time.June, 12), ny)
+	// catchupWindow now takes the start basis (the data frontier, or a
+	// fallback watermark date) as a calendar.Date directly — the NY
+	// normalization happens in the caller. start = basis (frontier repulled,
+	// idempotent), target = T-1.
+	start, target := catchupWindow(d(2026, time.June, 9), d(2026, time.June, 12))
 	assert.Equal(t, d(2026, time.June, 9), start)
 	assert.Equal(t, d(2026, time.June, 11), target)
 }

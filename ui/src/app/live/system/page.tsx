@@ -3,6 +3,7 @@ import { LiveIndicator } from "@/components/live/live-indicator";
 import { LiveTabs } from "@/components/live/live-tabs";
 import { SystemPanel } from "@/components/live/system-panel";
 import { SessionControls } from "@/components/live/session-controls";
+import { PreflightPanel } from "@/components/live/preflight-panel";
 
 export default function LiveSystemPage() {
   return (
@@ -23,6 +24,7 @@ export default function LiveSystemPage() {
           <SystemPanel />
           <SessionControls />
         </div>
+        <PreflightPanel />
       </main>
     </>
   );

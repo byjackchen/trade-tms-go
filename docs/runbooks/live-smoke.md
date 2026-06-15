@@ -247,6 +247,54 @@ tms live --mode signal --trader-id SIGNAL-GATE-001 --strategy sector_rotation
 The real-vs-mock switch is config-only (`TMS_MOOMOO_ADDR`): the same node code
 runs against the mock in the gate and real OpenD at market hours.
 
+## Go-live preflight (REQUIRED — all-pass before paper/live)
+
+Before any paper/live session, the **go-live preflight** must pass. It is enforced
+by the system, not by eyeball: `tms live` runs it at startup and **REFUSES to
+start** if any BLOCKER fails (an earlier audit found three latent gaps —
+SEPA-only warmup, stale data, the freshness watermark bug — each of which a
+preflight would have blocked). The same checks back `GET /api/v1/live/preflight`
+and the UI System page **Go-live preflight** panel.
+
+The checks (each a real query/probe):
+
+| check | probe | severity |
+|---|---|---|
+| `PG_REACHABLE` | Postgres ping | blocker |
+| `REDIS_REACHABLE` | Redis ping (control-plane notify + streams) | blocker |
+| `DATA_CURRENT` | data **frontier** (the same frontier `EnsureFresh` uses) ≥ T-1 NYSE date within `--max-stale-days`, evaluated as the **oldest** frontier across every dataset the session trades — SEP always, **plus SFP** when a sector/pairs leg is enabled (the sector ETFs / SPY / pair legs are SFP-sourced funds, so a fresh-SEP/stale-SFP split is caught) | blocker (paper/live); **warn** (signal) |
+| `UNIVERSE_RESOLVABLE` | `ListUniverseForWindow` non-empty survivor-bias-free set | blocker (sepa/multi) |
+| `MARKET_DATA_FUNDAMENTALS` | SF1 market caps present + populated for the SEPA universe (the earlier all-degenerate bug) | blocker (sepa/multi) |
+| `WARMUP_AVAILABLE` | each ENABLED strategy has enough historical bars for its lookback (SEPA 200 / sector momentum_lookback / pairs OLS lookback) for **its** universe | blocker |
+| `PARAMS_PROMOTED` | each strategy on a promoted `active_params` row (not baseline) | warn |
+| `OPEND_REACHABLE` | OpenD connect + `GetGlobalState` | blocker (paper/live); skipped/warn (signal) |
+
+Run the standalone preflight (exit 0 = all blockers pass, 1 = a blocker failed):
+
+```sh
+# dry-check a signal session (DATA_CURRENT + OpenD are advisory):
+tms live preflight --mode signal --strategy multi
+
+# the REQUIRED paper/live gate — every blocker must pass, OpenD is probed:
+export TMS_MOOMOO_ADDR=host.docker.internal:11111   # or the mock port
+tms live preflight --mode paper --strategy multi --check-opend
+echo "exit=$?"   # MUST be 0 before starting a paper/live session
+
+# JSON for tooling / CI:
+tms live preflight --mode paper --strategy multi --json | jq .ok   # must be true
+```
+
+`tms live` runs the same gate automatically: a failing blocker aborts startup with
+a non-zero exit and the failing checks logged. `--skip-preflight` overrides the
+gate (loud warning) for **paper/signal only** — it is **REFUSED for `--mode live`**
+(real money): the preflight is mandatory and non-overridable for a live start, so an
+operator cannot begin real-money trading with the preconditions unverified.
+
+A common blocker is `DATA_CURRENT` after a fresh parquet import: the data frontier
+is days behind T-1. Run the daily sync first (`POST /api/v1/data/sync-now`, or wait
+for the scheduler) so `EnsureFresh` catches the frontier up to T-1, then re-run the
+preflight — it should flip to PASS with no manual watermark reset.
+
 ## Deferred manual smoke (Build2, market hours, user confirms OpenD login)
 
 Preconditions:

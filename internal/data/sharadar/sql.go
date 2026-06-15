@@ -162,7 +162,34 @@ const tickersDeleteMissingSQL = "DELETE FROM tms.tickers t WHERE NOT EXISTS (SEL
 // wall-clock sync time, row_count is the rows written by this run
 // (bootstrap semantics — the importer is a bulk load, not an incremental
 // catchup).
+//
+// Note (data-freshness): last_sync is an OPERATION timestamp, not a data
+// frontier — after a bulk parquet import it equals "now" even though the
+// newest bar may be days old. The catchup window is therefore driven by the
+// actual data frontier (frontierSQL below / DataFrontier), never by
+// last_sync. last_sync is retained only for the SF1/EVENTS lastupdated.gte
+// incremental filter (spec §6.6) and operational observability.
 const datasetSyncSQL = `
 INSERT INTO tms.dataset_sync (dataset, last_sync, row_count)
 VALUES ($1, now(), $2)
 ON CONFLICT (dataset) DO UPDATE SET last_sync = EXCLUDED.last_sync, row_count = EXCLUDED.row_count`
+
+// frontierSQL maps each dated dataset to the query returning the maximum
+// stored DATA date — the "how current is the data" source of truth shared
+// by EnsureFresh's catchup window and the go-live preflight (task 2).
+//
+//   - SEP/SFP: max(ts) of tms.bars_daily filtered by source. ts is the
+//     trading date at UTC midnight, so its UTC calendar date IS the bar
+//     date (no timezone shift). The (source, ts) prefix of the primary key
+//     makes this an index-only max.
+//   - SF1: max(datekey) — the filing/point-in-time key (spec §2.3).
+//   - EVENTS: max(event_date).
+//
+// TICKERS has no date column (full-overwrite universe) and is intentionally
+// absent: DataFrontier returns ok=false for it.
+var frontierSQL = map[string]string{
+	DatasetSEP:    "SELECT max(ts) FROM tms.bars_daily WHERE source = 'SEP'",
+	DatasetSFP:    "SELECT max(ts) FROM tms.bars_daily WHERE source = 'SFP'",
+	DatasetSF1:    "SELECT max(datekey)::timestamptz FROM tms.fundamentals_sf1",
+	DatasetEvents: "SELECT max(event_date)::timestamptz FROM tms.events",
+}

@@ -948,6 +948,27 @@ export type SystemResponse = {
   metrics: SystemMetrics;
 };
 
+// ---- /api/v1/live/preflight (go-live precondition report) ----
+
+/** One preflight precondition check result. */
+export type PreflightResult = {
+  check: string;
+  /** pass | warn | fail | skip */
+  status: string;
+  /** blocker | warn */
+  severity: string;
+  detail: string;
+};
+
+/** GET /api/v1/live/preflight body: the go/no-go report. ok is the verdict bit. */
+export type PreflightReport = {
+  mode: string;
+  strategy: string;
+  ts: string;
+  ok: boolean;
+  checks: PreflightResult[];
+};
+
 // ---- /api/v1/audit (append-only operational audit trail) ----
 
 /** One tms.audit_log row. entity/entity_id/details are optional. */

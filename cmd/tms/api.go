@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
+	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/api"
 	"github.com/byjackchen/trade-tms-go/internal/apistore"
 	"github.com/byjackchen/trade-tms-go/internal/app"
@@ -26,6 +27,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt/study"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
 	"github.com/byjackchen/trade-tms-go/internal/params/paramsdb"
+	"github.com/byjackchen/trade-tms-go/internal/preflight"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
 	"github.com/byjackchen/trade-tms-go/internal/scheduler"
 )
@@ -128,6 +130,26 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		syncForcer = nil
 	}
 
+	// Go-live preflight runner for GET /api/v1/live/preflight: the same PG /
+	// sharadar / moomoo probes the CLI + startup gate use. The OpenD probe targets
+	// TMS_MOOMOO_ADDR (or the config / local default) so the API can answer
+	// "is the broker reachable" without holding its own socket.
+	preflightMoomooAddr := strings.TrimSpace(os.Getenv("TMS_MOOMOO_ADDR"))
+	if preflightMoomooAddr == "" {
+		preflightMoomooAddr = env.cfg.MoomooAddr
+	}
+	if preflightMoomooAddr == "" {
+		preflightMoomooAddr = "127.0.0.1:11111"
+	}
+	preflightRunner := newPreflightAdapter(preflight.NewPGProbes(preflight.PGProbesConfig{
+		Pool:      pool,
+		Calendar:  cal,
+		Redis:     redisClient,
+		ParamsDir: env.cfg.StrategyParamsDir,
+		MoomooCfg: moomoo.Options{Addr: preflightMoomooAddr, MaxSubscriptions: env.cfg.MoomooMaxSub, Logger: log},
+		Log:       log,
+	}))
+
 	pgStore := apistore.NewPGStore(pool)
 	srv, err := api.NewServer(api.Deps{
 		Log:         log,
@@ -158,6 +180,9 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		// Sync forces the daily incremental-sync pipeline immediately
 		// (POST /api/v1/data/sync-now); nil here degrades that endpoint to 503.
 		Sync: syncForcer,
+		// Preflight backs GET /api/v1/live/preflight (the go-live precondition
+		// report the UI System page renders).
+		Preflight: preflightRunner,
 	})
 	if err != nil {
 		return err

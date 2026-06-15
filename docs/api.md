@@ -922,6 +922,47 @@ the snapshot is the flat-book informational NAV (day P&L 0, no halt — decision
   "halt_headroom_pct": 0, "concentration_pct": 0, "ts": "2026-06-12T13:30:00Z" }
 ```
 
+### `GET /api/v1/live/preflight?mode=&strategy=&tickers=&orb_symbol=&check_opend=&max_stale_days=`
+
+The **go-live preflight** report: the structured precondition checks that must
+pass before a paper/live (and, with relaxed severity, a signal) session is
+started. Always `200` with the report in the body — a failing preflight is a
+valid, expected response (the `ok` bool is the go/no-go bit), not an HTTP error.
+`503 {"error":{"code":"unavailable",...}}` when the API has no preflight runner
+wired (signal-only deployment).
+
+Query params (all optional): `mode` (`signal`\|`paper`\|`live`, default
+`signal`), `strategy` (`sepa`\|`sector_rotation`\|`pairs`\|`orb`\|`multi`,
+default `multi`), `tickers` (comma-separated SEPA universe; empty resolves the
+default SF1 window universe), `orb_symbol`, `check_opend` (`1`/`true` to probe
+OpenD even in signal mode), `max_stale_days` (DATA_CURRENT tolerance, default
+`1`).
+
+```json
+{
+  "mode": "paper", "strategy": "multi", "ts": "2026-06-12T13:30:00Z", "ok": false,
+  "checks": [
+    { "check": "PG_REACHABLE",            "status": "pass", "severity": "blocker", "detail": "reachable" },
+    { "check": "REDIS_REACHABLE",         "status": "pass", "severity": "blocker", "detail": "reachable" },
+    { "check": "DATA_CURRENT",            "status": "fail", "severity": "blocker", "detail": "data frontier 2026-05-27 is 9 trading day(s) behind T-1 2026-06-11 (tolerance 1) — run a sync before go-live" },
+    { "check": "UNIVERSE_RESOLVABLE",     "status": "pass", "severity": "blocker", "detail": "412-name SEPA universe resolvable for [2025-05-08, 2026-06-11]" },
+    { "check": "MARKET_DATA_FUNDAMENTALS","status": "pass", "severity": "blocker", "detail": "401/412 SEPA names have market caps (97%)" },
+    { "check": "WARMUP_AVAILABLE",        "status": "pass", "severity": "blocker", "detail": "all 3 strategies have enough warmup bars (45 symbols probed)" },
+    { "check": "PARAMS_PROMOTED",         "status": "warn", "severity": "warn",    "detail": "running on un-promoted params: pairs (baseline) — live runs but consider promoting tuned params" },
+    { "check": "OPEND_REACHABLE",         "status": "pass", "severity": "blocker", "detail": "OpenD connected, GetGlobalState ok" }
+  ]
+}
+```
+
+Severity is resolved **per mode**: `DATA_CURRENT` and `OPEND_REACHABLE` are
+`blocker` for paper/live but advisory (`warn`, and `OPEND` is `skip`ped without
+`check_opend`) for signal. `PARAMS_PROMOTED` is always a `warn` (live still runs
+on baseline params; the operator is flagged). `ok` is `true` iff **no blocker
+check failed**. The same report is what `tms live` enforces at startup and
+`tms live preflight` prints. At `tms live` startup the gate is **mandatory and
+non-overridable for `--mode live`** (real money): `--skip-preflight` is accepted
+only for paper/signal and refused with a hard error for a live start.
+
 ### `GET /api/v1/watchlist`
 
 The distinct symbols the recent sessions emitted intents for (the tracked

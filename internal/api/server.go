@@ -54,6 +54,9 @@ type Deps struct {
 	// Sync forces the daily incremental-sync pipeline (POST
 	// /api/v1/data/sync-now). Optional: when nil that endpoint returns 503.
 	Sync SyncForcer
+	// Preflight runs the go-live preflight for GET /api/v1/live/preflight.
+	// Optional: when nil that endpoint returns 503 (preflight not wired).
+	Preflight PreflightRunner
 	// Now overrides the clock (tests); nil = time.Now.
 	Now func() time.Time
 }
@@ -78,6 +81,7 @@ type Server struct {
 	system      SystemReader
 	audit       AuditReader
 	sync        SyncForcer
+	preflight   PreflightRunner
 	hub         *Hub
 	now         func() time.Time
 }
@@ -124,6 +128,7 @@ func NewServer(d Deps) (*Server, error) {
 		system:      d.System,
 		audit:       d.Audit,
 		sync:        d.Sync,
+		preflight:   d.Preflight,
 		hub:         NewHub(log, d.CORSOrigins),
 		now:         now,
 	}, nil
@@ -206,6 +211,7 @@ func (s *Server) Routes() *chi.Mux {
 			r.Get("/live/session", s.handleLiveSession)
 			r.Get("/live/intents", s.handleLiveIntents)
 			r.Get("/live/health", s.handleLiveHealth)
+			r.Get("/live/preflight", s.handleLivePreflight)
 			r.Get("/watchlist", s.handleWatchlist)
 			// Paper/live trading read surface (P6 task 6).
 			r.Get("/live/orders", s.handleLiveOrders)

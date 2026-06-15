@@ -44,6 +44,7 @@ import type {
   LiveAccount,
   LiveReconciliationResponse,
   SystemResponse,
+  PreflightReport,
   AuditResponse,
   JobRetryResponse,
 } from "./types";
@@ -487,6 +488,31 @@ export function useLiveHealth(): UseQueryResult<LiveHealth, Error> {
     // Minute cadence on the producer; poll at 20s so the strip stays fresh
     // between WS pushes without hammering.
     refetchInterval: 20000,
+    retry: liveRetry,
+  });
+}
+
+/**
+ * Go-live preflight report for a session (mode/strategy). Surfaces the
+ * precondition checks (data freshness, warmup, caps, universe, OpenD, PG/Redis)
+ * the System page renders. A 503 means the API has no preflight runner wired.
+ */
+export function useLivePreflight(
+  params: { mode?: string; strategy?: string; check_opend?: boolean } = {},
+): UseQueryResult<PreflightReport, Error> {
+  const mode = params.mode ?? "signal";
+  const strategy = params.strategy ?? "multi";
+  return useQuery({
+    queryKey: ["live", "preflight", mode, strategy, params.check_opend ?? false],
+    queryFn: () =>
+      apiGet<PreflightReport>("live/preflight", {
+        mode,
+        strategy,
+        check_opend: params.check_opend ? "1" : undefined,
+      }),
+    // Preconditions drift (a sync completes, params get promoted); re-poll so the
+    // panel stays current without a manual refresh.
+    refetchInterval: 30000,
     retry: liveRetry,
   });
 }

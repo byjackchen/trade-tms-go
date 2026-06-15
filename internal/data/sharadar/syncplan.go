@@ -86,18 +86,26 @@ func tradingDays(cal *calendar.Calendar, start, end calendar.Date) []calendar.Da
 	return out
 }
 
-// catchupWindow derives the per-day SEP/SFP refresh range from the SEP
-// watermark (spec §8.2 steps 3-4): start = the calendar date of the
-// previous sync, target = today - 1 (T-1). The repull of the previous
-// sync's own date is by design — idempotent merges make the overlap safe.
+// catchupWindow derives the per-day SEP/SFP refresh range (spec §8.2 steps
+// 3-4): start = startBasis (the newest stored SEP data date — the data
+// frontier — or, as a fallback, the calendar date of the previous sync
+// operation), target = today - 1 (T-1). The repull of startBasis's own date
+// is by design — idempotent merges make the overlap safe, and it guarantees
+// a revised bar for the frontier day is picked up.
 //
-// Deviation note (P1 locked decision 2 [IMPROVE]): "today" and the
-// watermark date are both taken as America/New_York trading dates via
-// internal/data/calendar, where the original mixed UTC (catchup.py:109)
-// and local dates (sync CLI). Documented in docs/spec/data-sharadar.md
-// addendum.
-func catchupWindow(lastSEPSync time.Time, today calendar.Date, loc *time.Location) (start, target calendar.Date) {
-	return calendar.DateOf(lastSEPSync, loc), today.AddDays(-1)
+// Root-fix note (data-freshness): the basis is the DATA frontier, not the
+// last_sync OPERATION timestamp. A bulk parquet import to 2026-05-27 records
+// last_sync=now; keying the window off that timestamp produced an empty
+// window ("store fresh") and the daily auto-sync never caught up. Driving
+// the window off max(ts) in tms.bars_daily makes the data the source of
+// truth: import-to-2026-05-27 then EnsureFresh yields [2026-05-27, T-1].
+//
+// Deviation note (P1 locked decision 2 [IMPROVE]): "today" is the
+// America/New_York trading date via internal/data/calendar, where the
+// original mixed UTC (catchup.py:109) and local dates (sync CLI). Documented
+// in docs/spec/data-sharadar.md addendum.
+func catchupWindow(startBasis, today calendar.Date) (start, target calendar.Date) {
+	return startBasis, today.AddDays(-1)
 }
 
 // batchTickers splits tickers into batches of size (the Python

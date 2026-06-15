@@ -112,6 +112,13 @@ type syncStore interface {
 	// Watermark reads tms.dataset_sync for dataset; synced=false when the
 	// dataset has never been synced (no row or NULL last_sync).
 	Watermark(ctx context.Context, dataset string) (lastSync time.Time, rowCount int64, synced bool, err error)
+	// DataFrontier reads the maximum stored DATA date for dataset from the
+	// target table itself (the single source of truth for "how current is
+	// the data", shared by the freshness check and the go-live preflight):
+	// max(ts) per source for SEP/SFP, max(datekey) for SF1, max(event_date)
+	// for EVENTS. ok=false when the table holds no rows for the dataset
+	// (TICKERS has no date column and always returns ok=false).
+	DataFrontier(ctx context.Context, dataset string) (frontier calendar.Date, ok bool, err error)
 	// RecordSync upserts the watermark: last_sync = now, row_count as given
 	// (CacheMeta.record_sync parity, spec §5).
 	RecordSync(ctx context.Context, dataset string, rowCount int64) error
@@ -214,11 +221,29 @@ func (s *Syncer) EnsureFresh(ctx context.Context) (*CatchupReport, error) {
 		return report, nil
 	}
 
+	// Data-frontier gate (root fix): the catchup window starts at the actual
+	// newest stored SEP bar, NOT the last_sync OPERATION timestamp. A bulk
+	// parquet import sets last_sync=now while leaving the data frontier days
+	// behind; keying off last_sync there computed an empty window and the
+	// daily auto-sync silently skipped the missing days. Reading the frontier
+	// from tms.bars_daily makes the data the source of truth. The watermark
+	// date is only the fallback when the bars table is somehow empty despite
+	// a recorded sync (degraded universe / pathological state).
+	frontier, haveFrontier, err := s.store.DataFrontier(ctx, DatasetSEP)
+	if err != nil {
+		return report, fmt.Errorf("sharadar: reading SEP data frontier: %w", err)
+	}
+	startBasis := calendar.DateOf(lastSEP, s.cal.Location())
+	if haveFrontier {
+		startBasis = frontier
+	}
+
 	today := calendar.DateOf(s.now(), s.cal.Location())
-	start, target := catchupWindow(lastSEP, today, s.cal.Location())
+	start, target := catchupWindow(startBasis, today)
 	days := tradingDays(s.cal, start, target)
 	if len(days) == 0 {
-		s.log.Info().Stringer("target", target).Time("last_sync", lastSEP).
+		s.log.Info().Stringer("target", target).Stringer("frontier", startBasis).
+			Bool("from_data_frontier", haveFrontier).Time("last_sync", lastSEP).
 			Msg("store fresh — no catchup needed")
 		return report, nil
 	}
@@ -659,6 +684,25 @@ type pgStore struct {
 	batchSize int
 }
 
+// Store is the public read seam over the Sharadar relational tables. It
+// exposes the data-freshness frontier so the go-live preflight (and any
+// other caller) shares ONE source of truth with the API sync's EnsureFresh
+// — "is the data current" is answered the same way everywhere.
+type Store struct{ st *pgStore }
+
+// NewStore builds a Store over a live pool.
+func NewStore(pool *pgxpool.Pool) *Store {
+	return &Store{st: &pgStore{pool: pool, batchSize: DefaultBatchSize}}
+}
+
+// DataFrontier returns the newest stored DATA date for dataset (SEP/SFP/SF1/
+// EVENTS). ok=false when the dataset has no rows yet or has no date column
+// (TICKERS). This is the same query EnsureFresh uses to decide the catchup
+// window, so the preflight's staleness check cannot diverge from it.
+func (s *Store) DataFrontier(ctx context.Context, dataset string) (calendar.Date, bool, error) {
+	return s.st.DataFrontier(ctx, dataset)
+}
+
 func (st *pgStore) Watermark(ctx context.Context, dataset string) (time.Time, int64, bool, error) {
 	var (
 		last  *time.Time
@@ -680,6 +724,28 @@ func (st *pgStore) Watermark(ctx context.Context, dataset string) (time.Time, in
 func (st *pgStore) RecordSync(ctx context.Context, dataset string, rowCount int64) error {
 	_, err := st.pool.Exec(ctx, datasetSyncSQL, dataset, rowCount)
 	return err
+}
+
+// DataFrontier returns the newest stored DATA date for dataset (see
+// frontierSQL). ok=false when the dataset has no rows yet or has no date
+// column (TICKERS). The stored date is a UTC-midnight instant whose UTC
+// calendar date IS the trading/filing date (the importer stores bar ts at
+// UTC midnight and casts SF1/EVENTS dates to UTC midnight), so the frontier
+// is read in UTC, not the NY trading location — converting to NY would
+// shift a UTC-midnight instant back to the previous calendar day.
+func (st *pgStore) DataFrontier(ctx context.Context, dataset string) (calendar.Date, bool, error) {
+	q, ok := frontierSQL[dataset]
+	if !ok {
+		return calendar.Date{}, false, nil // TICKERS / unknown: no data frontier
+	}
+	var maxTS *time.Time
+	if err := st.pool.QueryRow(ctx, q).Scan(&maxTS); err != nil {
+		return calendar.Date{}, false, fmt.Errorf("sharadar: reading %s data frontier: %w", dataset, err)
+	}
+	if maxTS == nil {
+		return calendar.Date{}, false, nil // table empty for this dataset
+	}
+	return calendar.DateOf(*maxTS, time.UTC), true, nil
 }
 
 func (st *pgStore) NewMerge(ctx context.Context, dataset string) (rowSink, error) {

@@ -15,9 +15,12 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
+	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/app"
+	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/db"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
+	"github.com/byjackchen/trade-tms-go/internal/preflight"
 	"github.com/byjackchen/trade-tms-go/internal/runner"
 )
 
@@ -35,17 +38,19 @@ import (
 // are deferred to P6 (locked decision 1 + 6).
 func newLiveCmd(env *runtimeEnv) *cobra.Command {
 	var (
-		modeStr      string
-		traderID     string
-		strategy     string
-		tickersCSV   string
-		orbSymbol    string
-		moomooAddr   string
-		startBalance float64
-		barSeconds   int
-		healthAddr   string
-		healthProbe  bool
-		drainTimeout time.Duration
+		modeStr       string
+		traderID      string
+		strategy      string
+		tickersCSV    string
+		orbSymbol     string
+		moomooAddr    string
+		startBalance  float64
+		barSeconds    int
+		healthAddr    string
+		healthProbe   bool
+		drainTimeout  time.Duration
+		skipPreflight bool
+		maxStaleDays  int
 	)
 
 	cmd := &cobra.Command{
@@ -67,16 +72,18 @@ func newLiveCmd(env *runtimeEnv) *cobra.Command {
 				return probeLiveHealth(cmd.Context(), healthAddr)
 			}
 			return runLive(cmd.Context(), env, liveArgs{
-				mode:         strings.TrimSpace(modeStr),
-				traderID:     strings.TrimSpace(traderID),
-				strategy:     strings.TrimSpace(strategy),
-				tickersCSV:   tickersCSV,
-				orbSymbol:    strings.TrimSpace(orbSymbol),
-				moomooAddr:   strings.TrimSpace(moomooAddr),
-				startBalance: startBalance,
-				barSeconds:   barSeconds,
-				healthAddr:   healthAddr,
-				drainTimeout: drainTimeout,
+				mode:          strings.TrimSpace(modeStr),
+				traderID:      strings.TrimSpace(traderID),
+				strategy:      strings.TrimSpace(strategy),
+				tickersCSV:    tickersCSV,
+				orbSymbol:     strings.TrimSpace(orbSymbol),
+				moomooAddr:    strings.TrimSpace(moomooAddr),
+				startBalance:  startBalance,
+				barSeconds:    barSeconds,
+				healthAddr:    healthAddr,
+				drainTimeout:  drainTimeout,
+				skipPreflight: skipPreflight,
+				maxStaleDays:  maxStaleDays,
 			})
 		},
 	}
@@ -92,20 +99,74 @@ func newLiveCmd(env *runtimeEnv) *cobra.Command {
 	cmd.Flags().StringVar(&healthAddr, "health-addr", "", "liveness HTTP listen/probe address (default TMS_WORKER_HEALTH_ADDR)")
 	cmd.Flags().BoolVar(&healthProbe, "health", false, "probe a running live node's /healthz and exit 0/1 (container healthcheck mode)")
 	cmd.Flags().DurationVar(&drainTimeout, "drain-timeout", 10*time.Second, "max wait for in-flight work on shutdown")
+	cmd.Flags().BoolVar(&skipPreflight, "skip-preflight", false, "DANGER: start without the go-live preflight gate (paper/signal only; REFUSED for --mode live)")
+	cmd.Flags().IntVar(&maxStaleDays, "max-stale-days", 1, "DATA_CURRENT tolerance: max trading days the data frontier may lag T-1")
+
+	cmd.AddCommand(newLivePreflightCmd(env))
+	return cmd
+}
+
+// newLivePreflightCmd implements `tms live preflight`: run the go-live precondition
+// checks for a session (mode/strategy/tickers) and print a PASS/FAIL table. Exits 0
+// when all BLOCKER checks pass, 1 otherwise — the machine-enforceable go/no-go gate
+// the operator (and CI) can run before a paper/live session.
+func newLivePreflightCmd(env *runtimeEnv) *cobra.Command {
+	var (
+		modeStr      string
+		strategy     string
+		tickersCSV   string
+		orbSymbol    string
+		moomooAddr   string
+		maxStaleDays int
+		checkOpenD   bool
+		asJSON       bool
+	)
+	cmd := &cobra.Command{
+		Use:   "preflight",
+		Short: "Verify go-live preconditions (data freshness, warmup, caps, universe, OpenD, PG/Redis)",
+		Long: "Runs the structured go-live PREFLIGHT for a session and prints a PASS/FAIL\n" +
+			"table. Each check reports pass | warn | fail with a blocker | warn severity.\n" +
+			"Exit 0 when every BLOCKER passes, 1 otherwise. signal mode treats data\n" +
+			"freshness + OpenD as advisory (warn); paper/live require all blockers. This\n" +
+			"is the same report 'tms live' enforces at startup and GET /api/v1/live/preflight serves.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runLivePreflight(cmd.Context(), env, preflightArgs{
+				mode:         strings.TrimSpace(modeStr),
+				strategy:     strings.TrimSpace(strategy),
+				tickersCSV:   tickersCSV,
+				orbSymbol:    strings.TrimSpace(orbSymbol),
+				moomooAddr:   strings.TrimSpace(moomooAddr),
+				maxStaleDays: maxStaleDays,
+				checkOpenD:   checkOpenD,
+				asJSON:       asJSON,
+			})
+		},
+	}
+	cmd.Flags().StringVar(&modeStr, "mode", "signal", "session mode: signal | paper | live")
+	cmd.Flags().StringVar(&strategy, "strategy", "multi", "strategy: sepa | sector_rotation | pairs | orb | multi")
+	cmd.Flags().StringVar(&tickersCSV, "tickers", "", "comma-separated SEPA stock universe (sepa/multi); empty resolves the default SF1 window universe")
+	cmd.Flags().StringVar(&orbSymbol, "orb-symbol", "", "ORB strategy: the single intraday instrument symbol")
+	cmd.Flags().StringVar(&moomooAddr, "moomoo-addr", "", "moomoo OpenD address for the OpenD probe (default TMS_MOOMOO_ADDR)")
+	cmd.Flags().IntVar(&maxStaleDays, "max-stale-days", 1, "DATA_CURRENT tolerance: max trading days the data frontier may lag T-1")
+	cmd.Flags().BoolVar(&checkOpenD, "check-opend", false, "probe OpenD even in signal mode (paper/live always probe it)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the report as JSON instead of the table")
 	return cmd
 }
 
 type liveArgs struct {
-	mode         string
-	traderID     string
-	strategy     string
-	tickersCSV   string
-	orbSymbol    string
-	moomooAddr   string
-	startBalance float64
-	barSeconds   int
-	healthAddr   string
-	drainTimeout time.Duration
+	mode          string
+	traderID      string
+	strategy      string
+	tickersCSV    string
+	orbSymbol     string
+	moomooAddr    string
+	startBalance  float64
+	barSeconds    int
+	healthAddr    string
+	drainTimeout  time.Duration
+	skipPreflight bool
+	maxStaleDays  int
 }
 
 // runLive assembles and runs the live signal-mode trading node (P5): the native
@@ -156,6 +217,11 @@ func runLive(parent context.Context, env *runtimeEnv, a liveArgs) error {
 	}
 	defer pool.Close()
 
+	cal, err := calendar.NewNYSE()
+	if err != nil {
+		return fmt.Errorf("live: building NYSE calendar: %w", err)
+	}
+
 	// Redis is best-effort transport (decision 5): without it the node still
 	// records intents to PG and the command consumer polls (no Redis notify).
 	redisClient := redis.NewClient(&redis.Options{
@@ -175,6 +241,60 @@ func runLive(parent context.Context, env *runtimeEnv, a liveArgs) error {
 		if t = strings.ToUpper(strings.TrimSpace(t)); t != "" {
 			tickers = append(tickers, t)
 		}
+	}
+
+	// GO-LIVE PREFLIGHT GATE: before starting a session, verify every precondition
+	// (data freshness, per-strategy warmup, market caps, universe, OpenD, PG/Redis).
+	// If any BLOCKER fails, REFUSE to start — the audit found three latent gaps
+	// (SEPA-only warmup, stale data, the freshness bug) that a startup preflight
+	// would have caught. --skip-preflight overrides with a loud warning (operators
+	// who knowingly accept the risk; never the default).
+	//
+	// HARD GUARD (finding 1): --skip-preflight is NEVER honored for mode=live
+	// (real money). Allowing an operator to start REAL-MONEY trading with zero
+	// precondition verification is exactly the bypassable-blocker the preflight
+	// exists to close. For live the preflight is mandatory and non-overridable;
+	// paper/signal may still skip it (loudly).
+	if a.skipPreflight && mode == livengine.ModeLive {
+		return fmt.Errorf("--skip-preflight is refused for mode=live: the go-live preflight is MANDATORY for real-money trading and cannot be bypassed (run `tms live preflight --mode live ...` to see the failing blockers and resolve them)")
+	}
+	if a.skipPreflight {
+		log.Warn().Str("mode", a.mode).Msg("PREFLIGHT SKIPPED (--skip-preflight): starting WITHOUT go-live precondition checks — blockers are NOT enforced (NOT permitted for mode=live)")
+	} else {
+		rep := preflight.Run(ctx, preflight.Config{
+			Mode:                a.mode,
+			Strategy:            a.strategy,
+			Tickers:             tickers,
+			ORBSymbol:           a.orbSymbol,
+			MaxStaleTradingDays: a.maxStaleDays,
+			// paper/live always probe OpenD; in signal mode we do too here (the node
+			// is about to open a live OpenD socket regardless, so an unreachable broker
+			// is worth surfacing — as a warn for signal, a blocker for paper/live).
+			CheckOpenD: true,
+		}, preflight.NewPGProbes(preflight.PGProbesConfig{
+			Pool:      pool,
+			Calendar:  cal,
+			Redis:     redisClient,
+			ParamsDir: env.cfg.StrategyParamsDir,
+			MoomooCfg: moomoo.Options{Addr: moomooAddr, MaxSubscriptions: env.cfg.MoomooMaxSub, Logger: log},
+			Log:       log,
+		}))
+		preflight.RenderTable(os.Stderr, rep) // human-readable table for the operator
+		for _, w := range rep.Warnings() {
+			log.Warn().Str("check", w.Check).Str("detail", w.Detail).Msg("preflight warning")
+		}
+		if !rep.OK {
+			for _, b := range rep.Blockers() {
+				log.Error().Str("check", b.Check).Str("detail", b.Detail).Msg("preflight BLOCKER failed")
+			}
+			// --skip-preflight is offered as an override ONLY for paper/signal; for
+			// mode=live it is refused above, so do not advertise it as an option.
+			if mode == livengine.ModeLive {
+				return fmt.Errorf("go-live preflight failed: %d blocker(s) must be resolved before real-money (live) trading", len(rep.Blockers()))
+			}
+			return fmt.Errorf("go-live preflight failed: %d blocker(s) must be resolved (or pass --skip-preflight to override for paper/signal)", len(rep.Blockers()))
+		}
+		log.Info().Int("checks", len(rep.Checks)).Int("warnings", len(rep.Warnings())).Msg("go-live preflight passed")
 	}
 
 	// Paper/live trading config from the secret env (never logged): the broker
@@ -228,6 +348,102 @@ func runLive(parent context.Context, env *runtimeEnv, a liveArgs) error {
 		}},
 	)
 	return errors.Join(runErr, shutdownErr)
+}
+
+// preflightArgs carries the `tms live preflight` flags.
+type preflightArgs struct {
+	mode         string
+	strategy     string
+	tickersCSV   string
+	orbSymbol    string
+	moomooAddr   string
+	maxStaleDays int
+	checkOpenD   bool
+	asJSON       bool
+}
+
+// runLivePreflight runs the go-live preflight for a session and prints the
+// PASS/FAIL table (or JSON). It returns a non-nil error (so the process exits
+// non-zero) iff any BLOCKER check failed — the machine-checkable go/no-go gate.
+func runLivePreflight(parent context.Context, env *runtimeEnv, a preflightArgs) error {
+	log := env.log.With().Str("cmd", "live-preflight").Str("mode", a.mode).Str("strategy", a.strategy).Logger()
+
+	mode := livengine.Mode(a.mode)
+	if !mode.IsValid() {
+		return fmt.Errorf("--mode %q invalid (want signal|paper|live)", a.mode)
+	}
+
+	moomooAddr := a.moomooAddr
+	if moomooAddr == "" {
+		moomooAddr = strings.TrimSpace(os.Getenv("TMS_MOOMOO_ADDR"))
+	}
+	if moomooAddr == "" {
+		moomooAddr = env.cfg.MoomooAddr
+	}
+	if moomooAddr == "" {
+		moomooAddr = "127.0.0.1:11111"
+	}
+
+	ctx, stop := app.SignalContext(parent)
+	defer stop()
+
+	pool, err := db.NewPool(ctx, env.cfg)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	cal, err := calendar.NewNYSE()
+	if err != nil {
+		return fmt.Errorf("preflight: building NYSE calendar: %w", err)
+	}
+
+	// Redis is probed (a blocker) — build a client without failing if it is down
+	// (the check reports the outage; nil means "not configured" which also fails).
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     env.cfg.RedisAddr,
+		DB:       env.cfg.RedisDB,
+		Password: env.cfg.RedisPassword,
+	})
+	defer func() { _ = redisClient.Close() }()
+
+	var tickers []string
+	for _, t := range strings.Split(a.tickersCSV, ",") {
+		if t = strings.ToUpper(strings.TrimSpace(t)); t != "" {
+			tickers = append(tickers, t)
+		}
+	}
+
+	rep := preflight.Run(ctx, preflight.Config{
+		Mode:                a.mode,
+		Strategy:            a.strategy,
+		Tickers:             tickers,
+		ORBSymbol:           a.orbSymbol,
+		MaxStaleTradingDays: a.maxStaleDays,
+		CheckOpenD:          a.checkOpenD,
+	}, preflight.NewPGProbes(preflight.PGProbesConfig{
+		Pool:      pool,
+		Calendar:  cal,
+		Redis:     redisClient,
+		ParamsDir: env.cfg.StrategyParamsDir,
+		MoomooCfg: moomoo.Options{Addr: moomooAddr, MaxSubscriptions: env.cfg.MoomooMaxSub, Logger: log},
+		Log:       log,
+	}))
+
+	if a.asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(rep); err != nil {
+			return fmt.Errorf("preflight: encoding report: %w", err)
+		}
+	} else {
+		preflight.RenderTable(os.Stdout, rep)
+	}
+
+	if !rep.OK {
+		return fmt.Errorf("preflight FAILED: %d blocker(s)", len(rep.Blockers()))
+	}
+	return nil
 }
 
 // liveHealthServer serves the live node's liveness + control state.
