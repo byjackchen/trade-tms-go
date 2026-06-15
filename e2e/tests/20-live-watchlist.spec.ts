@@ -102,4 +102,51 @@ test.describe("live cockpit — watchlist", () => {
       "watchlist never renders more symbols than the DB universe holds",
     ).toBeLessThanOrEqual(truthNow.length);
   });
+
+  test("the Download CSV button exports the rendered watchlist", async ({ page }) => {
+    if (!(await liveUiReady(page))) {
+      test.skip(true, "Live cockpit not yet implemented (coming-soon).");
+      return;
+    }
+    if (!(await liveReaderAvailable())) {
+      test.skip(true, "API started without a live reader (live endpoints 503).");
+      return;
+    }
+    await expect(page.getByTestId("live-watchlist")).toBeVisible({ timeout: 15_000 });
+
+    const download = page.getByTestId("watchlist-download");
+    await expect(download).toBeVisible();
+
+    const rows = page.getByTestId("live-watchlist-row");
+    if ((await rows.count()) === 0) {
+      // Empty watchlist: the button is present but disabled (nothing to export).
+      await expect(download).toBeDisabled();
+      test.skip(true, "tracked universe empty — nothing to download yet.");
+      return;
+    }
+
+    // Clicking triggers a real file download; capture it and check the CSV.
+    const [dl] = await Promise.all([
+      page.waitForEvent("download"),
+      download.click(),
+    ]);
+    expect(dl.suggestedFilename()).toMatch(/^watchlist-.*\.csv$/);
+    const stream = await dl.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const c of stream) chunks.push(c as Buffer);
+    const csv = Buffer.concat(chunks).toString("utf-8").trim().split("\n");
+
+    expect(csv[0]).toBe("symbol,latest_state,strategy,strength,as_of");
+    // One header + one row per rendered symbol; every rendered symbol appears.
+    expect(csv.length - 1).toBe(await rows.count());
+    const renderedSyms = new Set<string>();
+    const rn = await rows.count();
+    for (let i = 0; i < rn; i++) {
+      renderedSyms.add((await rows.nth(i).getAttribute("data-symbol")) as string);
+    }
+    for (let i = 1; i < csv.length; i++) {
+      const sym = csv[i].split(",")[0].replace(/^"|"$/g, "");
+      expect(renderedSyms.has(sym), `CSV symbol ${sym} is a rendered row`).toBeTruthy();
+    }
+  });
 });

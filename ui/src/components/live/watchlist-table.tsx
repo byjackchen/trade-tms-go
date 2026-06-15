@@ -15,9 +15,17 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/shell/states";
+import { Button } from "@/components/ui/button";
 import { IntentStateBadge } from "./live-badges";
 import { DisconnectedBanner } from "./disconnected-banner";
 import { formatNum, formatRelative } from "@/lib/format";
+
+// csvCell quotes a value per RFC 4180: wrap in double-quotes and double any
+// embedded quote when the value contains a quote, comma, or newline.
+function csvCell(v: string | number): string {
+  const s = String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
 
 type IntentInfo = {
   strategy_id: string;
@@ -96,13 +104,55 @@ export function WatchlistTable() {
   const noReader =
     symbolsQ.error instanceof ApiError && symbolsQ.error.status === 503;
 
+  // downloadCsv exports the exact rows currently shown (symbol + latest intent),
+  // client-side, no backend call. Header columns match the table.
+  const downloadCsv = () => {
+    const header = ["symbol", "latest_state", "strategy", "strength", "as_of"];
+    const lines = [header.join(",")];
+    for (const sym of symbols) {
+      const info = intentBySymbol.get(sym);
+      lines.push(
+        [
+          csvCell(sym),
+          csvCell(info?.state ?? ""),
+          csvCell(info?.strategy_id ?? ""),
+          csvCell(info ? info.strength : ""),
+          csvCell(info?.ts ?? ""),
+        ].join(","),
+      );
+    }
+    const blob = new Blob([lines.join("\n") + "\n"], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `watchlist-${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <Card data-testid="live-watchlist" data-panel="watchlist-table">
-      <CardHeader>
-        <CardTitle className="text-sm">Watchlist</CardTitle>
-        <span className="text-xs text-muted-foreground" data-testid="watchlist-count">
-          {symbols.length} {symbols.length === 1 ? "symbol" : "symbols"}
-        </span>
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
+        <div className="flex items-baseline gap-2">
+          <CardTitle className="text-sm">Watchlist</CardTitle>
+          <span className="text-xs text-muted-foreground" data-testid="watchlist-count">
+            {symbols.length} {symbols.length === 1 ? "symbol" : "symbols"}
+          </span>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={downloadCsv}
+          disabled={symbols.length === 0}
+          data-testid="watchlist-download"
+          title="Download the current watchlist as CSV"
+        >
+          Download CSV
+        </Button>
       </CardHeader>
       <CardContent className="space-y-3">
         <DisconnectedBanner state={state} />
