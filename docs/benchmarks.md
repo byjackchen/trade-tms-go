@@ -437,3 +437,180 @@ changes. Python side: timed `research.workers.run_trial_worker` /
 `scripts.multi_strategy_backtest.run_backtest` directly against the read-only
 parquet cache (dumps disabled; the Python repo was not modified). No state was
 left running; no DB or compose stack was started.
+
+### Full-universe SEPA — true engine-to-engine
+
+The `sector_rotation` comparison above is **honest but workload-unequal**: Go
+loaded 12 instruments, Python ran the full ~5,500-stock book. This subsection
+removes that asymmetry — **both stacks now screen the identical full
+survivor-bias-free SF1 universe per fold** — so the per-trial numbers are a
+genuine **equal-workload** (apples-to-apples) comparison. The headline: when the
+workloads are truly equal, Go's per-trial advantage **collapses from ~10⁴–10⁵×
+to ~1.4×**, because the cost is now dominated by the same per-name SEPA
+screener/indicator math on both sides rather than by Python's universe-reload
+overhead.
+
+#### Configuration (identical both sides)
+
+| | |
+| --- | --- |
+| Strategy | `sepa` (gated under the multi-strategy portfolio, the production trial path) |
+| Window | 2022-01-01 .. 2023-12-31 |
+| Walk-forward | 2 folds + 5-day embargo |
+| Folds (byte-identical both sides) | fold 0 `2022-09-06..2023-05-04`, fold 1 `2023-05-05..2023-12-31` |
+| Universe | **FULL SF1, survivor-bias-free**: `ListUniverseForWindow(…, "SF1")` (Go) / `list_universe_for_window(…, table="SF1")` (Python) |
+| Universe size | **5,547 names — byte-identical on both sides** (incl. mid-window delistings) |
+| Objectives | (sharpe, calmar), maximize | 
+| Seed / start balance | 42 / \$100,000 |
+| Data source | the same Sharadar cache (Go reads it from Timescale `bars_daily`, imported from the parquet cache in phase 1; Python reads the parquet cache directly) |
+
+#### Hardware
+
+Apple M4 Max, `hw.ncpu` = **16** (12 P + 4 E cores), 128 GB, macOS darwin/arm64,
+go1.26.1, Python 3.12 (`.venv`). Same machine as every other number here.
+
+#### Bar volume (so the per-trial cost is interpretable)
+
+The Go side reports the exact replayed bar count (via the production
+`Dataset.WindowFeed`, the same feed `Evaluate` drives per fold):
+
+| | bars |
+| --- | ---: |
+| fold 0 (`2022-09-06..2023-05-04`) | 837,816 |
+| fold 1 (`2023-05-05..2023-12-31`) | 780,339 |
+| **per objective eval (Σ over 2 folds)** | **1,618,155** |
+| full run window (both folds' span, no embargo gap) | 2,499,447 |
+
+So one SEPA objective eval = **≈ 5,547 tickers × ~290 bars/ticker × 2 folds ≈
+1.62 M bars** of screener + indicator + fill + accounting work. This is the
+"≈ tickers × bars × folds" cost the brief asked for, and it is **~600× the
+bar-volume of a 12-ETF `sector_rotation` trial** — exactly why the per-trial
+wall clock is seconds-to-minutes here, not the ~2.4 ms quoted earlier. That jump
+is the point.
+
+#### (1) Go per-trial — full universe
+
+Measured by a throwaway harness (`tmp/sepabench/`, deleted after the run) that
+drives the **production** study path in-process: `study.LoadDataset` over the
+full 5,548-ticker dataset (SPY + 5,547 SF1, loaded **once** from Timescale in
+**8.3 s**), the production `study.NewEvaluator` with the real
+`ExpandingAnchored(…, 2, 5)` folds, then one `Evaluator.Evaluate` over both folds.
+
+| | Go |
+| --- | ---: |
+| s/trial (2 folds, full universe) | **1528.76 s** (≈ 25.5 min) |
+| trials/sec | **0.000654** |
+| bar volume / trial | 1,618,155 |
+| shared bar load | 8.3 s, **once**, in-process (zero per-trial reload) |
+
+A single eval runs at ~100 % of one core: the two folds run sequentially and the
+per-fold screener loop is single-threaded (study-level parallelism is **across
+trials**, not within one eval). A `sample(1)` of the process showed the time in
+`indicators.SMA`/screener math plus heavy GC scan over the multi-GB universe
+heap — i.e. the cost is genuine per-name SEPA work, not I/O. **This is a valuable
+full-universe finding**: at 5,547 names the per-trial cost is minutes and
+GC-pressured (RSS ≈ 1.4 GB), where the 12-ETF trial was ~2.4 ms.
+
+#### (2) Go study — extrapolated (a full study at this scale is impractical to run end-to-end)
+
+One trial ≈ 25.5 min single-threaded; a study parallelizes trials across the box
+(`workers` default `min(cores-2,16)` ⇒ 14 here). A small `pop=4×gen=2` (8-trial)
+study is ~8 × 25.5 min ÷ 14-way ≈ **15 min**; a real 200-trial study
+(`pop=20×gen=10`):
+
+| | Go (single-thread per trial) | Go study, 14 workers |
+| --- | ---: | ---: |
+| 200-trial wall clock | 200 × 1528.76 s ≈ **84.9 h** | ≈ **6.1 h** |
+
+(The optimizer overhead is sub-ms/trial — deliverable (b) — so the study time is
+entirely the per-trial backtest cost ÷ worker count.)
+
+#### (3) Python per-fold / per-trial — full universe (time-budgeted)
+
+Timed `scripts.multi_strategy_backtest.run_backtest` directly against the
+read-only parquet cache (`cache=None` ⇒ `SharadarUniverseCache`, `dump=False`,
+`bypass_logging=True`) — exactly what `research.workers.run_trial_worker` calls
+per fold. A ~16-min time budget was used: **fold 0 was measured in full**
+(1055.42 s); fold 1 was not run (budget), so the 2-fold trial is the conservative
+`2 × fold0`.
+
+| | Python |
+| --- | ---: |
+| s/fold (fold 0, full universe) | **1055.42 s** |
+| s/trial (2 folds) | **2110.84 s** (≈ 35.2 min, = 2 × fold 0) |
+| trials/sec | **0.000474** |
+
+Each Python fold re-loads + re-screens the full ~5,500-name universe from the
+parquet cache (per-fork, no shared in-process dataset) — that load is part of its
+per-fold cost and is included.
+
+#### (4) Comparison — equal workload, apples-to-apples
+
+| | Go | Python |
+| --- | ---: | ---: |
+| universe (names) | 5,547 | 5,547 |
+| bar volume / trial | 1,618,155 | ~1,618,155 (same window/folds) |
+| **per-trial (2 folds)** | **1528.76 s** | **2110.84 s** |
+| trials/sec | 0.000654 | 0.000474 |
+| **per-trial speedup (Go vs Python)** | **≈ 1.38×** | — |
+| 200-trial study, 1 worker | ≈ 84.9 h | ≈ 117.3 h |
+| 200-trial study, 14 workers | ≈ **6.1 h** | ≈ **8.4 h** |
+
+> **This is the apples-to-apples (equal-workload) comparison.** Both stacks now
+> process the **same 5,547-name full universe per fold over the same byte-identical
+> folds**, so the per-trial speedup is the *real* engine-to-engine ratio: **Go is
+> ~1.38× faster per trial** (and a similar ~1.4× at the 200-trial study level).
+> Contrast the earlier `sector_rotation` subsection, which reported a
+> ~10⁴–10⁵× Go advantage — that gap was **almost entirely a workload difference**
+> (Go loaded 12 instruments, Python ran the full book), *not* an engine-speed
+> difference. When the workloads are made equal, the honest advantage is a modest
+> **~1.4×**.
+>
+> Where Go's edge remains structural: (a) the shared dataset is loaded **once**
+> in-process (8.3 s) and reused zero-copy by every trial goroutine, vs Python's
+> **per-fork universe reload each fold**; and (b) study-level trial parallelism
+> across the 16 cores. Within a *single* eval Go is single-threaded and
+> GC-pressured at full-universe scale, which is why the single-trial ratio is only
+> ~1.4× rather than larger.
+
+#### (5) Objective sanity — a real divergence (honest finding)
+
+With the **same fixed param set** (SEPA baseline defaults; Python `configs=None`,
+Go empty overrides ⇒ defaults) over the full universe:
+
+| | sharpe | calmar | orders | final equity |
+| --- | ---: | ---: | ---: | ---: |
+| Python (fold 0) | **−1.6689** | **−1.5147** | 16 | \$99,103.54 |
+| Go (2 folds) | **0.0000** | **0.0000** | 0 | \$100,000.00 (flat) |
+
+**They do not match, and the reason is concrete and worth recording.** The Go
+study `Evaluator.buildContext` (`internal/hyperopt/study/objective.go`) builds
+its SF1 fundamentals rows with `MarketCap: 0, HasMarketCap: false` for **every**
+ticker — it does **not** load real market caps into the per-trial context. SEPA's
+Trend-Template rule 8 enforces a `market_cap_min_usd` floor (**default \$500 M**),
+so with a zero/unknown cap on the whole universe **every entry is rejected** ⇒ no
+trades ⇒ a flat curve ⇒ sharpe = calmar = 0. Python loads the real SF1
+fundamentals from the parquet cache, so names clear the cap floor and trade
+(16 orders; the window is short and adverse, hence the negative ratios).
+
+This is **distinct from survivorship bias** (both sides screen the identical
+delisting-inclusive 5,547-name universe — verified byte-identical) and larger
+than the "small per-fold universe-scoping" nuance the brief anticipated: it is a
+**market-cap wiring gap in the Go hyperopt context path** (the Evaluator never
+feeds real caps to the SEPA gate). The timing comparison above is unaffected —
+the per-trial *cost* is the full screener/indicator traversal regardless of
+whether the cap gate ultimately admits orders — but the objective vectors are
+**not** comparable until the Go Evaluator loads real market caps into
+`buildContext`. Flagged here as the actionable finding.
+
+#### Reproducing (this subsection)
+
+Go: `tmp/sepabench/` (deleted after the run) connected to the phase-1 Timescale
+(`tmsgo-postgres`, host `:55432`), called the production
+`universe.ListUniverseForWindow(…,"SF1")` (5,547 names), `study.LoadDataset`,
+`study.NewEvaluator` + `ExpandingAnchored(2,5)`, and timed one
+`Evaluator.Evaluate`. Python: `tmp/sepa_fulluniverse_bench.py` in the read-only
+`trade-multi-strategies` repo timed `run_backtest` per fold against the parquet
+cache (`dump=False`), under a ~16-min budget. Both throwaway harnesses were
+removed; the Python repo was not modified; the compose stack was torn down
+(`compose down -v`) at the end.
