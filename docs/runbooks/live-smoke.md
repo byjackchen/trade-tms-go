@@ -1,5 +1,70 @@
 # Live OpenD smoke (DEFERRED to market hours)
 
+> ## ✅ FULLY VERIFIED against the REAL OpenD — signal-mode smoke complete
+> (connection + history + intents on 2026-06-14 Sunday; **real-time `Qot_UpdateKL`
+> STREAMING + streaming-intent cadence + cockpit WS live-update on 2026-06-15,
+> Monday, US market OPEN**).
+>
+> ### ✅ STREAMING portion — VERIFIED 2026-06-15 (Monday ~10:35–10:44 ET, US market OPEN)
+>
+> The previously-deferred real-time tick STREAMING path ran against the user's
+> REAL moomoo OpenD (host `127.0.0.1:11111`; from the `tmsgo-live` container via
+> `host.docker.internal:11111`). SIGNAL MODE ONLY — NoopExecutor, **zero**
+> orders/fills/positions; no `Trd_*` / unlock / trade password. Two independent
+> real connections to the host OpenD process were confirmed via `lsof` (a host
+> probe + the Docker-proxied live container); **no mock** process existed.
+>
+> **Observed (market OPEN, live pushes):**
+> - **Market state = OPEN**: `GetGlobalState` reported
+>   `MarketUS = QotMarketState_Afternoon(5)` (contrast Sunday's `AfterHoursEnd(11)`)
+>   — proof the market is live; `qotLogined=true`, `trdLogined=true`,
+>   `serverVer=1004`, real `serverTime` (~14:38Z). Real connIDs
+>   (e.g. `7472296508306268871`, live node `7472296597197839861`).
+> - **Qot_Sub (intraday)**: the live node subscribed the 11-ETF `sector_rotation`
+>   universe at **`KLType_1Min`** (intraday, under the 100-sub cap). The
+>   `--bar-seconds 60` override is required for intraday push — the shipped
+>   default is `86400` (Day), which does NOT push intraday.
+> - **LIVE `Qot_UpdateKL` STREAMING (the deferred core)**: a read-only native
+>   client received **3,223 real-time `Qot_UpdateKL` pushes** over a ~200 s RTH
+>   window across all 12 symbols (SPY 863, XLK 383, XLE 387, …). Sample pushed
+>   1-min bars carried current-session timestamps (`barTS=2026-06-15T14:39:00Z`)
+>   and live RTH levels (SPY C≈753.21, XLK C≈190.62, XLF C≈53.835), updating
+>   intra-bar (e.g. SPY volume 15875→15996→16007 within one minute). The native
+>   client's push/reply demux handled every push with **no errors**.
+> - **Streaming-driven intent cadence**: the live engine emitted SignalIntents on
+>   the streaming 1-min cadence — generation 1 @ `14:39:00`, generation 2 @
+>   `14:40:00`, and after a node restart a fresh generation 1 @ `14:44:00`
+>   (`session_id=2`) — each a per-minute boundary AFTER warmup-end, NOT a static
+>   warmup snapshot (11 ETFs × each generation in `tms.signal_intents`; Redis
+>   `data.SignalIntentUpdate` stream grew to 33 entries; latest
+>   `ts_event=2026-06-15T14:44:00Z`).
+> - **Cockpit WS live-update**: with `/live` open and NO reload, the intent "As
+>   of" cells flipped `3m ago → 8s ago` the moment the `14:44:00Z` generation
+>   pushed over the SSE/WS bridge — the cockpit re-rendered purely from the
+>   streamed frame. Screenshot: `realopend-signal-stream-cockpit-live.png`.
+> - **Zero-order invariant**: `tms.orders=0`, `tms.fills=0`, `tms.positions=0`
+>   throughout (PG + `/api/v1/live/{orders,fills,positions}` all empty); no
+>   `Trd_*`/`PlaceOrder`/`UnlockTrade`/`ModifyOrder` and no trade password in any
+>   live-node log.
+>
+> **Operational finding (intraday back-pressure)**: at `KLType_1Min`, moomoo
+> pushes the *forming* bar many times per second per symbol (~16/s × 12 syms).
+> The `MoomooFeed` push channel (default buffer 1024) saturates and the runner
+> logs `moomoo feed push channel full; dropping bar (consumer fell behind)`
+> (~800 warns/2 min); the signal-engine loop cannot drain the forming-bar flood,
+> so after the first ~2 minutes the intent cadence stalls until the session is
+> restarted (each restart re-warms and emits a fresh generation). The session
+> stays RUNNING (no crash) and zero-order safety is unaffected. Follow-up
+> (non-blocking for the signal smoke): debounce/coalesce forming-bar pushes to
+> the last update per (symbol, bar-minute), or only forward on bar close, so
+> intraday cadence is sustained without drops.
+>
+> Reproduce: seed warmup daily bars from real OpenD (`tmp/realopend_loader`),
+> bring up `--profile app`, then `tmsgo-live` with command override
+> `--bar-seconds 60` (see `tmp/smoke_logs/compose.live-stream.yaml`); the
+> read-only streaming probe is `tmp/realopend_stream` (counts/samples
+> `Qot_UpdateKL` pushes; zero `Trd_*`).
+>
 > ## ✅ PARTIALLY VERIFIED against the REAL OpenD — 2026-06-14 (Sunday, US market closed)
 >
 > The **connection + GetGlobalState + historical-kline + signal-intent** portion
@@ -32,10 +97,10 @@
 > - **Zero-order invariant**: `tms.orders=0`, `tms.fills=0`, `tms.positions=0`
 >   throughout; no `Trd_*`/`PlaceOrder`/`UnlockTrade` in any log.
 >
-> **Still PENDING a market-open run**: real-time **`Qot_UpdateKL` tick streaming**
-> — with the market closed on a Sunday no live bars push, so the streaming-driven
-> intent cadence + the cockpit WS live-update path were NOT exercised here. Run
-> the streaming smoke (steps 2–6 below) at US market hours to close this out.
+> **Streaming gap CLOSED**: the real-time **`Qot_UpdateKL` tick streaming** +
+> streaming-driven intent cadence + cockpit WS live-update path were exercised on
+> 2026-06-15 (market OPEN) — see the VERIFIED block at the top of this file. The
+> signal-mode smoke is now fully verified against the real OpenD.
 
 P5 locked decision 7: a real-OpenD smoke is **deferred** to market hours with a
 user-confirmed OpenD login. Do NOT connect to real OpenD in the build gate —
