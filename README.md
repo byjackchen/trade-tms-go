@@ -1,5 +1,24 @@
 # trade-tms-go
 
+**Restart the stack** (run from the repo root, where `compose.yaml` lives):
+
+```bash
+# Full app stack (postgres/redis/migrate/api/worker/ui), rebuild + wait healthy
+docker compose --profile app up -d --build --force-recreate --wait
+
+# + live node (tmsgo-live, connects to host OpenD at host.docker.internal:11111)
+docker compose --profile app --profile live up -d --build --force-recreate --wait
+
+# Clean restart (tear down + drop volumes, then bring up fresh)
+docker compose --profile app down -v && docker compose --profile app up -d --build --wait
+```
+
+Ports: api `:18080` · ui `:13000` · postgres `:55432` · redis `:56379` · live `:18090`.
+Drop `--build` for a restart without rebuilding. The `live` profile needs
+`secrets/moomoo.env` (copy from `secrets/moomoo.env.example`).
+
+---
+
 A Go port of the Python reference `trade-multi-strategies` that **unifies five
 trading modes on one engine**. The entire system ships as a single static binary
 `tms` plus a Next.js control-plane UI, with **zero Python runtime dependency** in
