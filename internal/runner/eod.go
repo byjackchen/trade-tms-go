@@ -122,7 +122,10 @@ func (e *EOD) RunRefresh(ctx context.Context, cfg EODConfig, publisher *publish.
 	log := e.log.With().Str("as_of", cfg.AsOf.String()).Str("strategy", strategy).Logger()
 	log.Info().Str("window_start", windowStart.String()).Msg("eod refresh starting")
 
-	// (1) Assemble the strategy set from DB params (same as backtest).
+	// (1) Assemble the strategy set from DB params (same as backtest). EOD is a
+	// batch replay (not a live moomoo subscription), so it keeps the FULL
+	// survivor-bias-free universe — UniverseLimit is deliberately left 0 (no cap),
+	// exactly as backtest/hyperopt do, so the EOD signal set matches a backtest's.
 	as, err := e.assembler.Assemble(ctx, AssemblyInput{
 		Strategy:        strategy,
 		Tickers:         cfg.Tickers,

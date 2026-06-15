@@ -3,6 +3,7 @@ package preflight
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -44,6 +45,10 @@ type fakeProbes struct {
 	windowUniErr error
 
 	opendErr error
+
+	// openDMaxSub is the OpenD per-connection cap the SUBSCRIPTION_CAP check
+	// sizes against; 0 -> the moomoo default (100) via the accessor below.
+	openDMaxSub int
 }
 
 func (f *fakeProbes) PingPostgres(context.Context) error { return f.pgErr }
@@ -103,6 +108,13 @@ func (f *fakeProbes) ListUniverseForWindow(context.Context, calendar.Date, calen
 
 func (f *fakeProbes) OpenDState(context.Context) error { return f.opendErr }
 
+func (f *fakeProbes) OpenDMaxSubscriptions() int {
+	if f.openDMaxSub > 0 {
+		return f.openDMaxSub
+	}
+	return 100 // moomoo.DefaultMaxSubscriptions
+}
+
 // healthyProbes returns a fakeProbes seeded so EVERY check passes for a
 // paper-mode multi-strategy session. Tests mutate one field to exercise a
 // failure mode.
@@ -159,8 +171,8 @@ func TestRun_AllPass(t *testing.T) {
 	if !r.OK {
 		t.Fatalf("expected OK report, got blockers: %v", r.Blockers())
 	}
-	if len(r.Checks) != 8 {
-		t.Fatalf("expected 8 checks, got %d", len(r.Checks))
+	if len(r.Checks) != 9 {
+		t.Fatalf("expected 9 checks, got %d", len(r.Checks))
 	}
 	for _, c := range r.Checks {
 		if c.Status == StatusFail {
@@ -429,6 +441,78 @@ func TestCheckWarmupAvailable(t *testing.T) {
 		c := findCheck(t, Run(context.Background(), paperCfg(), f), CheckWarmupAvailable)
 		if c.Status != StatusFail {
 			t.Fatalf("no warmup symbols must fail, got %+v", c)
+		}
+	})
+}
+
+func TestCheckSubscriptionCap(t *testing.T) {
+	t.Run("capped set fits passes", func(t *testing.T) {
+		// Healthy multi session: 4 SEPA + fixed baskets (SPY, XLK, XLF, GLD, GDX)
+		// is well under the 100-sub OpenD cap, so the live subscription set fits.
+		c := findCheck(t, Run(context.Background(), paperCfg(), healthyProbes()), CheckSubscriptionCap)
+		if c.Status != StatusPass || c.Severity != SeverityBlocker {
+			t.Fatalf("a fitting subscription set must PASS (blocker severity), got %+v", c)
+		}
+	})
+
+	t.Run("large SEPA universe is capped to fit (still passes)", func(t *testing.T) {
+		// A huge survivor-bias-free SEPA universe (the real 4682-name set) must be
+		// CAPPED by market cap to fit, not rejected: SUBSCRIPTION_CAP passes because
+		// the shared helper sizes SEPA to the budget left under the OpenD cap.
+		f := healthyProbes()
+		big := make([]string, 4682)
+		caps := map[string]float64{}
+		for i := range big {
+			tk := "T" + strconv.Itoa(i)
+			big[i] = tk
+			caps[tk] = float64(4682 - i) // descending caps so ranking is deterministic
+		}
+		f.resolved.SEPAUniverse = big
+		f.resolved.Strategies[0].WarmupSymbols = big
+		f.caps = caps
+		c := findCheck(t, Run(context.Background(), paperCfg(), f), CheckSubscriptionCap)
+		if c.Status != StatusPass {
+			t.Fatalf("a 4682-name SEPA universe must be CAPPED to fit (pass), got %+v", c)
+		}
+	})
+
+	t.Run("over-cap fixed baskets block", func(t *testing.T) {
+		// If the always-on fixed baskets alone exceed the OpenD cap, no SEPA budget
+		// can save the session — it would crash-loop at subscribe time. Shrink the
+		// cap below the fixed-basket count to exercise the blocker.
+		f := healthyProbes()
+		f.openDMaxSub = 3 // SPY + XLK + XLF + GLD + GDX = 5 fixed > 3
+		r := Run(context.Background(), paperCfg(), f)
+		c := findCheck(t, r, CheckSubscriptionCap)
+		if c.Status != StatusFail || c.Severity != SeverityBlocker {
+			t.Fatalf("over-cap fixed baskets must BLOCK, got %+v", c)
+		}
+		if r.OK {
+			t.Fatal("over-cap subscription set must make the report not OK")
+		}
+	})
+
+	t.Run("blocks in signal mode too (subscribing happens in all live modes)", func(t *testing.T) {
+		f := healthyProbes()
+		f.openDMaxSub = 3
+		cfg := paperCfg()
+		cfg.Mode = "signal"
+		r := Run(context.Background(), cfg, f)
+		c := findCheck(t, r, CheckSubscriptionCap)
+		if c.Status != StatusFail || c.Severity != SeverityBlocker {
+			t.Fatalf("subscription cap must block even in signal mode, got %+v", c)
+		}
+		if r.OK {
+			t.Fatal("over-cap subscription set must block a signal session (it subscribes too)")
+		}
+	})
+
+	t.Run("resolve error fails", func(t *testing.T) {
+		f := healthyProbes()
+		f.resolveErr = errors.New("boom")
+		c := findCheck(t, Run(context.Background(), paperCfg(), f), CheckSubscriptionCap)
+		if c.Status != StatusFail || c.Severity != SeverityBlocker {
+			t.Fatalf("a resolve error must fail the cap check, got %+v", c)
 		}
 	})
 }

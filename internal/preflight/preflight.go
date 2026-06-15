@@ -55,6 +55,7 @@ const (
 	CheckParamsPromoted  = "PARAMS_PROMOTED"
 	CheckMarketDataFund  = "MARKET_DATA_FUNDAMENTALS"
 	CheckUniverse        = "UNIVERSE_RESOLVABLE"
+	CheckSubscriptionCap = "SUBSCRIPTION_CAP"
 	CheckOpenD           = "OPEND_REACHABLE"
 	CheckRedis           = "REDIS_REACHABLE"
 	CheckPostgres        = "PG_REACHABLE"
@@ -127,8 +128,9 @@ var checkOrder = map[string]int{
 	CheckUniverse:        3,
 	CheckMarketDataFund:  4,
 	CheckWarmupAvailable: 5,
-	CheckParamsPromoted:  6,
-	CheckOpenD:           7,
+	CheckSubscriptionCap: 6,
+	CheckParamsPromoted:  7,
+	CheckOpenD:           8,
 }
 
 // Config selects what session the preflight is validating.
@@ -203,6 +205,7 @@ func Run(ctx context.Context, cfg Config, probes Probes) Report {
 		checkUniverse(ctx, cfg, probes),
 		checkMarketDataFundamentals(ctx, cfg, probes),
 		checkWarmupAvailable(ctx, cfg, probes),
+		checkSubscriptionCap(ctx, cfg, probes),
 		checkParamsPromoted(ctx, cfg, probes),
 		checkOpenD(ctx, cfg, probes),
 	}

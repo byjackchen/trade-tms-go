@@ -33,6 +33,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/commands"
 	"github.com/byjackchen/trade-tms-go/internal/core"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
+	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
@@ -530,11 +531,26 @@ func (l *Live) runSession(ctx context.Context, client MoomooClient, feed *Moomoo
 	}
 	windowStart := asOf.AddDays(-windowDays)
 
+	// LIVE-ONLY subscription cap. The assembly sizes the SEPA universe to fit the
+	// moomoo OpenD per-connection quota (subscriptionCap, default 100) via the
+	// SHARED universe.ResolveLiveSubscriptionSet, with the env top-N
+	// (TMS_LIVE_UNIVERSE_LIMIT, default 85) as an additional clamp. A 0 cap would
+	// mean "no cap" (the full survivor-bias-free set, 4000+ names) which the OpenD
+	// subscribe rejects — so live always passes the positive quota here.
+	// backtest / hyperopt / EOD pass 0 and keep the full universe.
+	subscriptionCap := l.subscriptionCap()
+	envLimit, err := universe.ResolveUniverseLimit(nil)
+	if err != nil {
+		return fmt.Errorf("runner: %w", err)
+	}
+
 	as, err := l.assembler.Assemble(ctx, AssemblyInput{
 		Strategy:        l.cfg.Strategy,
 		Tickers:         l.cfg.Tickers,
 		ORBSymbol:       l.cfg.ORBSymbol,
 		StartingBalance: l.startingBalance(),
+		SubscriptionCap: subscriptionCap,
+		UniverseLimit:   envLimit,
 	}, windowStart, asOf)
 	if err != nil {
 		return err
@@ -838,6 +854,21 @@ func (l *Live) startingBalance() float64 {
 		return l.cfg.StartingBalance
 	}
 	return 100000
+}
+
+// subscriptionCap resolves the moomoo OpenD per-connection K-line subscription
+// quota the LIVE assembly must size the universe against: the configured
+// MoomooMaxSub (TMS_MOOMOO_MAX_SUB) or moomoo.DefaultMaxSubscriptions (100) when
+// unset. The shared universe.ResolveLiveSubscriptionSet reserves
+// universe.SubscriptionSafetyMargin below this when sizing the SEPA top-N, so the
+// realised distinct subscription set sits strictly below the hard OpenD limit and
+// a freshly started multi live node never trips moomoo's "subscribing N would
+// exceed cap" rejection at subscribe time.
+func (l *Live) subscriptionCap() int {
+	if l.cfg.MoomooMaxSub > 0 {
+		return l.cfg.MoomooMaxSub
+	}
+	return moomoo.DefaultMaxSubscriptions
 }
 
 // ---------------------------------------------------------------------------

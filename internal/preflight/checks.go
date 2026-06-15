@@ -8,6 +8,7 @@ import (
 
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/sharadar"
+	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 )
 
 // ErrNotConfigured is the sentinel a probe returns when a dependency is not
@@ -314,6 +315,62 @@ func checkWarmupAvailable(ctx context.Context, cfg Config, p Probes) CheckResult
 	}
 	return result(CheckWarmupAvailable, StatusPass, SeverityBlocker,
 		"all %d strategies have enough warmup bars (%d symbols probed)", len(res.Strategies), len(syms))
+}
+
+// ---------------------------------------------------------------------------
+// SUBSCRIPTION_CAP — the LIVE subscription set the session WOULD subscribe (the
+// always-on fixed baskets + the market-cap-capped SEPA universe, sized by the
+// SHARED universe.ResolveLiveSubscriptionSet so preflight and the live path
+// agree EXACTLY) must fit the OpenD per-connection cap. Subscribing happens in
+// EVERY live mode (signal/paper/live all open a market-data feed), so an
+// over-cap set crash-loops the session at subscribe time regardless of mode —
+// hence a BLOCKER for all of them. This catches the over-cap condition at
+// preflight rather than at subscribe time.
+// ---------------------------------------------------------------------------
+
+func checkSubscriptionCap(ctx context.Context, cfg Config, p Probes) CheckResult {
+	res, err := p.ResolveStrategy(ctx, cfg)
+	if err != nil {
+		return result(CheckSubscriptionCap, StatusFail, SeverityBlocker, "resolving session: %v", err)
+	}
+
+	openDCap := p.OpenDMaxSubscriptions()
+
+	// Market caps drive the SEPA top-N ranking — the SAME lookup the live cap
+	// uses. A cap-load failure is a blocker (we cannot size the set safely).
+	var lookup func(string) float64
+	if len(res.SEPAUniverse) > 0 {
+		caps, cerr := p.MarketCaps(ctx, res.SEPAUniverse)
+		if cerr != nil {
+			return result(CheckSubscriptionCap, StatusFail, SeverityBlocker, "loading market caps for cap ranking: %v", cerr)
+		}
+		lookup = func(t string) float64 { return caps[t] }
+	} else {
+		lookup = func(string) float64 { return 0 }
+	}
+
+	// SINGLE SOURCE OF TRUTH: the exact set the live assembly subscribes.
+	set := universe.ResolveLiveSubscriptionSet(res.FixedBasketSymbols(), res.SEPAUniverse, lookup, openDCap)
+
+	// The fixed baskets are NEVER capped; if they alone exceed the OpenD cap the
+	// session cannot subscribe at all (no SEPA budget could save it). Surface
+	// that as the root cause rather than a generic overflow.
+	if len(set.Fixed) > openDCap {
+		return result(CheckSubscriptionCap, StatusFail, SeverityBlocker,
+			"%d fixed-basket symbols alone exceed OpenD cap %d (sector ETFs + pair legs + SPY do not fit)", len(set.Fixed), openDCap)
+	}
+
+	if len(set.All) > openDCap {
+		// The shared helper holds len(All) <= budget = cap - margin, so this is a
+		// defensive guard (only reachable if the margin were negative). Treat any
+		// overflow as the blocker the live subscribe would reject.
+		return result(CheckSubscriptionCap, StatusFail, SeverityBlocker,
+			"%d symbols to subscribe exceeds OpenD cap %d (overflow %d)", len(set.All), openDCap, len(set.All)-openDCap)
+	}
+
+	return result(CheckSubscriptionCap, StatusPass, SeverityBlocker,
+		"%d symbols to subscribe <= cap %d (%d fixed baskets + %d/%d SEPA top-by-cap, margin %d)",
+		len(set.All), openDCap, len(set.Fixed), len(set.SEPA), len(res.SEPAUniverse), universe.SubscriptionSafetyMargin)
 }
 
 // ---------------------------------------------------------------------------

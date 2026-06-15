@@ -111,3 +111,93 @@ func TestExclusionAndSubscriptionSets(t *testing.T) {
 	etfs[0] = "MUTATED"
 	assert.Equal(t, "XLK", SectorETFTickers()[0], "accessors return copies")
 }
+
+func TestResolveLiveSubscriptionSet(t *testing.T) {
+	// Fixed baskets are always subscribed; SEPA is market-cap-capped to the budget
+	// left under the OpenD cap minus the safety margin.
+	fixed := []string{"SPY", "XLK", "XLF", "KO", "PEP"}
+	caps := map[string]float64{
+		"AAA": 9, "BBB": 8, "CCC": 7, "DDD": 6, "EEE": 5, "FFF": 4,
+	}
+	lookup := staticCaps(caps)
+
+	t.Run("small set fits without capping", func(t *testing.T) {
+		sepa := []string{"AAA", "BBB", "CCC"}
+		set := ResolveLiveSubscriptionSet(fixed, sepa, lookup, 100)
+		assert.Equal(t, 100, set.Cap)
+		assert.Equal(t, 95, set.Budget)
+		assert.ElementsMatch(t, fixed, set.Fixed)
+		assert.ElementsMatch(t, sepa, set.SEPA, "all SEPA names fit under the budget")
+		assert.Len(t, set.All, len(fixed)+len(sepa))
+		assert.LessOrEqual(t, len(set.All), set.Cap)
+	})
+
+	t.Run("SEPA capped to top-by-market-cap to fit the budget", func(t *testing.T) {
+		sepa := []string{"AAA", "BBB", "CCC", "DDD", "EEE", "FFF"}
+		// Cap 12 -> budget 7, minus 5 fixed -> 2 SEPA slots; top-2 caps are AAA(9),BBB(8).
+		set := ResolveLiveSubscriptionSet(fixed, sepa, lookup, 12)
+		assert.Equal(t, 7, set.Budget)
+		assert.Equal(t, 2, set.SEPALimit)
+		assert.ElementsMatch(t, []string{"AAA", "BBB"}, set.SEPA, "the two highest-cap SEPA names are admitted")
+		assert.Len(t, set.All, 7)
+		assert.LessOrEqual(t, len(set.All), set.Cap, "the distinct set fits the OpenD cap")
+	})
+
+	t.Run("safety margin keeps the set strictly under the hard cap", func(t *testing.T) {
+		// A large SEPA universe with a 100 cap: budget 95, 5 fixed -> 90 SEPA slots,
+		// total 95 = cap - margin, never reaching the hard 100.
+		sepa := make([]string, 4682)
+		big := map[string]float64{}
+		for i := range sepa {
+			tk := "S" + itoa(i)
+			sepa[i] = tk
+			big[tk] = float64(4682 - i)
+		}
+		set := ResolveLiveSubscriptionSet(fixed, sepa, staticCaps(big), 100)
+		assert.Equal(t, 90, set.SEPALimit)
+		assert.Len(t, set.All, 95, "fixed (5) + capped SEPA (90) = budget 95")
+		assert.Less(t, len(set.All), 100, "stays under the hard OpenD cap by the safety margin")
+	})
+
+	t.Run("SEPA name that is also a fixed basket is counted once", func(t *testing.T) {
+		// KO is a pair leg (fixed) AND appears in the SEPA screen; it must not consume
+		// a SEPA slot or appear twice.
+		sepa := []string{"KO", "AAA", "BBB"}
+		set := ResolveLiveSubscriptionSet(fixed, sepa, lookup, 100)
+		assert.NotContains(t, set.SEPA, "KO", "a fixed-basket name is folded into Fixed")
+		assert.ElementsMatch(t, []string{"AAA", "BBB"}, set.SEPA)
+		// KO appears exactly once in the final distinct set.
+		count := 0
+		for _, s := range set.All {
+			if s == "KO" {
+				count++
+			}
+		}
+		assert.Equal(t, 1, count, "KO appears exactly once in the subscription set")
+	})
+
+	t.Run("fixed baskets alone over budget admit no SEPA", func(t *testing.T) {
+		sepa := []string{"AAA", "BBB"}
+		// Cap 4 -> budget 0 (4-5 margin clamped), so no SEPA budget at all.
+		set := ResolveLiveSubscriptionSet(fixed, sepa, lookup, 4)
+		assert.Equal(t, 0, set.Budget)
+		assert.Equal(t, 0, set.SEPALimit)
+		assert.Empty(t, set.SEPA)
+		assert.ElementsMatch(t, fixed, set.All, "only the (un-cappable) fixed baskets remain")
+	})
+}
+
+// itoa is a tiny strconv.Itoa to avoid an import just for the test loop above.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	var b [20]byte
+	i := len(b)
+	for n > 0 {
+		i--
+		b[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(b[i:])
+}

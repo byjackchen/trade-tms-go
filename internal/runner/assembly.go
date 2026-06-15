@@ -76,6 +76,24 @@ type AssemblyInput struct {
 	ORBSymbol string
 	// StartingBalance seeds the informational health NAV + equity fallback (USD).
 	StartingBalance float64
+	// SubscriptionCap is the LIVE-ONLY moomoo OpenD per-connection subscription
+	// quota (MoomooMaxSub, default 100) the assembled instrument set must fit. 0
+	// means NO cap — the FULL survivor-bias-free universe is assembled (the
+	// backtest / hyperopt / EOD path MUST pass 0 so capping never reintroduces
+	// survivorship bias). When > 0 and the strategy carries a SEPA leg (sepa /
+	// multi), the fixed baskets (SPY + sector ETFs + pair legs) are ALWAYS kept and
+	// the SEPA stock universe is truncated to the top-N names BY MARKET CAP via the
+	// SHARED universe.ResolveLiveSubscriptionSet (the same sizing the
+	// SUBSCRIPTION_CAP preflight uses), so the total distinct subscription set fits
+	// the quota minus universe.SubscriptionSafetyMargin.
+	SubscriptionCap int
+	// UniverseLimit is the LIVE-ONLY top-N SEPA cap (TMS_LIVE_UNIVERSE_LIMIT,
+	// default 85), an ADDITIONAL deterministic clamp on the SEPA stock count above
+	// and beyond the OpenD-quota fit: the SEPA universe is held to the top
+	// UniverseLimit names by market cap even when the quota would admit more. 0
+	// (or backtest/hyperopt/EOD) applies no SEPA-count clamp. Only meaningful when
+	// SubscriptionCap > 0 (the live path).
+	UniverseLimit int
 }
 
 // Assembled is the resolved live/EOD strategy set plus the instrument universe
@@ -154,6 +172,31 @@ func (a *Assembler) Assemble(ctx context.Context, in AssemblyInput, start, end c
 	}
 
 	spy := "SPY"
+
+	// LIVE-ONLY market-cap cap (P5 universe-limit). SubscriptionCap > 0 caps the
+	// TOTAL distinct subscription set to fit the moomoo OpenD per-connection quota;
+	// 0 (backtest / hyperopt / EOD) keeps the FULL survivor-bias-free universe. The
+	// fixed baskets (SPY + sector ETFs + pair legs) are ALWAYS subscribed, so the
+	// SEPA stock universe is truncated to the top-N names BY MARKET CAP (via the
+	// SHARED universe.ResolveLiveSubscriptionSet — the same sizing the
+	// SUBSCRIPTION_CAP preflight uses) BEFORE building the context / warmup, so the
+	// whole live pipeline only touches the capped set. The reserved fixed baskets
+	// are resolved from the SAME promoted params the session will subscribe (NOT the
+	// hardcoded defaults), so the cap reserves exactly the slots the live subscribe
+	// consumes and can never under-reserve when a promoted sector/pairs param_set
+	// expands the baskets (preflight/live cap parity).
+	if in.SubscriptionCap > 0 && (in.Strategy == "sepa" || in.Strategy == "multi") && len(in.Tickers) > 0 {
+		fixed, err := a.resolveFixedBaskets(ctx, in.Strategy, spy)
+		if err != nil {
+			return nil, err
+		}
+		capped, err := a.capSEPAUniverse(ctx, fixed, in.Tickers, in.SubscriptionCap, in.UniverseLimit)
+		if err != nil {
+			return nil, err
+		}
+		in.Tickers = capped
+	}
+
 	asmIn := strategyassembly.Input{
 		Strategy:        in.Strategy,
 		StartingBalance: in.StartingBalance,
@@ -256,6 +299,72 @@ func (a *Assembler) Assemble(ctx context.Context, in AssemblyInput, start, end c
 		WarmupCalendarDays: batchDays,
 		SPYSymbol:          asm.SPYSymbol,
 	}, nil
+}
+
+// resolveFixedBaskets returns the always-subscribed instruments the live cap MUST
+// reserve slots for — resolved from the SAME promoted params the session will
+// actually subscribe, NOT the hardcoded universe.SectorETFTickers / PairLegTickers
+// defaults. This is the single-source-of-truth fix for the preflight/live cap
+// divergence: the live session's subscription set is built from the params-resolved
+// sector universe (strategyassembly.buildSector uses p.Universe) and pair legs
+// (buildPairs uses p.Pairs), and the SUBSCRIPTION_CAP preflight likewise sizes
+// against the params-resolved baskets (probes.go resolveSector/resolvePairs). If
+// the cap reserved against the smaller hardcoded defaults while a promoted
+// sector/pairs param_set expanded the baskets, the cap would UNDER-reserve and
+// admit more SEPA than there is room for — a green preflight but an over-cap live
+// subscribe (the exact crash-loop the fix prevents). Resolving the baskets the same
+// way here keeps the fixed half identical across preflight and live.
+//
+// spy is the heartbeat instrument (always reserved for sepa and multi). For multi,
+// the sector ETF universe (p.Universe) and pair legs (from p.Pairs) are added; for
+// pure sepa there is no fixed basket beyond SPY. The set is deduped + sorted by
+// ResolveLiveSubscriptionSet downstream.
+func (a *Assembler) resolveFixedBaskets(ctx context.Context, strategy, spy string) ([]string, error) {
+	fixed := []string{spy}
+	if strategy != "multi" {
+		return fixed, nil // sepa-only: SPY heartbeat is the only fixed instrument.
+	}
+	sp, _, err := a.loader.SectorRotation(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("runner: resolve sector params for live cap: %w", err)
+	}
+	fixed = append(fixed, sp.Universe...)
+	pp, _, err := a.loader.Pairs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("runner: resolve pairs params for live cap: %w", err)
+	}
+	for _, pr := range pp.Pairs {
+		fixed = append(fixed, pr.LongLeg, pr.ShortLeg)
+	}
+	return fixed, nil // ResolveLiveSubscriptionSet dedupes + sorts.
+}
+
+// capSEPAUniverse truncates the SEPA stock universe to the top-N names BY MARKET
+// CAP so the TOTAL distinct subscription set (SEPA + the always-included fixed
+// baskets, passed by the caller from the params-resolved baskets the session will
+// subscribe) fits the moomoo OpenD per-connection quota. It delegates the
+// quota-fit sizing to the SHARED universe.ResolveLiveSubscriptionSet — the SAME
+// single source of truth the SUBSCRIPTION_CAP preflight uses — so preflight and
+// the live assembly admit EXACTLY the same names. After the quota-fit, the env
+// top-N SEPA limit (TMS_LIVE_UNIVERSE_LIMIT, passed as envLimit; <= 0 = no extra
+// clamp) is applied as a further deterministic top-by-cap truncation, so the SEPA
+// count never exceeds the operator's configured limit even when the quota would
+// admit more.
+func (a *Assembler) capSEPAUniverse(ctx context.Context, fixed, sepa []string, openDCap, envLimit int) ([]string, error) {
+	caps, err := a.uni.MarketCaps(ctx, sepa)
+	if err != nil {
+		return nil, fmt.Errorf("runner: loading market caps for live universe cap: %w", err)
+	}
+	lookup := func(t string) float64 { return caps[t] }
+	set := universe.ResolveLiveSubscriptionSet(fixed, sepa, lookup, openDCap)
+	capped := set.SEPA
+	// Additional env top-N clamp (TMS_LIVE_UNIVERSE_LIMIT). set.SEPA is already
+	// top-by-cap, so re-applying ApplyUniverseLimit with the smaller envLimit just
+	// trims the lowest-cap tail (still deterministic, still top-by-cap).
+	if envLimit > 0 && len(capped) > envLimit {
+		capped = universe.ApplyUniverseLimit(capped, lookup, envLimit)
+	}
+	return capped, nil
 }
 
 // LoadWindowBars loads the dispatch-ordered run-window bars for the assembled

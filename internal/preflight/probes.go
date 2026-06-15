@@ -60,6 +60,13 @@ type Probes interface {
 	// OpenDState probes OpenD: connect + GetGlobalState. nil = reachable and the
 	// market state is readable. Implementations dial TMS_MOOMOO_ADDR.
 	OpenDState(ctx context.Context) error
+
+	// OpenDMaxSubscriptions returns the resolved per-connection OpenD K-line
+	// subscription cap the live session will subscribe against (the configured
+	// TMS_MOOMOO_MAX_SUB, or moomoo.DefaultMaxSubscriptions=100 when unset). The
+	// SUBSCRIPTION_CAP check sizes the live subscription set against it so
+	// preflight and the live path agree on the exact ceiling.
+	OpenDMaxSubscriptions() int
 }
 
 // EnabledStrategy is one strategy in the session and the warmup it needs.
@@ -115,4 +122,22 @@ func (r *ResolvedSession) hasSEPA() bool {
 		}
 	}
 	return false
+}
+
+// FixedBasketSymbols returns the always-subscribed fixed-basket instruments —
+// the live session subscribes EVERY one of these (they are never capped). They
+// are the warmup symbols of the NON-SEPA strategies: the sector ETFs + SPY
+// (sector_rotation), the pair legs (pairs), and the ORB symbol (orb). SPY is
+// always included (the context heartbeat the live assembly unions first), even
+// for a sepa-only session. These mirror the live Assembled.Tickers minus the
+// screened SEPA universe — the fixed half of the live subscription set.
+func (r *ResolvedSession) FixedBasketSymbols() []string {
+	out := []string{"SPY"}
+	for _, s := range r.Strategies {
+		if s.Name == "sepa" {
+			continue // SEPA is the SCREENED (capped) universe, not a fixed basket
+		}
+		out = append(out, s.WarmupSymbols...)
+	}
+	return out
 }

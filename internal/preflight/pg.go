@@ -185,6 +185,18 @@ func (p *PGProbes) OpenDState(ctx context.Context) error {
 	return nil
 }
 
+// OpenDMaxSubscriptions returns the resolved OpenD per-connection subscription
+// cap: the configured TMS_MOOMOO_MAX_SUB (moomooCfg.MaxSubscriptions), or
+// moomoo.DefaultMaxSubscriptions when unset/non-positive — the SAME default the
+// moomoo client applies (Options.withDefaults), so preflight sizes the live
+// subscription set against the exact ceiling the client enforces.
+func (p *PGProbes) OpenDMaxSubscriptions() int {
+	if p.moomooCfg.MaxSubscriptions > 0 {
+		return p.moomooCfg.MaxSubscriptions
+	}
+	return moomoo.DefaultMaxSubscriptions
+}
+
 // ResolveStrategy resolves the enabled strategies + their warmup exactly as the
 // live Assembler would: same param resolution (so promotion provenance matches),
 // same default-SEPA-universe fallback (ListUniverseForWindow over the window),

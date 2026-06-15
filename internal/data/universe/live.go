@@ -29,6 +29,13 @@ const (
 	// WarmupCalendarDays is the warmup window (2*365 calendar days, no
 	// leap handling — live_runner.py:258).
 	WarmupCalendarDays = 730
+	// SubscriptionSafetyMargin is the headroom left below the OpenD
+	// per-connection subscription cap when sizing the LIVE subscription set:
+	// the total distinct subscription set (fixed baskets + capped SEPA) is held
+	// to OpenDCap - SubscriptionSafetyMargin so a transient extra subscription
+	// (e.g. a re-sub race on reconnect) cannot push the connection over the hard
+	// OpenD limit and crash the session at subscribe time.
+	SubscriptionSafetyMargin = 5
 )
 
 // sectorETFs are the 11 Select Sector SPDR ETFs in
@@ -145,6 +152,125 @@ func ApplyUniverseLimit(tickers []string, lookup MarketCapLookup, limit int) []s
 		ranked[i] = out[idx[i]]
 	}
 	return ranked
+}
+
+// LiveSubscriptionSet is the resolved LIVE subscription plan: the distinct
+// symbols a live session WOULD subscribe to OpenD, with the SEPA screened
+// universe capped by market cap so the total fits the per-connection cap.
+type LiveSubscriptionSet struct {
+	// Fixed are the always-subscribed fixed-basket instruments (SPY + sector
+	// ETFs + pair legs), deduped + sorted. These are NEVER capped — the live
+	// session must subscribe every one of them.
+	Fixed []string
+	// SEPA is the market-cap-capped slice of the screened SEPA universe that
+	// was admitted to the subscription set (top-N by cap, deterministic). It
+	// excludes any name already in Fixed (a SEPA name that is also a pair leg is
+	// counted once, in Fixed).
+	SEPA []string
+	// SEPALimit is the top-N cap actually applied to the SEPA universe (the
+	// budget left after the fixed baskets + safety margin). 0 means the fixed
+	// baskets alone already consumed the entire budget (no SEPA names admitted).
+	SEPALimit int
+	// All is the final distinct subscription set (Fixed first, then the admitted
+	// SEPA names), deduped + sorted. len(All) <= the effective cap.
+	All []string
+	// Cap is the OpenD per-connection cap the set was sized against.
+	Cap int
+	// Budget is the effective ceiling len(All) was held to:
+	// Cap - SubscriptionSafetyMargin (clamped to >= 0).
+	Budget int
+}
+
+// ResolveLiveSubscriptionSet is the SINGLE SOURCE OF TRUTH for sizing the LIVE
+// OpenD subscription set (used by BOTH the live assembly path and the
+// SUBSCRIPTION_CAP preflight check, so preflight and the live session agree
+// EXACTLY on which names are subscribed).
+//
+// The fixed baskets (SPY + sector ETFs + pair legs, passed via `fixed`) are
+// ALWAYS subscribed — they are never capped. The screened SEPA universe is
+// capped to the top-N BY MARKET CAP (ApplyUniverseLimit) with N chosen so the
+// TOTAL distinct subscription set is <= openDCap - SubscriptionSafetyMargin:
+//
+//	budget   = max(openDCap - SubscriptionSafetyMargin, 0)
+//	sepaSlot = max(budget - len(distinctFixed), 0)
+//	SEPA     = ApplyUniverseLimit(sepaMinusFixed, lookup, sepaSlot)
+//
+// SEPA names that are ALSO fixed-basket members (e.g. a pair leg that the SEPA
+// screen also selected — pair legs are intentionally NOT excluded from SEPA)
+// are counted once, in Fixed, so they never consume a SEPA slot or appear
+// twice in All.
+//
+// openDCap <= 0 is treated as DefaultMaxSubscriptions's documented 100 by the
+// caller; this helper takes the resolved cap directly so it has no dependency
+// on the moomoo package (avoids an import cycle). A non-positive cap yields a
+// zero budget (no SEPA admitted, fixed baskets still returned — the caller's
+// preflight will then flag the overflow).
+func ResolveLiveSubscriptionSet(fixed, sepa []string, lookup MarketCapLookup, openDCap int) LiveSubscriptionSet {
+	distinctFixed := dedupeSorted(fixed)
+	fixedSet := make(map[string]struct{}, len(distinctFixed))
+	for _, t := range distinctFixed {
+		fixedSet[t] = struct{}{}
+	}
+
+	// SEPA names that are already fixed are folded into Fixed (counted once).
+	sepaOnly := make([]string, 0, len(sepa))
+	seen := make(map[string]struct{}, len(sepa))
+	for _, t := range sepa {
+		if t == "" {
+			continue
+		}
+		if _, isFixed := fixedSet[t]; isFixed {
+			continue
+		}
+		if _, dup := seen[t]; dup {
+			continue
+		}
+		seen[t] = struct{}{}
+		sepaOnly = append(sepaOnly, t)
+	}
+
+	budget := openDCap - SubscriptionSafetyMargin
+	if budget < 0 {
+		budget = 0
+	}
+	sepaSlot := budget - len(distinctFixed)
+	if sepaSlot < 0 {
+		sepaSlot = 0
+	}
+
+	capped := ApplyUniverseLimit(sepaOnly, lookup, sepaSlot)
+
+	all := make([]string, 0, len(distinctFixed)+len(capped))
+	all = append(all, distinctFixed...)
+	all = append(all, capped...)
+	sort.Strings(all)
+
+	return LiveSubscriptionSet{
+		Fixed:     distinctFixed,
+		SEPA:      capped,
+		SEPALimit: sepaSlot,
+		All:       all,
+		Cap:       openDCap,
+		Budget:    budget,
+	}
+}
+
+// dedupeSorted returns the distinct non-empty entries of in, sorted ascending.
+func dedupeSorted(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, t := range in {
+		if t == "" {
+			continue
+		}
+		if _, ok := seen[t]; ok {
+			continue
+		}
+		seen[t] = struct{}{}
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Builder computes, ranks and snapshots universes from the Store.
