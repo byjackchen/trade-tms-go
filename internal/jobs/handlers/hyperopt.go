@@ -143,6 +143,19 @@ func (h *Hyperopt) Run(ctx context.Context, job *jobs.Job, report jobs.ProgressF
 	if err != nil {
 		return nil, fmt.Errorf("hyperopt.run: loading shared dataset: %w", err)
 	}
+	// Load REAL, look-ahead-safe market caps ONCE (locked decision 5: no DB during
+	// the optimization loop) and attach them to the shared dataset. Without this
+	// the SEPA context stubs every cap to 0, every name fails the rule-8 $500M
+	// gate, and the SEPA hyperopt objective degenerates to 0 (never trades). Caps
+	// come from tms.fundamentals_sf1 (universe.Store.MarketCaps: latest datekey,
+	// dimension DESC tie-break), mirroring the production backtest handler.
+	if len(sepaStocks) > 0 && (cfg.Strategy == "sepa" || cfg.Strategy == "joint") {
+		caps, cerr := h.uni.MarketCaps(ctx, sepaStocks)
+		if cerr != nil {
+			return nil, fmt.Errorf("hyperopt.run: loading market caps: %w", cerr)
+		}
+		ds.SetMarketCaps(caps)
+	}
 	cfg.Dataset = ds
 	cfg.SEPAStocks = sepaStocks
 	cfg.RunsDir = h.studyRunsDir(p)

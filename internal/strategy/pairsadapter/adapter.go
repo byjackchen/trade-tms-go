@@ -36,10 +36,26 @@ var (
 	_ engine.IntentEvaluator = (*Strategy)(nil)
 	_ engine.StateSummarizer = (*Strategy)(nil)
 	_ engine.StatePersister  = (*Strategy)(nil)
+	_ engine.SymbolScoped    = (*Strategy)(nil)
 )
 
 // ID returns the engine strategy id.
 func (s *Strategy) ID() string { return s.id }
+
+// SymbolsScoped declares EVERY leg symbol across all pairs (engine symbol-indexed
+// dispatch). The pairs generator returns nil + mutates NO state for any bar whose
+// symbol is not a configured leg (generator.go: bar.Symbol not in g.history), so
+// scoping to exactly the leg universe is behaviour-preserving. Duplicate legs
+// (a symbol appearing in two pairs) are harmless — the engine dedups — but we
+// emit the full leg list (long then short, in pair-config order) for clarity.
+func (s *Strategy) SymbolsScoped() []string {
+	pairsCfg := s.sg.Config().Pairs
+	syms := make([]string, 0, len(pairsCfg)*2)
+	for _, p := range pairsCfg {
+		syms = append(syms, p.LongLeg, p.ShortLeg)
+	}
+	return syms
+}
 
 // Generator exposes the underlying Generator (read-only use, e.g. tests).
 func (s *Strategy) Generator() *pairs.Generator { return s.sg }

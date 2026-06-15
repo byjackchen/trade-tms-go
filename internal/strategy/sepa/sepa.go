@@ -65,6 +65,12 @@ type Generator struct {
 	marketCapUSD     float64
 	earningsBlackout bool
 	catalyst         bool
+
+	// inc carries the per-generator incremental indicator state that replaces the
+	// O(window)-per-bar batch recomputation in the flat-book entry chain. It is
+	// fed once per bar in appendBar and rebuilt by WarmupFromHistory / LoadState.
+	// See incstate.go / incentry.go (parity-critical, byte-identical to batch).
+	inc *incState
 }
 
 // New constructs a SEPA generator, validating the config exactly as
@@ -81,6 +87,7 @@ func New(cfg Config) (*Generator, error) {
 		entryPrice: decZero,
 		stopPrice:  decZero,
 		pivotPrice: decZero,
+		inc:        newIncState(),
 	}, nil
 }
 
@@ -140,17 +147,29 @@ func (g *Generator) maybeEnter(bar Bar) []Signal {
 		return nil // not enough history for Trend Template (signal.py:200-201)
 	}
 
-	// 1. Stage must be "2" (on history INCLUDING the current bar).
-	stage := indicators.ClassifyStage(g.close)
+	// [CORRECTNESS/PERF fix 3] Early market-cap reject. Trend-Template rule 8
+	// (market_cap >= MarketCapMinUSD) is a necessary condition for entry: when it
+	// fails, EvaluateTrendTemplate().Passed() is always false and the name is
+	// rejected. Hoisting the SAME gate ahead of the Stage/Trend-Template/VCP chain
+	// yields the IDENTICAL admit/reject set (a sub-min-cap name never traded
+	// before either) while skipping the entire indicator recompute for names that
+	// cannot clear the cap. Byte-identical predicate to rule 8 (trend_template.go).
+	if !(g.marketCapUSD >= g.cfg.MarketCapMinUSD) {
+		return nil
+	}
+
+	// 1. Stage must be "2" (on history INCLUDING the current bar). Computed from
+	// the per-generator incremental state — byte-identical to
+	// indicators.ClassifyStage(g.close) (incentry.go).
+	stage := g.classifyStageInc()
 	if stage != "2" {
 		return nil
 	}
 
-	// 2. Trend Template all 8 rules (INCLUDING the current bar).
-	tt := indicators.EvaluateTrendTemplate(
-		g.close, g.high, g.low, g.marketCapUSD, g.cfg.MarketCapMinUSD,
-	)
-	if !tt.Passed() {
+	// 2. Trend Template all 8 rules (INCLUDING the current bar). Incremental,
+	// byte-identical to indicators.EvaluateTrendTemplate(...).Passed().
+	ttPass := g.trendTemplatePassInc()
+	if !ttPass {
 		return nil
 	}
 
@@ -189,7 +208,7 @@ func (g *Generator) maybeEnter(bar Bar) []Signal {
 	// 5. Grade — final go/no-go (signal.py:236-251).
 	earningsPass := !g.earningsBlackout
 	grade := gradeSetup(setupInputs{
-		trendTemplatePass:   tt.Passed(),
+		trendTemplatePass:   ttPass,
 		earningsPass:        earningsPass,
 		stage:               stage,
 		catalyst:            g.catalyst,
@@ -320,15 +339,29 @@ func (g *Generator) appendBar(bar Bar) {
 	g.low = append(g.low, bar.Low)
 	g.close = append(g.close, bar.Close)
 	g.volume = append(g.volume, float64(bar.Volume))
+
+	// [PERF fix 2] Feed the incremental indicator state once per bar (O(1)
+	// amortized) so the entry chain never recomputes O(n*window) batch MAs.
+	g.inc.onAppend(bar.High, bar.Low, g.close)
+
 	if max := g.cfg.HistoryMaxBars; max > 0 && len(g.close) > max {
 		// Retain the last max rows (tail), matching DataFrame.tail(max).
+		//
+		// [PERF fix 2] Front-trim by RESLICING (g.x = g.x[cut:]) instead of the
+		// old copy-into-new-slice trimFront. Reslicing is O(1) and allocation-free
+		// — it only advances the slice header past the dropped prefix; the live
+		// window stays contiguous and oldest-first (so DetectVCP / EvaluateIntent
+		// keep clean slices) and len(g.close) stays exactly max (parity:
+		// BarsInHistory). The wasted prefix is reclaimed by the next append's grow.
+		// This removes the ~84% per-bar GC/alloc the profile flagged.
 		cut := len(g.close) - max
-		g.ts = trimFront(g.ts, cut)
-		g.open = trimFrontF(g.open, cut)
-		g.high = trimFrontF(g.high, cut)
-		g.low = trimFrontF(g.low, cut)
-		g.close = trimFrontF(g.close, cut)
-		g.volume = trimFrontF(g.volume, cut)
+		g.ts = g.ts[cut:]
+		g.open = g.open[cut:]
+		g.high = g.high[cut:]
+		g.low = g.low[cut:]
+		g.close = g.close[cut:]
+		g.volume = g.volume[cut:]
+		g.inc.trimFront(cut)
 	}
 }
 
@@ -357,20 +390,7 @@ func (g *Generator) WarmupFromHistory(bars []Bar) {
 		g.close[i] = b.Close
 		g.volume[i] = float64(b.Volume)
 	}
-}
-
-// ---------------------------------------------------------------------------
-// small helpers
-// ---------------------------------------------------------------------------
-
-func trimFront[T any](s []T, cut int) []T {
-	out := make([]T, len(s)-cut)
-	copy(out, s[cut:])
-	return out
-}
-
-func trimFrontF(s []float64, cut int) []float64 {
-	out := make([]float64, len(s)-cut)
-	copy(out, s[cut:])
-	return out
+	// Rebuild the incremental indicator state over the warmed buffer; produces
+	// state byte-identical to feeding the bars one-by-one via appendBar.
+	g.inc.rebuild(g.high, g.low, g.close)
 }

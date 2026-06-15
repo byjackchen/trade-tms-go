@@ -36,6 +36,39 @@ const spyWarmupDays = 500
 type Dataset struct {
 	instruments []engine.InstrumentBars
 	bySym       map[string]engine.InstrumentBars
+	// marketCaps is the latest-known (look-ahead-safe as of the study window)
+	// SF1 market cap per SEPA stock, loaded ONCE up front (locked decision 5: no
+	// DB during the optimization loop). 0 == unknown (fails the SEPA rule-8 cap
+	// gate, sorts last) — same contract as universe.Store.MarketCaps. nil/empty
+	// means no caps were threaded in (cold-start: every name reads 0 and the SEPA
+	// objective degenerates to 0, the pre-fix behaviour); the hyperopt handler
+	// populates this from tms.fundamentals_sf1 so the objective is non-degenerate.
+	marketCaps map[string]float64
+}
+
+// SetMarketCaps attaches the look-ahead-safe per-ticker market caps to the
+// dataset (loaded once from tms.fundamentals_sf1 by the caller, mirroring the
+// production backtest context provider). Keys are tickers; 0 means unknown.
+// Called exactly once before the dataset is shared with concurrent evaluators,
+// so no synchronization is needed.
+func (d *Dataset) SetMarketCaps(caps map[string]float64) {
+	if len(caps) == 0 {
+		return
+	}
+	d.marketCaps = make(map[string]float64, len(caps))
+	for k, v := range caps {
+		d.marketCaps[k] = v
+	}
+}
+
+// MarketCap returns the look-ahead-safe market cap for ticker (0 when unknown or
+// no caps were loaded). 0 fails the SEPA rule-8 cap gate, exactly as the
+// universe.Store.MarketCaps contract specifies.
+func (d *Dataset) MarketCap(ticker string) float64 {
+	if d.marketCaps == nil {
+		return 0
+	}
+	return d.marketCaps[ticker]
 }
 
 // LoadDataset reads every instrument's bars over [start - max(warmup), end] from

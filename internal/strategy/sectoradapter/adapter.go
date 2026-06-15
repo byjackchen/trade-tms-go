@@ -36,10 +36,18 @@ var (
 	_ engine.IntentEvaluator = (*Strategy)(nil)
 	_ engine.StateSummarizer = (*Strategy)(nil)
 	_ engine.StatePersister  = (*Strategy)(nil)
+	_ engine.SymbolScoped    = (*Strategy)(nil)
 )
 
 // ID returns the engine strategy id.
 func (s *Strategy) ID() string { return s.id }
+
+// SymbolsScoped declares the whole rotation universe (engine symbol-indexed
+// dispatch). The generator returns nil + mutates NO state for any out-of-universe
+// bar (signal.go: bar.Symbol not in universeSet), so scoping to exactly the
+// universe is behaviour-preserving. The slice is the generator's universe in
+// config order (read-only).
+func (s *Strategy) SymbolsScoped() []string { return s.sg.Config().Universe }
 
 // Generator exposes the underlying SignalGenerator (read-only use, e.g. tests).
 func (s *Strategy) Generator() *sectorrotation.SignalGenerator { return s.sg }

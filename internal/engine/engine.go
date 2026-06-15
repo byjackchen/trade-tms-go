@@ -59,6 +59,20 @@ type Engine struct {
 	registration   []string // instrument symbols in registration order
 	registrationIx map[string]int
 
+	// dispatch is the symbol-indexed strategy fan-out built ONCE at assembly
+	// (buildDispatch): dispatch[sym] is the slice of indices into e.strategies —
+	// in REGISTRATION ORDER — of the strategies whose OnBar must run for a bar of
+	// sym. It is the deterministic replacement for the per-bar full scan: a bar's
+	// handler ranges dispatch[bar.Symbol] (matching adapters, registration order)
+	// instead of all e.strategies. A strategy that does not implement SymbolScoped
+	// is appended to EVERY symbol's slice (broadcast fallback == old behaviour), so
+	// the indexed set is byte-identical to the full scan for those strategies.
+	// broadcast holds the unscoped (full-scan) strategy indices in registration
+	// order, used both to seed dispatch and to serve a bar whose symbol was not
+	// seen at assembly (defensive; bar symbols are always registered instruments).
+	dispatch  map[string][]int
+	broadcast []int
+
 	// pre-trade gating + look-ahead-safe context (multi-strategy path).
 	gate    *portfolio.Portfolio
 	ctxProv *portfolio.ContextProvider
@@ -170,6 +184,11 @@ func New(ctx context.Context, cfg Config, feed BarFeed) (*Engine, error) {
 		eng.registrationIx[ib.Symbol] = i
 	}
 
+	// Build the symbol-indexed strategy dispatch ONCE (over the now-known
+	// registered symbols). Replaces the per-bar full scan with an O(matches)
+	// fan-out while preserving registration-order dispatch determinism.
+	eng.buildDispatch()
+
 	// Register handlers.
 	loop.Register(core.KindBar, core.HandlerFunc(eng.handleBar))
 	loop.Register(core.KindFill, core.HandlerFunc(eng.handleFill))
@@ -255,6 +274,99 @@ func (e *Engine) Run(ctx context.Context) (*Result, error) {
 	return e.buildResult()
 }
 
+// buildDispatch computes the symbol-indexed strategy fan-out (e.dispatch /
+// e.broadcast) ONCE, after instruments are registered. For each strategy, IN
+// REGISTRATION ORDER (the index into e.strategies), it is appended either to the
+// per-symbol slices of the symbols it declares (SymbolScoped) or, if it does not
+// implement SymbolScoped, to the broadcast set (every bar). dispatch[sym] is then
+// seeded as broadcast and extended with sym's scoped strategies — and because we
+// iterate strategies in registration order while building, EACH dispatch[sym]
+// slice is in registration order, so the per-bar fan-out hits exactly the same
+// strategies in the same order the old full scan would. A scoped strategy whose
+// declared symbol is not a registered instrument simply never has a bar to match
+// (its slice entry is unreachable), which is harmless.
+//
+// Determinism: the ONLY map iterated in the hot path is dispatch (a lookup, not a
+// range); ordering comes entirely from the registration-order append loop here,
+// never from map iteration.
+func (e *Engine) buildDispatch() {
+	e.dispatch = make(map[string][]int, len(e.registration))
+	e.broadcast = e.broadcast[:0]
+	// scoped[sym] collects, in registration order, the scoped strategies for sym.
+	scoped := make(map[string][]int)
+	for i, st := range e.strategies {
+		ss, ok := st.(SymbolScoped)
+		if !ok {
+			// No declared scope: this strategy runs on EVERY bar (old behaviour).
+			e.broadcast = append(e.broadcast, i)
+			continue
+		}
+		// Dedup the declared symbols so a strategy that lists a symbol twice (e.g.
+		// a self-pair) is still dispatched exactly once per matching bar.
+		seen := make(map[string]struct{}, len(ss.SymbolsScoped()))
+		for _, sym := range ss.SymbolsScoped() {
+			if _, dup := seen[sym]; dup {
+				continue
+			}
+			seen[sym] = struct{}{}
+			scoped[sym] = append(scoped[sym], i)
+		}
+	}
+	// Materialize dispatch[sym] = broadcast ++ scoped[sym], both in registration
+	// order, for every REGISTERED symbol (the only symbols bars carry). Merging by
+	// a single ascending walk over registration indices keeps the combined slice
+	// in registration order even though broadcast and scoped were filled
+	// separately.
+	for _, sym := range e.registration {
+		if _, done := e.dispatch[sym]; done {
+			continue // duplicate registration symbol (defensive; validateConfig dedups)
+		}
+		e.dispatch[sym] = mergeRegistrationOrder(e.broadcast, scoped[sym])
+	}
+}
+
+// mergeRegistrationOrder merges two slices of strategy indices that are each
+// already ascending (registration order) into one ascending slice. Both inputs
+// hold DISTINCT indices (a strategy is either broadcast OR scoped, never both,
+// and scoped dedups per symbol), so a simple two-pointer merge yields the exact
+// registration-order interleaving the full scan would visit.
+func mergeRegistrationOrder(a, b []int) []int {
+	if len(b) == 0 {
+		// Common SEPA case (no broadcast strategies): share nothing mutable; copy
+		// so callers can never alias the broadcast backing array.
+		out := make([]int, len(a))
+		copy(out, a)
+		return out
+	}
+	out := make([]int, 0, len(a)+len(b))
+	i, j := 0, 0
+	for i < len(a) && j < len(b) {
+		if a[i] < b[j] {
+			out = append(out, a[i])
+			i++
+		} else {
+			out = append(out, b[j])
+			j++
+		}
+	}
+	out = append(out, a[i:]...)
+	out = append(out, b[j:]...)
+	return out
+}
+
+// strategiesFor returns the strategy indices (registration order) to dispatch a
+// bar of sym to. It is the indexed replacement for the per-bar full scan: a
+// registered symbol returns its precomputed dispatch slice; an UNREGISTERED
+// symbol (defensive — bars only carry registered instruments) returns the
+// broadcast set, which is what a full scan would also deliver for an unscoped
+// strategy (and a scoped strategy would self-filter the bar out anyway).
+func (e *Engine) strategiesFor(sym string) []int {
+	if ix, ok := e.dispatch[sym]; ok {
+		return ix
+	}
+	return e.broadcast
+}
+
 // handleBar dispatches one bar. For the active fill timing it orders the
 // account mark, strategy callbacks and executor processing correctly (see the
 // package doc above).
@@ -290,9 +402,14 @@ func (e *Engine) handleBar(_ context.Context, ev core.Event) error {
 		e.injectContext(bar.TS)
 	}
 
-	// Run strategies in registration order (deterministic).
+	// Run the strategies that react to this symbol, in registration order
+	// (deterministic). The symbol-indexed dispatch (buildDispatch) yields exactly
+	// the strategies a full scan would have run for this bar (the rest self-filter
+	// to a no-op) in the SAME registration order, so the trading behaviour is
+	// byte-identical while the per-bar cost drops from O(strategies) to O(matches).
 	sub := orderSubmitter{eng: e}
-	for _, st := range e.strategies {
+	for _, idx := range e.strategiesFor(bar.Symbol) {
+		st := e.strategies[idx]
 		if err := st.OnBar(sub, bar); err != nil {
 			return fmt.Errorf("engine: strategy %s on bar %s@%s: %w", st.ID(), bar.Symbol, bar.TS, err)
 		}

@@ -293,11 +293,21 @@ func (e *Evaluator) buildContext(start, end calendar.Date) *portfolio.ContextPro
 	if len(spy) == 0 {
 		return nil
 	}
+	// Real, look-ahead-safe market caps loaded once from tms.fundamentals_sf1
+	// (latest SF1 datekey <= as_of per ticker), threaded onto the shared dataset
+	// by the hyperopt handler. Mirror the production backtest handler's
+	// buildContext EXACTLY: one as-of SF1 row dated the run start carrying the
+	// latest known cap, HasMarketCap=true only when the cap is non-zero (0 ==
+	// unknown; fails the SEPA rule-8 cap gate, sorts last). When no caps were
+	// loaded (e.ds.MarketCap returns 0 for all), this degenerates to the old
+	// cold-start behaviour — but the handler always populates them now, so SEPA
+	// names clear the $500M gate and trade (the intended objective fix).
 	asOf := midnight(start)
 	sf1 := make([]portfolio.SF1Row, 0, len(e.sepaStock))
 	for _, t := range e.sepaStock {
+		mc := e.ds.MarketCap(t)
 		sf1 = append(sf1, portfolio.SF1Row{
-			Ticker: t, DateKey: asOf, MarketCap: 0, HasMarketCap: false,
+			Ticker: t, DateKey: asOf, MarketCap: mc, HasMarketCap: mc != 0,
 			Dimension: "MRT", HasDimension: true,
 		})
 	}

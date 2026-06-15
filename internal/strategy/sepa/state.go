@@ -135,6 +135,13 @@ func (g *Generator) LoadState(d StateDict) {
 	g.low = append([]float64(nil), k.Low...)
 	g.close = append([]float64(nil), k.Close...)
 	g.volume = append([]float64(nil), k.Volume...)
+
+	// Rebuild incremental indicator state over the restored buffer (byte-identical
+	// to having fed the bars one-by-one).
+	if g.inc == nil {
+		g.inc = newIncState()
+	}
+	g.inc.rebuild(g.high, g.low, g.close)
 }
 
 func orDefault(s, def string) string {

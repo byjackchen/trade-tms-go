@@ -82,6 +82,9 @@ func New(cfg Config) (*Generator, error) {
 }
 
 // OnBar processes one bar and emits zero or more Signals, replicating
+// Symbol returns the single instrument this generator trades (its universe).
+func (g *Generator) Symbol() string { return g.cfg.Symbol }
+
 // signal.py:118-171 exactly (session change handling, opening-range window,
 // lock, entry/exit dispatch).
 func (g *Generator) OnBar(bar Bar) []Signal {

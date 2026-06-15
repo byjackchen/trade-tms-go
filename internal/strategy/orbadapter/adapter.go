@@ -36,10 +36,16 @@ var (
 	_ engine.IntentEvaluator = (*Strategy)(nil)
 	_ engine.StateSummarizer = (*Strategy)(nil)
 	_ engine.StatePersister  = (*Strategy)(nil)
+	_ engine.SymbolScoped    = (*Strategy)(nil)
 )
 
 // ID returns the engine strategy id.
 func (s *Strategy) ID() string { return s.id }
+
+// SymbolsScoped declares the single symbol this adapter reacts to (engine
+// symbol-indexed dispatch). The ORB generator self-filters bar.Symbol !=
+// cfg.Symbol to a no-op, so the engine need only dispatch this name's bars here.
+func (s *Strategy) SymbolsScoped() []string { return []string{s.gen.Symbol()} }
 
 // Generator exposes the underlying generator (read-only use, e.g. tests).
 func (s *Strategy) Generator() *orb.Generator { return s.gen }

@@ -614,3 +614,64 @@ Go: `tmp/sepabench/` (deleted after the run) connected to the phase-1 Timescale
 cache (`dump=False`), under a ~16-min budget. Both throwaway harnesses were
 removed; the Python repo was not modified; the compose stack was torn down
 (`compose down -v`) at the end.
+
+#### Post-optimization (incremental SEPA hot path + real market caps)
+
+The five optimization fixes land directly on the two costs this subsection
+profiled — the per-bar SEPA indicator recompute and the degenerate (zero-cap)
+objective. Re-measured on the same machine (Apple M4 Max, go1.26.1):
+
+**(a) Per-`OnBar` cost — the payoff (measured directly).** A same-harness
+before/after of the flat-book SEPA entry chain over a full 1,000-bar history
+(`internal/strategy/sepa/bench_test.go`, `BenchmarkOnBarSteadyState`; the "before"
+re-runs the batch `ClassifyStage`/`EvaluateTrendTemplate` + copy-trim path on the
+identical harness):
+
+| | per `OnBar` | B/op | allocs/op |
+| --- | ---: | ---: | ---: |
+| **before** (batch recompute + copy-trim) | **≈ 225,000 ns** (~225 µs) | 192,512 | 15 |
+| **after** (incremental MAs + reslice-trim) | **≈ 800 ns** | 202 | **0** |
+| after, sub-cap early-reject (fix 3) | ≈ 180 ns | 202 | 0 |
+
+That is a **~270× drop in per-bar CPU** and the per-bar allocation/GC churn the
+profile flagged (the 192 KB/bar trim realloc + SMA output slices) goes to **zero
+allocs/bar**. The ~225 µs "before" reproduces the profiled cost exactly; the
+incremental accumulators (`incstate.go`/`incentry.go`) are proven bit-for-bit
+identical to the batch forms by `TestIncrementalEntryChainParity` (4 seeds × two
+`HistoryMaxBars`, across the front-trim), and the SEPA signal golden
+(`TestSEPAGoldenParity`) stays **0-mismatch**.
+
+**(b) Extrapolated full-universe per-trial.** The prior 1,528 s/trial was
+dominated by exactly this per-name work (the profile attributed ~40–50 % to
+indicator recompute and ~45–50 % to the trim/GC/alloc that is now eliminated). A
+~270× reduction of the per-`OnBar` hot path collapses the indicator+GC component
+toward O(1); the residual per-trial cost is the remaining fixed/feed/accounting
+work plus the now-tiny screener. The full ~5,547-name wall-clock re-benchmark and
+a fresh Python full-fold oracle run were **not** executed in this session (each is
+tens of minutes per engine on top of a multi-GB full-universe import); they remain
+the outstanding measurement. With the per-bar cost cut ~270×, the Go-vs-Python
+per-trial ratio is expected to swing from the prior ~1.38× to a large multiple
+(Python still does the full O(window) recompute per bar, unchanged at ~2,111
+s/trial), but the exact new s/trial is **pending a full-universe re-run** and is
+deliberately not asserted here as a measured number.
+
+**(c) SEPA now trades — objective is non-degenerate (measured on a real subset).**
+Fix 5 wires real, look-ahead-safe SF1 market caps into the hyperopt
+`buildContext` (`objective.go` + `dataset.go` + the `hyperopt.go` handler's
+`uni.MarketCaps` load); the production `backtest.buildContext` already loaded real
+caps, so only the hyperopt path was stubbed. Verified end-to-end against a real
+imported subset (SPY + 14 large-caps, real Sharadar bars + SF1 caps since 2020,
+window 2022-01-01..2023-12-31):
+
+| path | result |
+| --- | --- |
+| SEPA backtest (2 yr) | sharpe **0.494**, calmar **0.655**, **6 orders / 3 trades**, final \$106,493.62 |
+| SEPA hyperopt (pop 4 × gen 2, 2 folds) | 8 COMPLETE trials, sharpe **0.55–0.85**, calmar **0.64–1.08**, **2–6 orders** each, Pareto front 2 |
+
+Both are non-degenerate (non-zero sharpe/calmar, names clear the \$500 M rule-8
+gate and trade), replacing the old flat sharpe = calmar = 0 / 0-orders path
+documented in §(5) above. The objective now varies with the params across trials
+(real sensitivity), so the SEPA hyperopt objective is comparable to Python's
+(modulo the once-per-study vs per-fold universe nuance). A full-universe
+fixed-param Go-vs-Python objective vector comparison was not re-run in this
+session (same full-import budget reason).

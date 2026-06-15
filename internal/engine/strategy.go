@@ -86,8 +86,35 @@ type StatePersister interface {
 // (regime / market-cap / earnings) injected before OnBar. Pairs does not need
 // context; SEPA does. Defined here so the seam is uniform across strategies.
 type ContextConsumer interface {
-	// InjectContext supplies the context snapshot effective for bars at ts.
+	// InjectContext supplies the context snapshot effective for ts.
 	InjectContext(ctx StrategyContext)
+}
+
+// SymbolScoped is an OPTIONAL capability a strategy implements to DECLARE the
+// exact set of bar symbols it reacts to — the symbols whose bars its OnBar
+// mutates state for or emits signals from. A strategy's OnBar is a NO-OP (returns
+// no signals, mutates no state) for any bar whose symbol is NOT in this set
+// (every real generator self-filters: bar.Symbol != cfg.Symbol / not in the pair
+// universe / not in the rotation universe returns early). Declaring the set lets
+// the engine dispatch each bar ONLY to the matching adapter(s) instead of the
+// full ~N-strategy scan, an O(strategies)->O(matches) per-bar win for the
+// full-universe SEPA path (one single-symbol adapter per name).
+//
+// SymbolsScoped MUST return EVERY symbol the strategy reacts to:
+//   - SEPA / ORB (single-symbol): the one trading symbol.
+//   - Pairs (multi-symbol): every leg symbol across all pairs.
+//   - SectorRotation (multi-symbol): every universe ETF.
+//
+// Omitting a reacted-to symbol would DROP that bar from the strategy and change
+// behaviour, so the contract is "exhaustive or do not implement". A strategy that
+// CANNOT enumerate its symbols (or reacts to all of them, e.g. a broadcast
+// observer) simply DOES NOT implement SymbolScoped: the engine then falls back to
+// dispatching EVERY bar to it (the pre-optimization behaviour), so the indexed
+// dispatch is always a safe superset-free subset — it never skips a bar a full
+// scan would have delivered. The returned slice is read-only (the engine does not
+// mutate it) and its order is irrelevant (used only to build a membership set).
+type SymbolScoped interface {
+	SymbolsScoped() []string
 }
 
 // WarmupConsumer is a strategy that can PRIME its internal indicator/history
