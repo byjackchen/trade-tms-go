@@ -199,6 +199,76 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Daily incremental-sync scheduler: NYSE-calendar-aware. On every trading
+  # day at TMS_SCHEDULER_DAILY_AT (in TMS_SCHEDULER_TZ; default 18:30
+  # America/New_York, a few hours after the 16:00 ET close when Sharadar has
+  # published the session EOD) it ENQUEUES the daily pipeline onto the durable
+  # tms.jobs queue: data.refresh source=api (incremental Sharadar catchup)
+  # then eod.refresh (signal-intent precompute). The worker runs the jobs.
+  # Start with:
+  #   docker compose --profile app up -d --wait tmsgo-scheduler
+  #
+  # SINGLE replica by design: idempotency is enforced durably by the
+  # tms.scheduler_runs ledger (exactly one pipeline per trading day, even
+  # across restarts / accidental multiple instances), but a single replica
+  # keeps the steady state simple. deploy.replicas is pinned to 1 so a
+  # `--scale` typo cannot fan it out.
+  #
+  # The NASDAQ_DATA_LINK_API_KEY is NOT needed here — the scheduler only
+  # enqueues jobs; the WORKER (tmsgo-worker) holds the key and runs the actual
+  # Nasdaq Data Link sync. It is passed through (env_file .env) only for parity
+  # / future inline modes and is never logged or baked into the image.
+  #
+  # Healthcheck: the distroless image execs `tms scheduler --health`, which
+  # GETs the scheduler's own loopback /healthz (TMS_SCHEDULER_HEALTH_ADDR,
+  # shared netns) and exits 0/1. The endpoint is also exposed on host 18091.
+  tmsgo-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tms:dev
+    container_name: tmsgo-scheduler
+    profiles: ["app"]
+    command: ["scheduler"]
+    ports:
+      - "18091:8091"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TMS_PG_HOST: postgres
+      TMS_PG_PORT: "5432"
+      TMS_PG_USER: ${TMS_PG_USER:-tms}
+      TMS_PG_PASSWORD: ${TMS_PG_PASSWORD:-tms}
+      TMS_PG_DATABASE: ${TMS_PG_DATABASE:-tms}
+      TMS_PG_SSLMODE: disable
+      TMS_REDIS_ADDR: redis:6379
+      TMS_SCHEDULER_DAILY_AT: ${TMS_SCHEDULER_DAILY_AT:-18:30}
+      TMS_SCHEDULER_TZ: ${TMS_SCHEDULER_TZ:-America/New_York}
+      TMS_SCHEDULER_CATCHUP: ${TMS_SCHEDULER_CATCHUP:-true}
+      # Bind the health endpoint on all interfaces so the published host port
+      # 18091 reaches it; the probe still hits loopback inside the netns.
+      TMS_SCHEDULER_HEALTH_ADDR: 0.0.0.0:8091
+      TMS_LOG_LEVEL: ${TMS_LOG_LEVEL:-info}
+      TMS_LOG_FORMAT: json
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/tms", "scheduler", "--health", "--health-addr", "127.0.0.1:8091"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      mode: replicated
+      replicas: 1
+    restart: unless-stopped
+
   # Live trading node (P5): the SAME internal/core engine + strategy / portfolio
   # / warmup code as backtest, driven by a wall clock and a streaming moomoo
   # OpenD bar feed. In signal mode it records a SignalIntent per strategy per bar

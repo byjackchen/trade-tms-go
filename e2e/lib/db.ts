@@ -89,6 +89,106 @@ export async function jobCount(c: Client): Promise<number> {
   return Number(rows[0].n);
 }
 
+// ---------------------------------------------------------------------------
+// Ops ground truth (tms.jobs / tms.audit_log — migration 000006_ops). The Ops
+// workspace renders the API's projection of these tables; the specs compare
+// what the UI shows against these queries (the DB is the source of truth).
+// ---------------------------------------------------------------------------
+
+/** One ops.jobs row's identity — the same row the Ops queue table shows. */
+export type OpsJobTruth = {
+  id: number;
+  kind: string;
+  status: string;
+  claimedBy: string | null;
+  attempts: number;
+  maxAttempts: number;
+};
+
+/** Up to `limit` jobs, newest-first (id DESC) — mirrors GET /api/v1/jobs's
+ * ordering. Used to assert the Ops queue rows MATCH the DB. */
+export async function recentJobs(
+  c: Client,
+  limit = 200,
+): Promise<OpsJobTruth[]> {
+  const { rows } = await c.query<{
+    id: string;
+    kind: string;
+    status: string;
+    claimed_by: string | null;
+    attempts: string;
+    max_attempts: string;
+  }>(
+    `SELECT id::text AS id, kind, status, claimed_by,
+            attempts::text AS attempts, max_attempts::text AS max_attempts
+       FROM tms.jobs
+      ORDER BY id DESC
+      LIMIT $1`,
+    [limit],
+  );
+  return rows.map((r) => ({
+    id: Number(r.id),
+    kind: r.kind,
+    status: r.status,
+    claimedBy: r.claimed_by,
+    attempts: Number(r.attempts),
+    maxAttempts: Number(r.max_attempts),
+  }));
+}
+
+/** The newest job's id, or null when the queue is empty. */
+export async function latestJobId(c: Client): Promise<number | null> {
+  const { rows } = await c.query<{ id: string }>(
+    `SELECT id::text AS id FROM tms.jobs ORDER BY id DESC LIMIT 1`,
+  );
+  return rows.length ? Number(rows[0].id) : null;
+}
+
+/** Total audit_log rows (the Ops audit panel's lifetime entry count). */
+export async function auditCount(c: Client): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM tms.audit_log`,
+  );
+  return Number(rows[0].n);
+}
+
+/** One audit_log row's identity, newest-first — mirrors GET /api/v1/audit. */
+export type AuditTruth = {
+  id: number;
+  actor: string;
+  action: string;
+  entity: string | null;
+  entityId: string | null;
+};
+
+/** Up to `limit` newest audit rows (id DESC) — used to assert the Ops audit
+ * panel rows MATCH the DB (identity, not fabricated). */
+export async function recentAudit(
+  c: Client,
+  limit = 100,
+): Promise<AuditTruth[]> {
+  const { rows } = await c.query<{
+    id: string;
+    actor: string;
+    action: string;
+    entity: string | null;
+    entity_id: string | null;
+  }>(
+    `SELECT id::text AS id, actor, action, entity, entity_id
+       FROM tms.audit_log
+      ORDER BY id DESC
+      LIMIT $1`,
+    [limit],
+  );
+  return rows.map((r) => ({
+    id: Number(r.id),
+    actor: r.actor,
+    action: r.action,
+    entity: r.entity,
+    entityId: r.entity_id,
+  }));
+}
+
 /** True when no market data has been imported yet (drives seed-if-empty). */
 export async function marketDataIsEmpty(c: Client): Promise<boolean> {
   const t = await tableTruth(c, "bars_daily");

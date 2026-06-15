@@ -282,6 +282,79 @@ func (s *stubRunsReader) Orders(_ context.Context, id int64) (json.RawMessage, e
 }
 
 // ---------------------------------------------------------------------------
+// stubAuditReader
+// ---------------------------------------------------------------------------
+
+// stubAuditReader is an in-memory AuditReader. entries are stored newest-first
+// (as the PG query returns them); the stub applies the filter + keyset cursor +
+// limit so the handler's pagination contract is exercised without a DB.
+type stubAuditReader struct {
+	entries   []AuditEntry
+	err       error
+	lastQuery AuditFilter
+}
+
+func (s *stubAuditReader) Audit(_ context.Context, f AuditFilter) ([]AuditEntry, error) {
+	s.lastQuery = f
+	if s.err != nil {
+		return nil, s.err
+	}
+	limit := f.Limit
+	if limit < 1 {
+		limit = 50
+	}
+	out := make([]AuditEntry, 0, limit)
+	for _, e := range s.entries {
+		if f.Actor != "" && e.Actor != f.Actor {
+			continue
+		}
+		if f.Action != "" && e.Action != f.Action {
+			continue
+		}
+		if f.Entity != "" && e.Entity != f.Entity {
+			continue
+		}
+		if f.EntityID != "" && e.EntityID != f.EntityID {
+			continue
+		}
+		if f.Before != nil && e.ID >= *f.Before {
+			continue
+		}
+		out = append(out, e)
+		if len(out) == limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+// ---------------------------------------------------------------------------
+// stubSyncForcer
+// ---------------------------------------------------------------------------
+
+// stubSyncForcer is an in-memory SyncForcer for the POST /data/sync-now
+// contract tests. result is returned (with an incrementing call count);
+// err short-circuits to the 500 path.
+type stubSyncForcer struct {
+	mu        sync.Mutex
+	result    SyncNowResult
+	err       error
+	calls     int
+	lastActor string
+}
+
+func (s *stubSyncForcer) SyncNow(_ context.Context, actor string) (SyncNowResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls++
+	s.lastActor = actor
+	if s.err != nil {
+		return SyncNowResult{}, s.err
+	}
+	return s.result, nil
+}
+
+// ---------------------------------------------------------------------------
 // test harness
 // ---------------------------------------------------------------------------
 
@@ -294,6 +367,8 @@ type testServer struct {
 	runs     *stubRunsReader
 	hyperopt *stubHyperoptReader
 	promoter *stubPromoter
+	audit    *stubAuditReader
+	sync     *stubSyncForcer
 }
 
 // pingOK / pingErr are reusable PingFuncs.
@@ -314,6 +389,8 @@ func newTestServer(t *testing.T) *testServer {
 	rr := &stubRunsReader{}
 	hr := &stubHyperoptReader{}
 	pr := &stubPromoter{}
+	ar := &stubAuditReader{}
+	sf := &stubSyncForcer{result: SyncNowResult{TradingDate: "2024-06-12", Forced: true, DataJobID: 1, EODJobID: 2}}
 
 	srv, err := NewServer(Deps{
 		Log:         zerolog.Nop(),
@@ -329,10 +406,12 @@ func newTestServer(t *testing.T) *testServer {
 		Calendar:    cal,
 		PingPG:      pingOK,
 		PingRedis:   pingOK,
+		Audit:       ar,
+		Sync:        sf,
 		Now:         func() time.Time { return fixedNow },
 	})
 	require.NoError(t, err)
-	return &testServer{srv: srv, jobs: jq, data: ds, uni: ur, runs: rr, hyperopt: hr, promoter: pr}
+	return &testServer{srv: srv, jobs: jq, data: ds, uni: ur, runs: rr, hyperopt: hr, promoter: pr, audit: ar, sync: sf}
 }
 
 // do issues a request against the wired router and returns the recorder.

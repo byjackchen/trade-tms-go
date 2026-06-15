@@ -293,6 +293,46 @@ rows and advance the `dataset_sync` watermark.
 
 ---
 
+## `POST /api/v1/data/sync-now`
+
+Force the **daily incremental-sync pipeline** immediately — the manual twin of
+the automatic `tms scheduler`. It enqueues, for the current NYSE trading date
+(or the most recent prior session on a weekend/holiday), `data.refresh
+source=api` followed by `eod.refresh`, exactly as the scheduler does at its
+configured time.
+
+**Idempotent per trading day.** Enqueue happens at most once per
+`(daily, trading_date)` via the durable `tms.scheduler_runs` ledger: if the
+scheduler (or an earlier force) already enqueued the day's pipeline, this is a
+no-op and returns `forced: false, deduped: true` with no new jobs. This is a
+stronger guarantee than the active-only `data.refresh` dedupe key — it holds
+even after the day's jobs have already succeeded.
+
+Request body (optional):
+
+```json
+{ "actor": "alice" }   // optional; recorded in the audit trail as api:<actor>
+```
+
+Response `202 Accepted`:
+
+```json
+{
+  "trading_date": "2026-06-15",
+  "forced": true,        // false when the day was already enqueued
+  "deduped": false,      // = !forced
+  "data_job_id": 41,     // 0 when deduped
+  "eod_job_id": 42       // 0 when deduped
+}
+```
+
+`503` when the scheduler force path is not wired (misconfigured
+`TMS_SCHEDULER_DAILY_AT` / `TMS_SCHEDULER_TZ`); `400` on an unknown JSON field.
+
+**CLI twin:** `tms sync now` runs the identical force through the same ledger.
+
+---
+
 ## Jobs
 
 ### `GET /api/v1/jobs`
@@ -331,6 +371,28 @@ Optional body: `{ "reason": "...", "actor": "..." }`.
 { "outcome": "cancel_requested", "job": { /* job object */ } }
 ```
 
+### `POST /api/v1/jobs/{id}/retry`
+
+Re-run a **failed** or **canceled** job by enqueuing a **new** job that clones
+the source's `kind` + `payload`. The source row is never mutated — the failed/
+canceled record and its audit trail are preserved; the retry is the same enqueue
+path the original used, so the worker re-validates the payload.
+
+- Optional body: `{ "actor": "..." }` (stamped `api[:<actor>]` in the audit
+  trail, like the other mutation endpoints).
+- The clone carries **no** `dedupe_key` (a manual retry is an explicit operator
+  action and must not be silently deduped against a still-active job) and
+  inherits the source's `priority` + `max_attempts`.
+- Only **failed**/**canceled** jobs are retryable. A `queued`/`running` job is
+  still in flight, and a `succeeded` job has nothing to retry → `422`
+  (`validation`). Unknown id → `404`.
+
+Response `201 Created`:
+
+```json
+{ "job": { /* the NEW job object */ }, "source_job_id": 42 }
+```
+
 ### Job object
 
 ```json
@@ -360,6 +422,51 @@ Optional body: `{ "reason": "...", "actor": "..." }`.
 
 `progress` and `result` are JSON objects written by the worker; they are
 omitted from the response when empty.
+
+---
+
+## Audit log
+
+### `GET /api/v1/audit`
+
+The append-only operational audit trail (`tms.audit_log`): every state-changing
+action — job lifecycle (`job.enqueued` / `job.claimed` / …), param promotions,
+control commands, manual interventions — newest-first. Rows are written
+atomically with the change they record and are never updated or deleted. Backs
+the Ops UI **Audit log** panel. Implementation: `internal/api/handlers_audit.go`.
+
+- `actor` (optional): exact actor match (e.g. `api:alice`, `system`, `cli`).
+- `action` (optional): exact action match (e.g. `job.enqueued`).
+- `entity` (optional): exact entity-kind match (e.g. `job`, `strategy`).
+- `entity_id` (optional): exact entity-id match (e.g. `42`).
+- `before` (optional): keyset cursor — return rows with `id` **strictly less
+  than** this id (page by passing the last/oldest row's id back). Must be a
+  positive integer (else `400`).
+- `limit` (optional): default 50, range `[1, 500]`.
+
+```json
+{
+  "entries": [
+    {
+      "id": 105,
+      "ts": "2026-06-12T15:30:00Z",
+      "actor": "api:alice",
+      "action": "job.enqueued",
+      "entity": "job",            // omitted when null
+      "entity_id": "42",          // omitted when null/empty
+      "details": { "kind": "data.refresh" }  // omitted when empty ({})
+    }
+  ],
+  "next_before": 88               // keyset cursor for the next (older) page; null when no more
+}
+```
+
+`entity` / `entity_id` / `details` are omitted when absent (a `details` of `{}`
+is treated as empty). `next_before` is the `id` of the oldest row in this page
+when the page is full (`len == limit`), else `null` (the trail's start was
+reached). When the API is started without an audit reader the endpoint returns
+`503` (`validation`, "audit log reader not configured"). Bearer-auth like every
+`/api/*` route.
 
 ---
 

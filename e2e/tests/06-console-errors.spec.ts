@@ -47,7 +47,7 @@ const ROUTES: Route[] = [
   { path: "/backtests", ready: ["backtests-placeholder", "backtests-page"] },
   { path: "/hyperopt", ready: ["hyperopt-placeholder", "hyperopt-page"] },
   { path: "/live", ready: ["live-page", "live-placeholder"] },
-  { path: "/ops", ready: ["ops-placeholder"] },
+  { path: "/ops", ready: ["ops-page", "ops-placeholder"] },
 ];
 
 /** Wait for the first of the candidate readiness testids to become visible. */

@@ -26,6 +26,32 @@ type JobQueue interface {
 	Cancel(ctx context.Context, jobID int64, actor, reason string) (jobs.CancelOutcome, *jobs.Job, error)
 }
 
+// SyncForcer forces the daily incremental-sync pipeline immediately, backing
+// POST /api/v1/data/sync-now. It is the manual twin of the scheduler's
+// automatic daily enqueue and is idempotent through the same per-trading-date
+// ledger slot: forcing a day already enqueued is a no-op (Forced=false). The
+// production implementation (cmd/tms wires it) delegates to
+// *scheduler.Scheduler.SyncNow; the seam keeps the scheduler package out of
+// this package's imports. Optional: when nil the endpoint returns 503.
+type SyncForcer interface {
+	// SyncNow enqueues the daily pipeline for the current NYSE trading date
+	// (or the most recent prior session on a weekend/holiday) as actor.
+	SyncNow(ctx context.Context, actor string) (SyncNowResult, error)
+}
+
+// SyncNowResult is the outcome of a SyncForcer.SyncNow call.
+type SyncNowResult struct {
+	// TradingDate is the NYSE session date the pipeline targets (YYYY-MM-DD).
+	TradingDate string
+	// Forced is true when this call enqueued the pipeline; false when the
+	// day's slot was already claimed (idempotent no-op).
+	Forced bool
+	// DataJobID / EODJobID are the enqueued pipeline job ids (0 when Forced is
+	// false).
+	DataJobID int64
+	EODJobID  int64
+}
+
 // UniverseReader reads persisted universe snapshots (satisfied by
 // *universe.Store). kind "" matches any kind.
 type UniverseReader interface {

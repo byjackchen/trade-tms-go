@@ -511,6 +511,50 @@ func (s *Server) handleDataRefresh(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"job": jobToJSON(job), "deduped": deduped})
 }
 
+// ---------------------------------------------------------------------------
+// POST /api/v1/data/sync-now
+// ---------------------------------------------------------------------------
+
+// syncNowRequest is the (optional) request body: an actor label for the audit
+// trail. The force itself takes no other input — it always runs the full
+// daily pipeline for the current trading date.
+type syncNowRequest struct {
+	Actor string `json:"actor"`
+}
+
+// handleSyncNow forces the daily incremental-sync pipeline (data.refresh
+// source=api -> eod.refresh) immediately via the SyncForcer, bypassing the
+// scheduler's configured fire time. Idempotent through the per-trading-date
+// ledger slot: a day already enqueued returns deduped=true with no new jobs.
+func (s *Server) handleSyncNow(w http.ResponseWriter, r *http.Request) {
+	if s.sync == nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable",
+			"sync-now is not configured (the scheduler force path is not wired)")
+		return
+	}
+	var req syncNowRequest
+	if err := decodeStrictJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
+		return
+	}
+	actor := actorOrDefault(req.Actor)
+	res, err := s.sync.SyncNow(r.Context(), actor)
+	if err != nil {
+		internalError(w, s.log, "sync-now", err)
+		return
+	}
+	s.log.Info().Str("trading_date", res.TradingDate).Bool("forced", res.Forced).
+		Int64("data_job_id", res.DataJobID).Int64("eod_job_id", res.EODJobID).
+		Str("actor", actor).Msg("data sync-now")
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"trading_date": res.TradingDate,
+		"forced":       res.Forced,
+		"deduped":      !res.Forced,
+		"data_job_id":  res.DataJobID,
+		"eod_job_id":   res.EODJobID,
+	})
+}
+
 // actorOrDefault stamps API-submitted work with the "api:" prefix so the
 // audit trail distinguishes HTTP actors from CLI/system ones.
 func actorOrDefault(actor string) string {

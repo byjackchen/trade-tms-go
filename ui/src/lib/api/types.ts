@@ -947,3 +947,28 @@ export type SystemResponse = {
   components: Record<string, SystemComponent>;
   metrics: SystemMetrics;
 };
+
+// ---- /api/v1/audit (append-only operational audit trail) ----
+
+/** One tms.audit_log row. entity/entity_id/details are optional. */
+export type AuditEntry = {
+  id: number;
+  ts: string;
+  actor: string;
+  action: string;
+  entity?: string;
+  entity_id?: string;
+  details?: Record<string, unknown>;
+};
+
+/** GET /api/v1/audit body. next_before is the keyset cursor for the older page. */
+export type AuditResponse = {
+  entries: AuditEntry[];
+  next_before: number | null;
+};
+
+/** Response of POST /api/v1/jobs/{id}/retry: the cloned (new) job + the source id. */
+export type JobRetryResponse = {
+  job: Job;
+  source_job_id: number;
+};

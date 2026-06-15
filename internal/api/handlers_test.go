@@ -8,6 +8,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -374,6 +375,82 @@ func TestDataRefresh(t *testing.T) {
 		ts := newTestServer(t)
 		rec := ts.do(t, http.MethodPost, "/api/v1/data/refresh", strings.NewReader(`{"source":"api","tickers":["",""]}`), true)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/data/sync-now
+// ---------------------------------------------------------------------------
+
+func TestSyncNow(t *testing.T) {
+	t.Run("forces the pipeline and returns 202", func(t *testing.T) {
+		ts := newTestServer(t)
+		rec := ts.do(t, http.MethodPost, "/api/v1/data/sync-now", strings.NewReader(`{"actor":"bob"}`), true)
+		require.Equal(t, http.StatusAccepted, rec.Code)
+		out := decodeBody(t, rec)
+		assert.Equal(t, "2024-06-12", out["trading_date"])
+		assert.Equal(t, true, out["forced"])
+		assert.Equal(t, false, out["deduped"])
+		assert.EqualValues(t, 1, out["data_job_id"])
+		assert.EqualValues(t, 2, out["eod_job_id"])
+
+		assert.Equal(t, 1, ts.sync.calls)
+		assert.Equal(t, "api:bob", ts.sync.lastActor) // stamped with api: prefix
+	})
+
+	t.Run("idempotent no-op reports deduped", func(t *testing.T) {
+		ts := newTestServer(t)
+		ts.sync.result = SyncNowResult{TradingDate: "2024-06-12", Forced: false}
+		rec := ts.do(t, http.MethodPost, "/api/v1/data/sync-now", strings.NewReader(`{}`), true)
+		require.Equal(t, http.StatusAccepted, rec.Code)
+		out := decodeBody(t, rec)
+		assert.Equal(t, false, out["forced"])
+		assert.Equal(t, true, out["deduped"])
+		assert.EqualValues(t, 0, out["data_job_id"])
+	})
+
+	t.Run("empty body defaults actor to api", func(t *testing.T) {
+		ts := newTestServer(t)
+		rec := ts.do(t, http.MethodPost, "/api/v1/data/sync-now", nil, true)
+		require.Equal(t, http.StatusAccepted, rec.Code)
+		assert.Equal(t, "api", ts.sync.lastActor)
+	})
+
+	t.Run("unknown field is 400", func(t *testing.T) {
+		ts := newTestServer(t)
+		rec := ts.do(t, http.MethodPost, "/api/v1/data/sync-now", strings.NewReader(`{"bogus":1}`), true)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("forcer error is 500", func(t *testing.T) {
+		ts := newTestServer(t)
+		ts.sync.err = assertErr("ledger down")
+		rec := ts.do(t, http.MethodPost, "/api/v1/data/sync-now", strings.NewReader(`{}`), true)
+		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	})
+
+	t.Run("unconfigured forcer is 503", func(t *testing.T) {
+		// A server built without a SyncForcer degrades the endpoint to 503.
+		cal, err := calendar.NewNYSE()
+		require.NoError(t, err)
+		srv, err := NewServer(Deps{
+			Log: zerolog.Nop(), Token: testToken, CORSOrigins: []string{testOrigin},
+			Jobs: newStubJobQueue(), Data: &stubDataStore{}, Universe: &stubUniverseReader{},
+			Runs: &stubRunsReader{}, Calendar: cal, PingPG: pingOK, PingRedis: pingOK,
+			Now: func() time.Time { return fixedNow },
+		})
+		require.NoError(t, err)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/data/sync-now", strings.NewReader(`{}`))
+		req.Header.Set("Authorization", "Bearer "+testToken)
+		rec := httptest.NewRecorder()
+		srv.Routes().ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	})
+
+	t.Run("requires auth", func(t *testing.T) {
+		ts := newTestServer(t)
+		rec := ts.do(t, http.MethodPost, "/api/v1/data/sync-now", strings.NewReader(`{}`), false)
+		assert.Equal(t, http.StatusUnauthorized, rec.Code)
 	})
 }
 

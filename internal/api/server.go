@@ -48,6 +48,12 @@ type Deps struct {
 	// Optional: when nil those components report "not_configured" (the endpoint
 	// still serves PG/Redis/feed status).
 	System SystemReader
+	// Audit reads the append-only tms.audit_log for GET /api/v1/audit. Optional:
+	// when nil that endpoint returns 503 (audit reader not configured).
+	Audit AuditReader
+	// Sync forces the daily incremental-sync pipeline (POST
+	// /api/v1/data/sync-now). Optional: when nil that endpoint returns 503.
+	Sync SyncForcer
 	// Now overrides the clock (tests); nil = time.Now.
 	Now func() time.Time
 }
@@ -70,6 +76,8 @@ type Server struct {
 	live        LiveReader
 	commands    CommandEnqueuer
 	system      SystemReader
+	audit       AuditReader
+	sync        SyncForcer
 	hub         *Hub
 	now         func() time.Time
 }
@@ -114,6 +122,8 @@ func NewServer(d Deps) (*Server, error) {
 		live:        d.Live,
 		commands:    d.Commands,
 		system:      d.System,
+		audit:       d.Audit,
+		sync:        d.Sync,
 		hub:         NewHub(log, d.CORSOrigins),
 		now:         now,
 	}, nil
@@ -156,10 +166,15 @@ func (s *Server) Routes() *chi.Mux {
 			r.Get("/data/tickers", s.handleTickerSearch)
 			r.Get("/data/sync-runs", s.handleSyncRuns)
 			r.Post("/data/refresh", s.handleDataRefresh)
+			r.Post("/data/sync-now", s.handleSyncNow)
 
 			r.Get("/jobs", s.handleJobList)
 			r.Get("/jobs/{id}", s.handleJobGet)
 			r.Post("/jobs/{id}/cancel", s.handleJobCancel)
+			r.Post("/jobs/{id}/retry", s.handleJobRetry)
+
+			// Append-only operational audit trail (Ops UI AUDIT LOG panel).
+			r.Get("/audit", s.handleAuditList)
 
 			r.Get("/universe/latest", s.handleUniverseLatest)
 			r.Post("/universe/rebuild", s.handleUniverseRebuild)

@@ -33,7 +33,7 @@ const SECTIONS: Section[] = [
   { href: "/backtests", label: "Backtests", icon: FlaskConical, testid: "nav-backtests", ready: true },
   { href: "/hyperopt", label: "Hyperopt", icon: Sparkles, testid: "nav-hyperopt", ready: true },
   { href: "/live", label: "Live", icon: Activity, testid: "nav-live", ready: true },
-  { href: "/ops", label: "Ops", icon: Wrench, testid: "nav-ops", ready: false },
+  { href: "/ops", label: "Ops", icon: Wrench, testid: "nav-ops", ready: true },
 ];
 
 function ThemeToggle() {

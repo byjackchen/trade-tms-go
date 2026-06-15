@@ -44,6 +44,8 @@ import type {
   LiveAccount,
   LiveReconciliationResponse,
   SystemResponse,
+  AuditResponse,
+  JobRetryResponse,
 } from "./types";
 import { ApiError } from "./client";
 
@@ -245,6 +247,109 @@ export function useCancelJob() {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["jobs"] });
+      void qc.invalidateQueries({ queryKey: ["ops", "jobs"] });
+    },
+  });
+}
+
+// ---- Ops (job queue + audit log) ----
+//
+// The Ops workspace surfaces the operational layer. The job queue self-refreshes
+// while any job is still active (queued/running) so the table + drawer converge
+// to terminal state without a reload; the WS/SSE job stream layers live progress
+// on top (the page also invalidates these queries on each job event).
+
+/**
+ * Full job list for the Ops queue, with optional kind + status filters. Polls
+ * while any row is non-terminal so progress + terminal transitions land without
+ * a manual reload (the SSE bridge gives sub-second updates on top of this).
+ */
+export function useOpsJobs(filters?: {
+  kind?: string;
+  status?: string;
+}): UseQueryResult<JobsResponse, Error> {
+  return useQuery({
+    queryKey: ["ops", "jobs", filters?.kind ?? "all", filters?.status ?? "all"],
+    queryFn: () =>
+      apiGet<JobsResponse>("jobs", {
+        kind: filters?.kind,
+        status: filters?.status,
+        limit: 200,
+      }),
+    refetchInterval: (query) => {
+      const rows = query.state.data?.jobs ?? [];
+      return rows.some((j) => j.status === "queued" || j.status === "running")
+        ? 3000
+        : false;
+    },
+  });
+}
+
+/**
+ * One job's full detail (the Ops drawer). Polls while the job is active so the
+ * drawer's progress/result/error fill in live; stops once terminal.
+ */
+export function useOpsJob(
+  id: number | null,
+): UseQueryResult<JobResponse, Error> {
+  return useQuery({
+    queryKey: ["ops", "job", id],
+    queryFn: () => apiGet<JobResponse>(`jobs/${id}`),
+    enabled: id != null,
+    retry: (count, err) =>
+      (err as { status?: number })?.status !== 404 && count < 2,
+    refetchInterval: (query) => {
+      const s = query.state.data?.job.status;
+      return s === "queued" || s === "running" ? 3000 : false;
+    },
+  });
+}
+
+/** Retry a terminal (failed/canceled) job: enqueues a fresh clone of its
+ * kind+payload. Invalidates the queue so the new row appears immediately. */
+export function useRetryJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: number; actor?: string }) =>
+      apiPost<JobRetryResponse>(`jobs/${args.id}/retry`, { actor: args.actor }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["ops", "jobs"] });
+      void qc.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
+}
+
+/**
+ * Audit-log stream for the Ops AUDIT LOG panel: newest-first, with optional
+ * exact-match filters. A 503 (no audit reader wired) is an expected degraded
+ * state surfaced as an empty panel, not retried. Polls slowly so new rows land
+ * without a reload (the trail is append-only).
+ */
+export function useAudit(filters?: {
+  actor?: string;
+  action?: string;
+  entity?: string;
+}): UseQueryResult<AuditResponse, Error> {
+  return useQuery({
+    queryKey: [
+      "ops",
+      "audit",
+      filters?.actor ?? "all",
+      filters?.action ?? "all",
+      filters?.entity ?? "all",
+    ],
+    queryFn: () =>
+      apiGet<AuditResponse>("audit", {
+        actor: filters?.actor,
+        action: filters?.action,
+        entity: filters?.entity,
+        limit: 100,
+      }),
+    refetchInterval: 8000,
+    retry: (count, err) => {
+      const status = err instanceof ApiError ? err.status : undefined;
+      if (status === 503 || (status !== undefined && status < 500)) return false;
+      return count < 2;
     },
   });
 }

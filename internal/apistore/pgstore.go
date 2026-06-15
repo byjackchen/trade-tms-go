@@ -12,6 +12,7 @@ package apistore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -304,8 +305,80 @@ func (s *PGStore) SyncRuns(ctx context.Context, dataset string, limit int) ([]ap
 	return out, nil
 }
 
-// compile-time checks: PGStore is both the api.DataStore and the api.SystemReader.
+// Audit implements api.AuditReader: the append-only tms.audit_log, newest-first,
+// with optional exact-match filters and keyset pagination by id. The id DESC
+// order ties-break the ts DESC order deterministically (two rows can share a
+// timestamp); the audit_log_ts_idx covers the common ts-ordered scan.
+func (s *PGStore) Audit(ctx context.Context, f api.AuditFilter) ([]api.AuditEntry, error) {
+	// Build the WHERE clause from the optional filters. Each filter is an exact
+	// match; the keyset cursor (before) pages to strictly-older ids.
+	conds := make([]string, 0, 5)
+	args := make([]any, 0, 6)
+	add := func(col, val string) {
+		if val == "" {
+			return
+		}
+		args = append(args, val)
+		conds = append(conds, fmt.Sprintf("%s = $%d", col, len(args)))
+	}
+	add("actor", f.Actor)
+	add("action", f.Action)
+	add("entity", f.Entity)
+	add("entity_id", f.EntityID)
+	if f.Before != nil {
+		args = append(args, *f.Before)
+		conds = append(conds, fmt.Sprintf("id < $%d", len(args)))
+	}
+	limit := f.Limit
+	if limit < 1 {
+		limit = 50
+	}
+	args = append(args, limit)
+
+	where := ""
+	if len(conds) > 0 {
+		where = "WHERE " + strings.Join(conds, " AND ")
+	}
+	sql := fmt.Sprintf(`
+		SELECT id, ts, actor, action,
+		       COALESCE(entity, ''), COALESCE(entity_id, ''), details
+		FROM tms.audit_log
+		%s
+		ORDER BY id DESC
+		LIMIT $%d`, where, len(args))
+
+	rows, err := s.pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("api: querying audit log: %w", err)
+	}
+	defer rows.Close()
+	out := make([]api.AuditEntry, 0, limit)
+	for rows.Next() {
+		var (
+			e       api.AuditEntry
+			details []byte
+		)
+		if err := rows.Scan(&e.ID, &e.TS, &e.Actor, &e.Action, &e.Entity, &e.EntityID, &details); err != nil {
+			return nil, fmt.Errorf("api: scanning audit row: %w", err)
+		}
+		e.TS = e.TS.UTC()
+		// Emit details only when it carries something beyond the empty object so
+		// the UI doesn't render a noise "{}" for every row.
+		if len(details) > 0 && string(details) != "{}" {
+			e.Details = append(json.RawMessage(nil), details...)
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("api: reading audit rows: %w", err)
+	}
+	return out, nil
+}
+
+// compile-time checks: PGStore is the api.DataStore, api.SystemReader and
+// api.AuditReader.
 var (
 	_ api.DataStore    = (*PGStore)(nil)
 	_ api.SystemReader = (*PGStore)(nil)
+	_ api.AuditReader  = (*PGStore)(nil)
 )

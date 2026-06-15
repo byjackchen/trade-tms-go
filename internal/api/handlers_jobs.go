@@ -171,3 +171,79 @@ func (s *Server) handleJobCancel(w http.ResponseWriter, r *http.Request) {
 	s.log.Info().Int64("job_id", id).Str("outcome", string(outcome)).Msg("job cancel requested via api")
 	writeJSON(w, http.StatusOK, map[string]any{"outcome": string(outcome), "job": jobToJSON(job)})
 }
+
+// retryRequest is the optional POST body of the retry endpoint.
+type retryRequest struct {
+	Actor string `json:"actor"`
+}
+
+// terminalForRetry are the statuses a job can be retried from: a job that has
+// finished unsuccessfully. A queued/running job is still in flight; a succeeded
+// job has nothing to retry.
+var terminalForRetry = map[jobs.Status]struct{}{
+	jobs.StatusFailed:   {},
+	jobs.StatusCanceled: {},
+}
+
+// POST /api/v1/jobs/{id}/retry
+//
+// Re-enqueues a NEW job cloning the original's kind + payload. This never
+// mutates the source row (the audit trail and the failed/canceled record are
+// preserved); it is the same enqueue path the original used, so the worker
+// re-validates the payload. Only failed/canceled jobs are retryable (a
+// queued/running job is in flight; a succeeded job has nothing to retry).
+//
+// The clone carries no dedupe_key (a manual retry is an explicit operator
+// action — it must not be silently deduped against a still-active job) and
+// inherits the source's max_attempts. Optional body: {"actor": "..."}.
+func (s *Server) handleJobRetry(w http.ResponseWriter, r *http.Request) {
+	id, ok := jobIDParam(w, r)
+	if !ok {
+		return
+	}
+	var req retryRequest
+	if err := decodeStrictJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
+		return
+	}
+
+	src, err := s.jobs.Get(r.Context(), id)
+	if errors.Is(err, jobs.ErrNotFound) {
+		writeError(w, http.StatusNotFound, CodeNotFound, fmt.Sprintf("job %d not found", id))
+		return
+	}
+	if err != nil {
+		internalError(w, s.log, "job retry get", err)
+		return
+	}
+	if _, retryable := terminalForRetry[src.Status]; !retryable {
+		writeError(w, http.StatusUnprocessableEntity, CodeValidation,
+			fmt.Sprintf("job %d is %s; only failed or canceled jobs can be retried", id, src.Status))
+		return
+	}
+
+	// Clone kind + payload verbatim. Payload is a JSON object (the schema CHECK
+	// guarantees it); pass the raw message straight through so the new job is a
+	// faithful re-run of the original input.
+	payload := json.RawMessage(src.Payload)
+	if len(payload) == 0 {
+		payload = json.RawMessage(`{}`)
+	}
+	clone, _, err := s.jobs.Enqueue(r.Context(), jobs.EnqueueParams{
+		Kind:        src.Kind,
+		Payload:     payload,
+		Priority:    src.Priority,
+		MaxAttempts: src.MaxAttempts,
+		Actor:       actorOrDefault(req.Actor),
+	})
+	if err != nil {
+		internalError(w, s.log, "job retry enqueue", err)
+		return
+	}
+	s.log.Info().Int64("source_job_id", id).Int64("retry_job_id", clone.ID).
+		Str("kind", src.Kind).Msg("job retried via api")
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"job":           jobToJSON(clone),
+		"source_job_id": id,
+	})
+}

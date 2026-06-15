@@ -10,13 +10,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
 	"github.com/byjackchen/trade-tms-go/internal/api"
 	"github.com/byjackchen/trade-tms-go/internal/apistore"
 	"github.com/byjackchen/trade-tms-go/internal/app"
 	"github.com/byjackchen/trade-tms-go/internal/commands"
+	"github.com/byjackchen/trade-tms-go/internal/config"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 	"github.com/byjackchen/trade-tms-go/internal/db"
@@ -24,6 +27,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
 	"github.com/byjackchen/trade-tms-go/internal/params/paramsdb"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
+	"github.com/byjackchen/trade-tms-go/internal/scheduler"
 )
 
 // newAPICmd implements `tms api`: the HTTP/WebSocket API for the UI
@@ -113,6 +117,17 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		return err
 	}
 
+	// Sync-now forcer (POST /api/v1/data/sync-now): a loop-less scheduler over
+	// the same queue + ledger + NYSE calendar. It only ENQUEUES the daily
+	// pipeline (the worker runs the actual Nasdaq sync), so no API key is
+	// needed here. A misconfigured TMS_SCHEDULER_DAILY_AT/TZ degrades the
+	// force endpoint to 503 rather than failing the whole API.
+	syncForcer, err := buildSyncForcer(cal, queue, pool, log, env.cfg)
+	if err != nil {
+		log.Warn().Err(err).Msg("sync-now disabled (scheduler config invalid); POST /api/v1/data/sync-now will 503")
+		syncForcer = nil
+	}
+
 	pgStore := apistore.NewPGStore(pool)
 	srv, err := api.NewServer(api.Deps{
 		Log:         log,
@@ -132,11 +147,17 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		// SystemReader backs GET /api/v1/system (queue depth, active sessions,
 		// data freshness); the same PGStore satisfies it.
 		System: pgStore,
+		// AuditReader backs GET /api/v1/audit (the append-only operational audit
+		// trail the Ops UI renders); the same PGStore satisfies it.
+		Audit: pgStore,
 		// The audited command enqueuer is the ONLY write path of the live API.
 		// A live/paper mode switch requires the confirmation token; "" means the
 		// presence of any non-empty confirm_token suffices (the API gates by
 		// presence — a stronger token can be wired later via app_config).
 		Commands: commands.NewEnqueuer(pool, redisClient, ""),
+		// Sync forces the daily incremental-sync pipeline immediately
+		// (POST /api/v1/data/sync-now); nil here degrades that endpoint to 503.
+		Sync: syncForcer,
 	})
 	if err != nil {
 		return err
@@ -222,6 +243,60 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		}},
 	)
 	return shutdownErr
+}
+
+// syncForcerAdapter bridges *scheduler.Scheduler.SyncNow (returning a
+// scheduler.TickResult) to the api.SyncForcer seam (returning an
+// api.SyncNowResult), keeping the scheduler package out of the api package's
+// imports.
+type syncForcerAdapter struct {
+	sched *scheduler.Scheduler
+	log   zerolog.Logger
+}
+
+// SyncNow implements api.SyncForcer.
+func (a *syncForcerAdapter) SyncNow(ctx context.Context, actor string) (api.SyncNowResult, error) {
+	res, err := a.sched.SyncNow(ctx, actor)
+	if err != nil {
+		return api.SyncNowResult{}, err
+	}
+	return api.SyncNowResult{
+		TradingDate: res.Date.String(),
+		Forced:      res.Action == scheduler.ActionEnqueued,
+		DataJobID:   res.Pipeline.DataJobID,
+		EODJobID:    res.Pipeline.EODJobID,
+	}, nil
+}
+
+// buildSyncForcer constructs the loop-less scheduler that backs
+// POST /api/v1/data/sync-now over the API's existing queue + pool + calendar.
+// It only enqueues jobs (the worker runs the actual sync), so no API key is
+// required. An invalid TMS_SCHEDULER_DAILY_AT/TZ yields an error and the API
+// disables the endpoint (503) rather than refusing to start.
+func buildSyncForcer(cal *calendar.Calendar, queue *jobs.Queue, pool *pgxpool.Pool, log zerolog.Logger, cfg *config.Config) (api.SyncForcer, error) {
+	at, err := scheduler.ParseTimeOfDay(cfg.SchedulerDailyAt)
+	if err != nil {
+		return nil, err
+	}
+	loc, err := time.LoadLocation(cfg.SchedulerTZ)
+	if err != nil {
+		return nil, fmt.Errorf("invalid TMS_SCHEDULER_TZ %q: %w", cfg.SchedulerTZ, err)
+	}
+	ledger, err := scheduler.NewPGLedger(pool)
+	if err != nil {
+		return nil, err
+	}
+	host, _ := os.Hostname()
+	if host == "" {
+		host = "api"
+	}
+	sched, err := scheduler.New(cal, queue, ledger, log, scheduler.Options{
+		DailyAt: at, Loc: loc, InstanceID: "api:" + host,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &syncForcerAdapter{sched: sched, log: log}, nil
 }
 
 // probeAPIHealth is the --health container-healthcheck mode: GET /healthz

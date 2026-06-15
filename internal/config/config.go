@@ -97,6 +97,28 @@ type Config struct {
 	// default — the container healthcheck runs in the same netns).
 	WorkerHealthAddr string // TMS_WORKER_HEALTH_ADDR
 
+	// --- Daily scheduler (`tms scheduler`) ---
+	// SchedulerDailyAt is the exchange-local-or-TZ wall-clock time of day
+	// ("HH:MM", 24h) at which the daily incremental-sync pipeline
+	// (data.refresh source=api then eod.refresh) is enqueued on each NYSE
+	// trading day. Default "18:30" interpreted in SchedulerTZ
+	// (America/New_York) — ~2.5h after the 16:00 ET close, when Sharadar has
+	// published the session's EOD.
+	SchedulerDailyAt string // TMS_SCHEDULER_DAILY_AT (HH:MM)
+	// SchedulerTZ is the IANA time zone SchedulerDailyAt is interpreted in.
+	// Default "America/New_York" so the fire time tracks the exchange close
+	// across DST.
+	SchedulerTZ string // TMS_SCHEDULER_TZ
+	// SchedulerCatchup enables the startup catch-up: if the process starts on
+	// a trading day after SchedulerDailyAt has already passed and the day's
+	// pipeline was never enqueued, enqueue it once (so a restart does not skip
+	// the day). Default true.
+	SchedulerCatchup bool // TMS_SCHEDULER_CATCHUP
+	// SchedulerHealthAddr is the liveness HTTP listen address of
+	// `tms scheduler` (`--health` probes GET /healthz on it). Default
+	// 127.0.0.1:8091 (host port 18091 via compose).
+	SchedulerHealthAddr string // TMS_SCHEDULER_HEALTH_ADDR
+
 	// --- Strategy params resolution ---
 	// StrategyParamsDir: "" means "use embedded baseline params"; set to e.g.
 	// runs/active_params to run with tuned params (per-strategy fallback to
@@ -161,6 +183,10 @@ func Load() (*Config, error) {
 	if moomooMaxSub < 1 {
 		return nil, fmt.Errorf("config: TMS_MOOMOO_MAX_SUB must be >= 1, got %d", moomooMaxSub)
 	}
+	schedulerCatchup, err := envBool("TMS_SCHEDULER_CATCHUP", true)
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{
 		PGHost:     envStr("TMS_PG_HOST", "127.0.0.1"),
@@ -187,6 +213,11 @@ func Load() (*Config, error) {
 		SharadarCacheDir:     envStr("TMS_SHARADAR_CACHE_DIR", ""),
 		StrategyParamsDir:    envStr("TMS_STRATEGY_PARAMS_DIR", ""),
 		RunsDir:              envStr("TMS_RUNS_DIR", "runs"),
+
+		SchedulerDailyAt:    envStr("TMS_SCHEDULER_DAILY_AT", "18:30"),
+		SchedulerTZ:         envStr("TMS_SCHEDULER_TZ", "America/New_York"),
+		SchedulerCatchup:    schedulerCatchup,
+		SchedulerHealthAddr: envStr("TMS_SCHEDULER_HEALTH_ADDR", "127.0.0.1:8091"),
 
 		MoomooAddr:   envStr("TMS_MOOMOO_ADDR", "127.0.0.1:11111"),
 		MoomooMaxSub: moomooMaxSub,
@@ -291,4 +322,19 @@ func envInt(key string, def int) (int, error) {
 		return 0, fmt.Errorf("config: %s must be an integer, got %q: %w", key, v, err)
 	}
 	return n, nil
+}
+
+// envBool parses a boolean env var (strconv.ParseBool spellings:
+// 1/t/T/TRUE/true/True and 0/f/F/FALSE/false/False), returning def when
+// unset/empty and an error for anything unparseable.
+func envBool(key string, def bool) (bool, error) {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return def, nil
+	}
+	b, err := strconv.ParseBool(strings.TrimSpace(v))
+	if err != nil {
+		return false, fmt.Errorf("config: %s must be a boolean (true/false), got %q: %w", key, v, err)
+	}
+	return b, nil
 }

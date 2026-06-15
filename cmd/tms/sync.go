@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
@@ -11,6 +12,8 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/sharadar"
 	"github.com/byjackchen/trade-tms-go/internal/db"
+	"github.com/byjackchen/trade-tms-go/internal/jobs"
+	"github.com/byjackchen/trade-tms-go/internal/scheduler"
 )
 
 // newSyncCmd declares `tms sync`: the live Nasdaq Data Link sync engine's
@@ -42,8 +45,94 @@ func newSyncCmd(env *runtimeEnv) *cobra.Command {
 	cmd.AddCommand(
 		newSyncBootstrapCmd(env),
 		newSyncCatchupCmd(env),
+		newSyncNowCmd(env),
 	)
 	return cmd
+}
+
+// newSyncNowCmd implements `tms sync now`: force the daily incremental-sync
+// pipeline (data.refresh source=api then eod.refresh) IMMEDIATELY, regardless
+// of the scheduler's configured fire time, on the current NYSE trading date
+// (or the most recent prior session on a weekend/holiday). It is the manual
+// twin of the scheduler's automatic daily enqueue and is idempotent through
+// the same tms.scheduler_runs ledger slot: forcing a day already enqueued is
+// a no-op. The run is audited (the enqueued jobs write tms.audit_log rows via
+// the queue; the ledger records the manual trigger).
+func newSyncNowCmd(env *runtimeEnv) *cobra.Command {
+	return &cobra.Command{
+		Use:   "now",
+		Short: "Force the daily incremental-sync pipeline immediately (audited, idempotent)",
+		Long: "Enqueues the daily pipeline (data.refresh source=api -> eod.refresh) right\n" +
+			"now for the current NYSE trading date, bypassing the scheduler's\n" +
+			"configured fire time. Idempotent: if the day's pipeline was already\n" +
+			"enqueued (by the scheduler or an earlier force) this is a no-op. On a\n" +
+			"weekend/holiday it targets the most recent prior session.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return withSyncNowScheduler(cmd, env, func(ctx context.Context, s *scheduler.Scheduler) error {
+				res, err := s.SyncNow(ctx, "cli")
+				if err != nil {
+					return err
+				}
+				switch res.Action {
+				case scheduler.ActionEnqueued:
+					fmt.Fprintf(cmd.OutOrStdout(),
+						"forced daily pipeline for %s: data.refresh job %d, eod.refresh job %d\n",
+						res.Date, res.Pipeline.DataJobID, res.Pipeline.EODJobID)
+				case scheduler.ActionAlreadyDone:
+					fmt.Fprintf(cmd.OutOrStdout(),
+						"daily pipeline for %s was already enqueued; nothing to do\n", res.Date)
+				default:
+					fmt.Fprintf(cmd.OutOrStdout(), "sync now: %s for %s\n", res.Action, res.Date)
+				}
+				return nil
+			})
+		},
+	}
+}
+
+// withSyncNowScheduler builds a loop-less Scheduler (queue + ledger + NYSE
+// calendar, no health server / no Run loop) for one CLI force and hands it to
+// fn. The Nasdaq Data Link API key is NOT required here: `sync now` only
+// ENQUEUES the data.refresh source=api job; the worker holds the key and runs
+// the actual sync.
+func withSyncNowScheduler(cmd *cobra.Command, env *runtimeEnv, fn func(ctx context.Context, s *scheduler.Scheduler) error) error {
+	ctx := cmd.Context()
+	log := env.log.With().Str("cmd", "sync-now").Logger()
+
+	at, err := scheduler.ParseTimeOfDay(env.cfg.SchedulerDailyAt)
+	if err != nil {
+		return err
+	}
+	loc, err := time.LoadLocation(env.cfg.SchedulerTZ)
+	if err != nil {
+		return fmt.Errorf("sync now: invalid TMS_SCHEDULER_TZ %q: %w", env.cfg.SchedulerTZ, err)
+	}
+	cal, err := calendar.NewNYSE()
+	if err != nil {
+		return err
+	}
+	pool, err := db.NewPool(ctx, env.cfg)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	queue, err := jobs.NewQueue(pool, log)
+	if err != nil {
+		return err
+	}
+	ledger, err := scheduler.NewPGLedger(pool)
+	if err != nil {
+		return err
+	}
+	s, err := scheduler.New(cal, queue, ledger, log, scheduler.Options{
+		DailyAt: at, Loc: loc, InstanceID: schedulerInstanceID(),
+	})
+	if err != nil {
+		return err
+	}
+	return fn(ctx, s)
 }
 
 // withSyncer builds a live Syncer (client + NYSE calendar + pgStore) for one

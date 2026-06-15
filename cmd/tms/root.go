@@ -48,6 +48,7 @@ func newRootCmd() *cobra.Command {
 		newImportCmd(env),
 		newSyncCmd(env),
 		newWorkerCmd(env),
+		newSchedulerCmd(env),
 		newJobsCmd(env),
 		newBacktestCmd(env),
 		newParityBacktestCmd(env),
