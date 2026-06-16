@@ -47,7 +47,6 @@ import (
 
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
-	"github.com/byjackchen/trade-tms-go/internal/livengine"
 	"github.com/byjackchen/trade-tms-go/internal/portfolio"
 )
 
@@ -120,7 +119,7 @@ type ManualAuditRecord struct {
 // ManualController is the operator-driven trading desk over one paper/live
 // account. It is safe for concurrent use (the API may serve several operators).
 type ManualController struct {
-	mode       livengine.Mode
+	acct       domain.Account
 	exec       *moexec.MoomooExecutor
 	gate       *portfolio.Portfolio
 	account    *AccountAdapter
@@ -139,10 +138,11 @@ type ManualController struct {
 
 // ManualControllerConfig assembles a ManualController.
 type ManualControllerConfig struct {
-	// Mode is paper or live. It MUST match the executor's binding (the constructor
-	// enforces: live mode <=> live-bound executor) so there is no way to drive a
-	// live executor through a "paper" controller or vice versa.
-	Mode livengine.Mode
+	// Acct is the bound broker account (simulate => paper, real => live). It MUST
+	// match the executor's binding (the constructor enforces: real account <=>
+	// live-bound executor) so there is no way to drive a live executor through a
+	// "paper" controller or vice versa.
+	Acct domain.Account
 	// Executor is the paper/live-bound MoomooExecutor (required). Its live binding
 	// already proves the 4-factor activation for live.
 	Executor *moexec.MoomooExecutor
@@ -182,8 +182,8 @@ type ManualControllerConfig struct {
 
 // NewManualController builds the desk, enforcing the mode<->executor binding.
 func NewManualController(cfg ManualControllerConfig) (*ManualController, error) {
-	if cfg.Mode != livengine.ModePaper && cfg.Mode != livengine.ModeLive {
-		return nil, fmt.Errorf("%w: manual controller mode %q (want paper/live)", domain.ErrInvalidArgument, cfg.Mode)
+	if !cfg.Acct.IsBroker() {
+		return nil, fmt.Errorf("%w: manual controller requires a broker account (simulate/real), got env %q", domain.ErrInvalidArgument, cfg.Acct.Env)
 	}
 	if cfg.Executor == nil || cfg.Account == nil {
 		return nil, fmt.Errorf("%w: manual controller requires an executor and account", domain.ErrInvalidArgument)
@@ -191,14 +191,14 @@ func NewManualController(cfg ManualControllerConfig) (*ManualController, error) 
 	if cfg.Halt == nil {
 		return nil, fmt.Errorf("%w: manual controller requires a halt latch", domain.ErrInvalidArgument)
 	}
-	// SAFETY: the controller's declared mode MUST match the executor's broker
-	// binding. A live controller needs a live-bound executor (which proves the
-	// 4-factor activation); a paper controller must NOT wrap a live-bound executor
+	// SAFETY: the controller's bound account env MUST match the executor's broker
+	// binding. A real account needs a live-bound executor (which proves the
+	// 4-factor activation); a simulate account must NOT wrap a live-bound executor
 	// (no real-money path through a "paper" desk).
-	if cfg.Mode == livengine.ModeLive && !cfg.Executor.IsLive() {
+	if cfg.Acct.IsReal() && !cfg.Executor.IsLive() {
 		return nil, fmt.Errorf("%w: live manual controller needs a live-bound executor (4-factor activation not satisfied)", domain.ErrInvalidArgument)
 	}
-	if cfg.Mode == livengine.ModePaper && cfg.Executor.IsLive() {
+	if !cfg.Acct.IsReal() && cfg.Executor.IsLive() {
 		return nil, fmt.Errorf("%w: paper manual controller must not wrap a live-bound executor", domain.ErrInvalidArgument)
 	}
 	clock := cfg.Clock
@@ -206,7 +206,7 @@ func NewManualController(cfg ManualControllerConfig) (*ManualController, error) 
 		clock = func() time.Time { return time.Now().UTC() }
 	}
 	return &ManualController{
-		mode:          cfg.Mode,
+		acct:          cfg.Acct,
 		exec:          cfg.Executor,
 		gate:          cfg.Gate,
 		account:       cfg.Account,
@@ -222,12 +222,18 @@ func NewManualController(cfg ManualControllerConfig) (*ManualController, error) 
 }
 
 // IsLive reports whether this desk is bound to a real account.
-func (m *ManualController) IsLive() bool { return m.mode == livengine.ModeLive }
+func (m *ManualController) IsLive() bool { return m.acct.IsReal() }
 
 // Mode reports the desk's bound mode ("paper" | "live"). Surfaced by the desk's
 // status/account endpoints so the UI + e2e can positively confirm a PAPER desk
-// (never place against live) without inferring it from the session.
-func (m *ManualController) Mode() string { return string(m.mode) }
+// (never place against live) without inferring it from the session. Derived from
+// the bound account's env (simulate => paper, real => live).
+func (m *ManualController) Mode() string {
+	if m.acct.IsReal() {
+		return string(domain.ModeLive)
+	}
+	return string(domain.ModePaper)
+}
 
 // ManualAccountView is a small read-only snapshot of the MANUAL book's account for
 // the desk's GET /trade/account endpoint (the UI + e2e read it). All money values

@@ -33,13 +33,16 @@ type LivePersist struct {
 	pool      *pgxpool.Pool
 	publisher *publish.Publisher
 	sessionID int64
+	accountID string // the bound tms.accounts.id; stamped on every order/fill/position/recon row
 	traderID  string
 	venue     string // instrument_id venue suffix (e.g. "MOOMOO")
 	log       zerolog.Logger
 }
 
-// NewLivePersist builds the durability layer for a session.
-func NewLivePersist(pool *pgxpool.Pool, pub *publish.Publisher, sessionID int64, traderID, venue string, log zerolog.Logger) *LivePersist {
+// NewLivePersist builds the durability layer for a session. accountID is the
+// resolved tms.accounts.id this session is bound to; it is stamped on every
+// order / fill / position / reconciliation row so persistence is account-aware.
+func NewLivePersist(pool *pgxpool.Pool, pub *publish.Publisher, sessionID int64, accountID, traderID, venue string, log zerolog.Logger) *LivePersist {
 	if venue == "" {
 		venue = "MOOMOO"
 	}
@@ -47,10 +50,35 @@ func NewLivePersist(pool *pgxpool.Pool, pub *publish.Publisher, sessionID int64,
 		pool:      pool,
 		publisher: pub,
 		sessionID: sessionID,
+		accountID: accountID,
 		traderID:  traderID,
 		venue:     venue,
 		log:       log.With().Str("component", "live-persist").Logger(),
 	}
+}
+
+// UpsertAccount ensures the bound account's row exists in tms.accounts so the FK
+// from sessions/orders/positions/fills/reconciliation_reports is satisfiable. It
+// is idempotent on the account id (INSERT ... ON CONFLICT DO UPDATE refreshes the
+// label + updated_at). MUST be called before the session row is created.
+func (p *LivePersist) UpsertAccount(ctx context.Context, a domain.Account) error {
+	if p.pool == nil {
+		return nil
+	}
+	if err := a.Validate(); err != nil {
+		return fmt.Errorf("upsert account: %w", err)
+	}
+	_, err := p.pool.Exec(ctx, `
+		INSERT INTO tms.accounts (id, venue, env, broker_acc_id, label)
+		VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (id) DO UPDATE SET
+		    label      = EXCLUDED.label,
+		    updated_at = now()`,
+		a.ID, a.Venue, string(a.Env), int64(a.BrokerAccID), a.Label)
+	if err != nil {
+		return fmt.Errorf("upsert account %s: %w", a.ID, err)
+	}
+	return nil
 }
 
 func (p *LivePersist) instrumentID(symbol string) string { return symbol + "." + p.venue }
@@ -77,9 +105,9 @@ func (p *LivePersist) UpsertOrder(ctx context.Context, o domain.Order) error {
 	// MARKET order carries no limit_px (NULL via nullPx on a nil/zero LimitPrice).
 	_, err := p.pool.Exec(ctx, `
 		INSERT INTO tms.orders
-		    (session_id, client_order_id, venue_order_id, strategy_id, symbol, instrument_id,
+		    (session_id, account_id, client_order_id, venue_order_id, strategy_id, symbol, instrument_id,
 		     side, order_type, qty, limit_px, tif, status, filled_qty, avg_fill_px, reason, ts_submitted, ts_last_event)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'GTC',$11,$12,$13,$14,$15,$15)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'GTC',$12,$13,$14,$15,$16,$16)
 		ON CONFLICT (client_order_id) DO UPDATE SET
 		    venue_order_id = COALESCE(EXCLUDED.venue_order_id, tms.orders.venue_order_id),
 		    status         = EXCLUDED.status,
@@ -87,7 +115,7 @@ func (p *LivePersist) UpsertOrder(ctx context.Context, o domain.Order) error {
 		    avg_fill_px    = COALESCE(EXCLUDED.avg_fill_px, tms.orders.avg_fill_px),
 		    reason         = COALESCE(NULLIF(EXCLUDED.reason, ''), tms.orders.reason),
 		    ts_last_event  = EXCLUDED.ts_last_event`,
-		p.sessionID, o.ClientOrderID, nullStr(o.VenueOrderID), o.StrategyID, o.Symbol,
+		p.sessionID, p.accountIDParam(), o.ClientOrderID, nullStr(o.VenueOrderID), o.StrategyID, o.Symbol,
 		p.instrumentID(o.Symbol), string(o.Side), orderTypeOr(o.Type), int64(o.Qty),
 		limitPxParam(o.Type, o.LimitPrice), string(o.Status),
 		int64(o.FilledQty), nullPx(o.AvgFillPx), nullStr(o.Reason), o.TS.UTC())
@@ -107,8 +135,8 @@ func (p *LivePersist) InsertFill(ctx context.Context, f domain.Fill) error {
 		return nil
 	}
 	_, err := p.pool.Exec(ctx, `
-		INSERT INTO tms.fills (order_id, venue_trade_id, qty, px, fee_usd, ts)
-		SELECT o.id, $2, $3, $4, $5, $6
+		INSERT INTO tms.fills (order_id, account_id, venue_trade_id, qty, px, fee_usd, ts)
+		SELECT o.id, o.account_id, $2, $3, $4, $5, $6
 		  FROM tms.orders o
 		 WHERE o.client_order_id = $1
 		ON CONFLICT (order_id, venue_trade_id) DO NOTHING`,
@@ -154,16 +182,17 @@ func (p *LivePersist) UpsertPosition(ctx context.Context, pos domain.Position) e
 	}
 	_, err := p.pool.Exec(ctx, `
 		INSERT INTO tms.positions
-		    (session_id, position_id, strategy_id, symbol, instrument_id,
+		    (session_id, account_id, position_id, strategy_id, symbol, instrument_id,
 		     signed_qty, avg_entry_px, realized_pnl_usd, status, opened_at, closed_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		ON CONFLICT (session_id, position_id) DO UPDATE SET
+		    account_id       = EXCLUDED.account_id,
 		    signed_qty       = EXCLUDED.signed_qty,
 		    avg_entry_px     = EXCLUDED.avg_entry_px,
 		    realized_pnl_usd = EXCLUDED.realized_pnl_usd,
 		    status           = EXCLUDED.status,
 		    closed_at        = EXCLUDED.closed_at`,
-		p.sessionID, positionID, pos.StrategyID, pos.Symbol, p.instrumentID(pos.Symbol),
+		p.sessionID, p.accountIDParam(), positionID, pos.StrategyID, pos.Symbol, p.instrumentID(pos.Symbol),
 		int64(pos.SignedQty), avgEntry, int64(pos.RealizedPnL), status, pos.UpdatedAt.UTC(), closedAt)
 	if err != nil {
 		return fmt.Errorf("upsert position %s: %w", positionID, err)
@@ -290,10 +319,10 @@ func (p *LivePersist) SaveReconciliation(ctx context.Context, r portfolio.Reconc
 	mb, _ := json.Marshal(mismatches)
 	_, err := p.pool.Exec(ctx, `
 		INSERT INTO tms.reconciliation_reports
-		    (session_id, ts, tolerance_shares, matched, mismatches,
+		    (session_id, account_id, ts, tolerance_shares, matched, mismatches,
 		     symbols_only_in_strategies, symbols_only_at_broker)
-		VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7)`,
-		p.sessionID, r.TS.UTC(), tolerance, textArray(r.Matched), string(mb),
+		VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8)`,
+		p.sessionID, p.accountIDParam(), r.TS.UTC(), tolerance, textArray(r.Matched), string(mb),
 		textArray(r.SymbolsOnlyInStrategies), textArray(r.SymbolsOnlyAtBroker))
 	if err != nil {
 		return fmt.Errorf("save reconciliation report: %w", err)
@@ -389,6 +418,10 @@ func nullStr(s string) any {
 	}
 	return s
 }
+
+// accountIDParam maps the bound account id to the account_id column value (the
+// FK), or SQL NULL when unset (the column is nullable through phase 3).
+func (p *LivePersist) accountIDParam() any { return nullStr(p.accountID) }
 
 // nullPx maps a non-positive price to SQL NULL (the avg_fill_px column is
 // `NULL OR > 0`): a not-yet-filled order has no average fill price.

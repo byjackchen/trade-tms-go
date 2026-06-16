@@ -67,7 +67,7 @@ func TestLiveFeedOverMockOpenD(t *testing.T) {
 	require.NoError(t, err)
 	sink := livengine.NewMemSink()
 	sess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModeSignal,
+		Exec:            domain.ExecSignal,
 		Strategies:      asm.Strategies,
 		Portfolio:       asm.Portfolio,
 		StartingBalance: domain.MustMoney("100000"),

@@ -74,8 +74,10 @@ type statePersister struct {
 
 // TradeSessionConfig assembles a TradeSession.
 type TradeSessionConfig struct {
-	// Mode is paper or live (the livengine mode).
-	Mode livengine.Mode
+	// Acct is the bound broker account (required). Its Env selects paper vs live:
+	// EnvSimulate => paper, EnvReal => live. The executor MUST be bound to a
+	// matching environment (a real account requires a live-bound executor).
+	Acct domain.Account
 	// Strategies are the engine strategy adapters (same instances backtest uses).
 	Strategies []engine.Strategy
 	// Gate is the portfolio gating pipeline (allocator + risk). Required for
@@ -117,8 +119,8 @@ type TradeSessionConfig struct {
 // constructs the underlying livengine.Session in paper/live mode wired to the
 // PostTimestamp telemetry hook.
 func NewTradeSession(cfg TradeSessionConfig) (*TradeSession, error) {
-	if cfg.Mode != livengine.ModePaper && cfg.Mode != livengine.ModeLive {
-		return nil, fmt.Errorf("%w: trade session mode %q (want paper/live)", domain.ErrInvalidArgument, cfg.Mode)
+	if !cfg.Acct.IsBroker() {
+		return nil, fmt.Errorf("%w: trade session requires a broker account (simulate/real), got env %q", domain.ErrInvalidArgument, cfg.Acct.Env)
 	}
 	if cfg.Account == nil || cfg.Executor == nil {
 		return nil, fmt.Errorf("%w: trade session requires an account adapter and executor", domain.ErrInvalidArgument)
@@ -126,13 +128,13 @@ func NewTradeSession(cfg TradeSessionConfig) (*TradeSession, error) {
 	if cfg.Halt == nil {
 		return nil, fmt.Errorf("%w: trade session requires a halt latch", domain.ErrInvalidArgument)
 	}
-	// SAFETY: a live trade session must be backed by a live-bound executor; a
-	// paper session by a paper-bound one. The executor's IsLive reflects the
-	// activation gate (TrdEnvReal only after the full live gate).
-	if cfg.Mode == livengine.ModeLive && !cfg.Executor.IsLive() {
-		return nil, fmt.Errorf("%w: live trade session needs a live-bound executor (activation gate not satisfied)", domain.ErrInvalidArgument)
+	// SAFETY: a real-money account must be backed by a live-bound executor; a
+	// simulate (paper) account by a paper-bound one. The executor's IsLive reflects
+	// the activation gate (TrdEnvReal only after the full live gate).
+	if cfg.Acct.IsReal() && !cfg.Executor.IsLive() {
+		return nil, fmt.Errorf("%w: real-money trade session needs a live-bound executor (activation gate not satisfied)", domain.ErrInvalidArgument)
 	}
-	if cfg.Mode == livengine.ModePaper && cfg.Executor.IsLive() {
+	if !cfg.Acct.IsReal() && cfg.Executor.IsLive() {
 		return nil, fmt.Errorf("%w: paper trade session must not use a live-bound executor", domain.ErrInvalidArgument)
 	}
 
@@ -162,7 +164,7 @@ func NewTradeSession(cfg TradeSessionConfig) (*TradeSession, error) {
 		sink = livengine.DiscardSink{}
 	}
 	sess, err := livengine.NewSession(livengine.Config{
-		Mode:            cfg.Mode,
+		Exec:            domain.ExecAuto,
 		Strategies:      cfg.Strategies,
 		Portfolio:       cfg.Gate,
 		Context:         cfg.Context,

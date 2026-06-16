@@ -87,7 +87,7 @@ func (e *MoomooExecutor) Flatten(ctx context.Context, confirmation, reason strin
 	// PRIMARY: close each per-strategy BOOK row under its OWN strategy id so the
 	// fill nets the ORIGINATING '<strategy>|<symbol>' row to 0 -> CLOSED.
 	// OpenPositions() is already sorted by (strategy_id, symbol) for determinism.
-	for _, p := range e.cfg.Account.OpenPositions() {
+	for _, p := range e.cfg.Book.OpenPositions() {
 		side, ok := domain.CloseSideFor(p.SignedQty)
 		if !ok {
 			continue // flat (defensive; OpenPositions excludes flats)
@@ -160,7 +160,7 @@ func (e *MoomooExecutor) flattenBrokerDrift(ctx context.Context, reason string, 
 	// (sum of the book rows' signed qty: a long book row +N is being closed, so
 	// the broker's +N is accounted for).
 	closing := make(map[string]domain.Qty, len(positions))
-	for _, p := range e.cfg.Account.OpenPositions() {
+	for _, p := range e.cfg.Book.OpenPositions() {
 		closing[p.Symbol] += p.SignedQty
 	}
 
@@ -216,10 +216,10 @@ func (e *MoomooExecutor) flattenBrokerDrift(ctx context.Context, reason string, 
 				TS:            ts,
 			}
 			if serr := seed.Validate(); serr == nil {
-				if _, aerr := e.cfg.Account.ApplyFill(seed); aerr != nil {
+				if _, aerr := e.cfg.Book.ApplyFill(seed); aerr != nil {
 					e.logf("moomoo executor: flatten drift seed %s: %v", p.Symbol, aerr)
 				} else {
-					e.persistPosition(ctx, mustPosition(e.cfg.Account, flattenStrategyID, p.Symbol))
+					e.persistPosition(ctx, mustPosition(e.cfg.Book, flattenStrategyID, p.Symbol))
 				}
 			}
 		}

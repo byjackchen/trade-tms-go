@@ -156,7 +156,7 @@ func TestWarmedLiveSectorProof(t *testing.T) {
 	// (A) WARMED LIVE: prime over the batch, stream the run window.
 	liveSink := livengine.NewMemSink()
 	liveSess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModeSignal,
+		Exec:            domain.ExecSignal,
 		Strategies:      as.Assembly.Strategies,
 		Portfolio:       as.Assembly.Portfolio,
 		SPYSymbol:       as.SPYSymbol,
@@ -196,7 +196,7 @@ func TestWarmedLiveSectorProof(t *testing.T) {
 	fullBatch := fullWindowBatch(t, a, fullSyms, warmStart, runEnd)
 	fullSink := livengine.NewMemSink()
 	fullSess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModeSignal,
+		Exec:            domain.ExecSignal,
 		Strategies:      mustReassembleSector(t, pool, ctx, now, runEnd).Assembly.Strategies,
 		Portfolio:       as.Assembly.Portfolio,
 		SPYSymbol:       as.SPYSymbol,
@@ -247,7 +247,7 @@ func TestWarmedLivePairsProof(t *testing.T) {
 
 	liveSink := livengine.NewMemSink()
 	liveSess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModeSignal,
+		Exec:            domain.ExecSignal,
 		Strategies:      as.Assembly.Strategies,
 		Portfolio:       as.Assembly.Portfolio,
 		SPYSymbol:       as.SPYSymbol,
@@ -293,7 +293,7 @@ func TestWarmedLivePairsProof(t *testing.T) {
 	fullBatch := fullWindowBatch(t, a, fullSyms, warmStart, runEnd)
 	fullSink := livengine.NewMemSink()
 	fullSess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModeSignal,
+		Exec:            domain.ExecSignal,
 		Strategies:      mustReassemblePairs(t, pool, ctx, now, runEnd).Assembly.Strategies,
 		Portfolio:       as.Assembly.Portfolio,
 		SPYSymbol:       as.SPYSymbol,

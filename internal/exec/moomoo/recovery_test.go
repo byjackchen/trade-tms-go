@@ -185,8 +185,8 @@ func TestFlattenBrokerDriftSweepClosesResidual(t *testing.T) {
 	persist := &recordPersist{}
 	risk := &recordRisk{}
 	e, err := New(context.Background(), Config{
-		Mode: ModePaper, Client: venue, AccID: paperAcc, TraderID: "PAPER-SMOKE-001",
-		Sink: sink, Account: acct, Persist: persist, Risk: risk,
+		Account: domain.NewBrokerAccount("moomoo", domain.EnvSimulate, paperAcc, ""), Client: venue, TraderID: "PAPER-SMOKE-001",
+		Sink: sink, Book: acct, Persist: persist, Risk: risk,
 		Clock: fixedClock{t: time.Now().UTC()},
 	})
 	if err != nil {
@@ -340,8 +340,8 @@ func TestRestoreFromBrokerRebuildsCumulativeSnapshot(t *testing.T) {
 	acct2 := newFakeAccount()
 	sink2 := &recordSink{}
 	e2, err := New(context.Background(), Config{
-		Mode: ModePaper, Client: venue, AccID: paperAcc, TraderID: "PAPER-SMOKE-001",
-		Sink: sink2, Account: acct2, Strategy: resolver, Clock: fixedClock{t: ts},
+		Account: domain.NewBrokerAccount("moomoo", domain.EnvSimulate, paperAcc, ""), Client: venue, TraderID: "PAPER-SMOKE-001",
+		Sink: sink2, Book: acct2, Strategy: resolver, Clock: fixedClock{t: ts},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -400,8 +400,8 @@ func TestRestoreFromBrokerUnresolvedStrategyFailsLoud(t *testing.T) {
 	acct2 := newFakeAccount()
 	sink2 := &recordSink{}
 	e2, err := New(context.Background(), Config{
-		Mode: ModePaper, Client: venue, AccID: paperAcc, TraderID: "PAPER-SMOKE-001",
-		Sink: sink2, Account: acct2, Strategy: newMapStrategyResolver(),
+		Account: domain.NewBrokerAccount("moomoo", domain.EnvSimulate, paperAcc, ""), Client: venue, TraderID: "PAPER-SMOKE-001",
+		Sink: sink2, Book: acct2, Strategy: newMapStrategyResolver(),
 		Clock: fixedClock{t: ts},
 	})
 	if err != nil {

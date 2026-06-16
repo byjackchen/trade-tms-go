@@ -48,18 +48,6 @@ const LiveConfirmationPhrase = "I CONFIRM LIVE REAL MONEY TRADING TMS-LIVE-REAL-
 // a different namespace and can never bind the live account.
 const LiveTraderID = "TMS-LIVE-REAL-001"
 
-// Mode is the executor's execution mode. Only paper / live are valid here
-// (signal mode uses the NoopExecutor, never this executor).
-type Mode string
-
-const (
-	ModePaper Mode = "paper"
-	ModeLive  Mode = "live"
-)
-
-// IsValid reports whether m is a mode this executor handles.
-func (m Mode) IsValid() bool { return m == ModePaper || m == ModeLive }
-
 // FillSink receives the domain fills the executor produces from broker pushes
 // (the live engine forwards them into the loop + accounting + equity). Mirrors
 // exec.FillSink so the executor can feed the same downstream as the simulator.
@@ -135,14 +123,15 @@ func (wallClock) Now() time.Time { return time.Now().UTC() }
 
 // Config assembles a MoomooExecutor.
 type Config struct {
-	// Mode is paper or live (required; never signal).
-	Mode Mode
+	// Account is the bound broker account (required). Its Env selects the moomoo
+	// TrdEnv (EnvSimulate -> paper, EnvReal -> live; EnvSim is rejected — this
+	// executor never settles synthetic fills) and its BrokerAccID is the broker
+	// account id. A real-money account (Account.IsReal()) triggers the 4-factor
+	// live-activation gate; a simulate account binds paper.
+	Account domain.Account
 	// Client is the native Trd_* trading surface (real *moomoo.Client or the
 	// in-memory mock venue). Required.
 	Client mo.TradeClient
-	// AccID is the broker account id. For paper this is PAPER_ACC_ID; for live the
-	// real account id (required, non-zero for both — there is no default).
-	AccID uint64
 	// TraderID is the session trader-id namespace. Live REQUIRES LiveTraderID.
 	TraderID string
 	// ConfirmationPhrase must equal LiveConfirmationPhrase for live mode.
@@ -152,8 +141,8 @@ type Config struct {
 
 	// Sink feeds produced fills to the engine/equity (required).
 	Sink FillSink
-	// Account settles fills + reads net positions (required).
-	Account AccountBook
+	// Book settles fills + reads net positions (required).
+	Book AccountBook
 	// Persist durably stores orders/fills/positions. May be nil (tests).
 	Persist Persistence
 	// Risk records blocked-order risk events. May be nil.
@@ -198,17 +187,20 @@ type MoomooExecutor struct {
 // ANY failure returns an error and NO executor (so no live order is reachable).
 // Paper binds TrdEnvSimulate and can never name the live account.
 func New(ctx context.Context, cfg Config) (*MoomooExecutor, error) {
-	if !cfg.Mode.IsValid() {
-		return nil, fmt.Errorf("%w: moomoo executor mode %q (want paper/live)", domain.ErrInvalidArgument, cfg.Mode)
+	// The executor only settles against a broker account (paper or real); a
+	// synthetic sim account has no broker and must never reach this path.
+	if !cfg.Account.IsBroker() {
+		return nil, fmt.Errorf("%w: moomoo executor requires a broker account (simulate/real), got env %q",
+			domain.ErrInvalidArgument, cfg.Account.Env)
 	}
 	if cfg.Client == nil {
 		return nil, fmt.Errorf("%w: moomoo executor requires a TradeClient", domain.ErrInvalidArgument)
 	}
-	if cfg.AccID == 0 {
+	if cfg.Account.BrokerAccID == 0 {
 		return nil, fmt.Errorf("%w: moomoo executor requires an explicit acc_id (no default)", domain.ErrInvalidArgument)
 	}
-	if cfg.Sink == nil || cfg.Account == nil {
-		return nil, fmt.Errorf("%w: moomoo executor requires a Sink and Account", domain.ErrInvalidArgument)
+	if cfg.Sink == nil || cfg.Book == nil {
+		return nil, fmt.Errorf("%w: moomoo executor requires a Sink and Book", domain.ErrInvalidArgument)
 	}
 
 	clock := cfg.Clock
@@ -220,9 +212,11 @@ func New(ctx context.Context, cfg Config) (*MoomooExecutor, error) {
 		logf = func(string, ...any) {}
 	}
 
+	accID := cfg.Account.BrokerAccID
+
 	var env mo.TrdEnv
-	switch cfg.Mode {
-	case ModePaper:
+	switch cfg.Account.Env {
+	case domain.EnvSimulate:
 		env = mo.TrdEnvSimulate
 		// SAFETY: a paper executor must NEVER carry live activation material. If a
 		// caller mis-supplies the live trader id, refuse — paper can never look
@@ -231,7 +225,7 @@ func New(ctx context.Context, cfg Config) (*MoomooExecutor, error) {
 			return nil, fmt.Errorf("%w: paper executor must not use the live trader-id %q",
 				domain.ErrInvalidArgument, LiveTraderID)
 		}
-	case ModeLive:
+	case domain.EnvReal:
 		// (a) typed confirmation phrase.
 		if cfg.ConfirmationPhrase != LiveConfirmationPhrase {
 			return nil, fmt.Errorf("%w: live activation requires the exact confirmation phrase",
@@ -247,9 +241,9 @@ func New(ctx context.Context, cfg Config) (*MoomooExecutor, error) {
 		if err != nil {
 			return nil, fmt.Errorf("live activation: GetAccList(REAL): %w", err)
 		}
-		if !accountExists(accs, cfg.AccID) {
+		if !accountExists(accs, accID) {
 			return nil, fmt.Errorf("%w: live acc_id %d not found under REAL env (refusing to activate)",
-				domain.ErrInvalidArgument, cfg.AccID)
+				domain.ErrInvalidArgument, accID)
 		}
 		// (d) Unlock the REAL account BEFORE binding TrdEnvReal. Two OpenD modes:
 		//   - HEADLESS OpenD: the API unlock works — use the password (with the
@@ -266,7 +260,7 @@ func New(ctx context.Context, cfg Config) (*MoomooExecutor, error) {
 		case cfg.UnlockPassword == "":
 			logf("live activation: no unlock password — relying on OpenD GUI 'Unlock Trade' (API unlock not attempted)")
 		default:
-			if err := cfg.Client.UnlockTrade(ctx, mo.TrdEnvReal, cfg.UnlockPassword, accountSecurityFirm(accs, cfg.AccID)); err != nil {
+			if err := cfg.Client.UnlockTrade(ctx, mo.TrdEnvReal, cfg.UnlockPassword, accountSecurityFirm(accs, accID)); err != nil {
 				if isGUIUnlockDisabled(err) {
 					logf("live activation: OpenD GUI mode disables the API unlock — relying on operator's GUI 'Unlock Trade': %v", err)
 				} else {
@@ -280,7 +274,7 @@ func New(ctx context.Context, cfg Config) (*MoomooExecutor, error) {
 	e := &MoomooExecutor{
 		cfg:      cfg,
 		env:      env,
-		accID:    cfg.AccID,
+		accID:    accID,
 		clock:    clock,
 		logf:     logf,
 		orders:   make(map[string]*OrderState),

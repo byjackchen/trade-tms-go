@@ -73,7 +73,7 @@ func buildSectorSession(t *testing.T, sink livengine.IntentSink) *livengine.Sess
 	})
 	require.NoError(t, err)
 	sess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModeSignal,
+		Exec:            domain.ExecSignal,
 		Strategies:      asm.Strategies,
 		Portfolio:       asm.Portfolio,
 		StartingBalance: domain.MustMoney("100000"),
@@ -178,7 +178,7 @@ func buildSEPASession(t *testing.T, sink livengine.IntentSink, warmup livengine.
 	})
 	require.NoError(t, err)
 	sess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModeSignal,
+		Exec:            domain.ExecSignal,
 		Strategies:      asm.Strategies,
 		Portfolio:       asm.Portfolio,
 		StartingBalance: domain.MustMoney("100000"),
@@ -254,8 +254,11 @@ func TestLiveSignalModeRejectsPaper(t *testing.T) {
 		Params:          strategyassembly.Params{Sector: wideSectorParams()},
 	})
 	require.NoError(t, err)
+	// Post-phase-3 the paper "mode" is ExecAuto; ExecAuto REQUIRES an injected
+	// (gated) submitter. Constructing it WITHOUT a Submitter must be rejected —
+	// the same guarantee the old ModePaper-without-submitter case proved.
 	_, err = livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModePaper,
+		Exec:            domain.ExecAuto,
 		Strategies:      asm.Strategies,
 		StartingBalance: domain.MustMoney("100000"),
 	})

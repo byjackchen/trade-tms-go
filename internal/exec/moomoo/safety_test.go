@@ -15,14 +15,13 @@ const realAcc = uint64(700700)
 // account registered + unlock password set.
 func liveCfg(venue *MockVenue) Config {
 	return Config{
-		Mode:               ModeLive,
+		Account:            domain.NewBrokerAccount("moomoo", domain.EnvReal, realAcc, ""),
 		Client:             venue,
-		AccID:              realAcc,
 		TraderID:           LiveTraderID,
 		ConfirmationPhrase: LiveConfirmationPhrase,
 		UnlockPassword:     "s3cret",
 		Sink:               &recordSink{},
-		Account:            newFakeAccount(),
+		Book:               newFakeAccount(),
 		Clock:              fixedClock{t: time.Now().UTC()},
 	}
 }
@@ -39,8 +38,8 @@ func TestPaperExecutorCannotReachLiveAccount(t *testing.T) {
 	venue := liveVenue()
 	// Build a PAPER executor but (mistakenly) point it at the real acc id.
 	e, err := New(context.Background(), Config{
-		Mode: ModePaper, Client: venue, AccID: realAcc, TraderID: "PAPER-SMOKE-001",
-		Sink: &recordSink{}, Account: newFakeAccount(), Clock: fixedClock{t: time.Now().UTC()},
+		Account: domain.NewBrokerAccount("moomoo", domain.EnvSimulate, realAcc, ""), Client: venue, TraderID: "PAPER-SMOKE-001",
+		Sink: &recordSink{}, Book: newFakeAccount(), Clock: fixedClock{t: time.Now().UTC()},
 	})
 	if err != nil {
 		t.Fatalf("paper build: %v", err)
@@ -70,8 +69,8 @@ func TestPaperExecutorCannotReachLiveAccount(t *testing.T) {
 func TestPaperWithLiveTraderIDRefused(t *testing.T) {
 	venue := liveVenue()
 	_, err := New(context.Background(), Config{
-		Mode: ModePaper, Client: venue, AccID: paperAcc, TraderID: LiveTraderID,
-		Sink: &recordSink{}, Account: newFakeAccount(), Clock: fixedClock{t: time.Now().UTC()},
+		Account: domain.NewBrokerAccount("moomoo", domain.EnvSimulate, paperAcc, ""), Client: venue, TraderID: LiveTraderID,
+		Sink: &recordSink{}, Book: newFakeAccount(), Clock: fixedClock{t: time.Now().UTC()},
 	})
 	if err == nil {
 		t.Fatal("paper executor with the live trader-id must be refused")

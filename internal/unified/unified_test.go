@@ -130,10 +130,17 @@ func TestFiveModesShareOneAssembly(t *testing.T) {
 
 	// ---- STREAMING consumer (signal + paper + live) ----------------------
 	// All three modes call livengine.NewSession with the SAME strategy slice;
-	// they differ only in (Mode, Submitter): signal => internal NoopExecutor,
-	// paper/live => the injected GatedSubmitter (here a stub).
+	// they differ only in (Exec, Submitter): signal => ExecSignal + internal
+	// NoopExecutor; paper AND live => ExecAuto + the injected GatedSubmitter
+	// (here a stub). Post-phase-3 the paper-vs-live distinction no longer lives
+	// on the session's execution policy (both are ExecAuto) — it moved to the
+	// broker Account bound to the injected executor (simulate => paper, real =>
+	// live). The accounts below model that distinction.
+	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvSimulate, 111111, "paper")
+	liveAcct := domain.NewBrokerAccount("moomoo", domain.EnvReal, 222222, "live")
+
 	signalSess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModeSignal,
+		Exec:            domain.ExecSignal,
 		Strategies:      strategies,
 		SPYSymbol:       "SPY",
 		StartingBalance: startBal,
@@ -141,7 +148,7 @@ func TestFiveModesShareOneAssembly(t *testing.T) {
 	require.NoError(t, err, "mode=signal must construct from the shared assembly")
 
 	paperSess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModePaper,
+		Exec:            domain.ExecAuto,
 		Strategies:      strategies,
 		SPYSymbol:       "SPY",
 		StartingBalance: startBal,
@@ -150,7 +157,7 @@ func TestFiveModesShareOneAssembly(t *testing.T) {
 	require.NoError(t, err, "mode=paper must construct from the shared assembly")
 
 	liveSess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModeLive,
+		Exec:            domain.ExecAuto,
 		Strategies:      strategies,
 		SPYSymbol:       "SPY",
 		StartingBalance: startBal,
@@ -171,10 +178,20 @@ func TestFiveModesShareOneAssembly(t *testing.T) {
 	assert.True(t, paperStub, "paper mode runs strategies through the injected (gated) submitter")
 	assert.True(t, liveStub, "live mode runs strategies through the injected (gated) submitter")
 
-	// The mode is the ONLY config knob distinguishing the three streaming nodes.
-	assert.Equal(t, livengine.ModeSignal, signalSess.Mode())
-	assert.Equal(t, livengine.ModePaper, paperSess.Mode())
-	assert.Equal(t, livengine.ModeLive, liveSess.Mode())
+	// The execution policy distinguishes signal from auto: signal => ExecSignal,
+	// paper AND live => ExecAuto. Post-phase-3 the session no longer carries the
+	// paper-vs-live distinction (both auto sessions share the same Exec()); that
+	// distinction moved to the bound broker Account (simulate => paper, real =>
+	// live). We assert the policy axis on the session, and the paper-vs-live axis
+	// on the accounts the injected executor would bind.
+	assert.Equal(t, domain.ExecSignal, signalSess.Exec(), "signal node emits intents only")
+	assert.Equal(t, domain.ExecAuto, paperSess.Exec(), "paper node auto-submits through the injected executor")
+	assert.Equal(t, domain.ExecAuto, liveSess.Exec(), "live node auto-submits through the injected executor")
+	// Paper and live sessions are now policy-identical (both ExecAuto) — the
+	// distinction is the Account, not the session.
+	assert.Equal(t, paperSess.Exec(), liveSess.Exec(), "paper/live no longer differ at the session: same execution policy")
+	assert.False(t, paperAcct.IsReal(), "the paper node binds a simulate (paper) account")
+	assert.True(t, liveAcct.IsReal(), "the live node binds a real-money account")
 }
 
 // TestStreamingClockSeamIsTheOnlyTimeDifference proves the streaming consumer is
@@ -188,7 +205,7 @@ func TestStreamingClockSeamIsTheOnlyTimeDifference(t *testing.T) {
 	strategies := sharedAssembly()
 
 	sess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModeSignal,
+		Exec:            domain.ExecSignal,
 		Strategies:      strategies,
 		SPYSymbol:       "SPY",
 		StartingBalance: domain.MustMoney("100000"),

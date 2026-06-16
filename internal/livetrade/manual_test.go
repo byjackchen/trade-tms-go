@@ -34,7 +34,6 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/commands"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
-	"github.com/byjackchen/trade-tms-go/internal/livengine"
 	"github.com/byjackchen/trade-tms-go/internal/livetrade"
 	"github.com/byjackchen/trade-tms-go/internal/portfolio"
 )
@@ -142,13 +141,13 @@ func newPaperManualWithPrices(t *testing.T, gate *portfolio.Portfolio, navUSD fl
 	venue := moexec.NewMockVenue(manualPaperAcc)
 	acct := accounting.NewAccount(domain.MustMoney(ftoa(navUSD)), nil)
 	account := livetrade.NewAccountAdapter(acct)
+	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvSimulate, manualPaperAcc, "paper")
 	exec, err := moexec.New(ctx, moexec.Config{
-		Mode:     moexec.ModePaper,
+		Account:  paperAcct,
 		Client:   venue,
-		AccID:    manualPaperAcc,
 		TraderID: "PAPER-TEST-001",
 		Sink:     &fillSink{},
-		Account:  account,
+		Book:     account,
 	})
 	require.NoError(t, err)
 
@@ -168,7 +167,7 @@ func newPaperManualWithPrices(t *testing.T, gate *portfolio.Portfolio, navUSD fl
 	})
 	require.NoError(t, err)
 	mc, err := livetrade.NewManualController(livetrade.ManualControllerConfig{
-		Mode:               livengine.ModePaper,
+		Acct:               paperAcct,
 		Executor:           exec,
 		Gate:               gate,
 		Account:            account,
@@ -605,35 +604,37 @@ func TestManualControllerModeBindingEnforced(t *testing.T) {
 	acct := accounting.NewAccount(domain.MustMoney("100000.00"), nil)
 	account := livetrade.NewAccountAdapter(acct)
 
+	liveAcct := domain.NewBrokerAccount("moomoo", domain.EnvReal, manualRealAcc, "live")
+	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvSimulate, manualPaperAcc, "paper")
+
 	// A real live-bound executor (full 4-factor activation against the mock venue).
 	liveExec, err := moexec.New(ctx, moexec.Config{
-		Mode:               moexec.ModeLive,
+		Account:            liveAcct,
 		Client:             venue,
-		AccID:              manualRealAcc,
 		TraderID:           moexec.LiveTraderID,
 		ConfirmationPhrase: moexec.LiveConfirmationPhrase,
 		UnlockPassword:     manualUnlock,
 		Sink:               &fillSink{},
-		Account:            account,
+		Book:               account,
 	})
 	require.NoError(t, err)
 	require.True(t, liveExec.IsLive())
 
-	// A PAPER controller wrapping a LIVE executor is refused.
+	// A PAPER controller (paper Acct) wrapping a LIVE executor is refused.
 	_, err = livetrade.NewManualController(livetrade.ManualControllerConfig{
-		Mode: livengine.ModePaper, Executor: liveExec, Account: account,
+		Acct: paperAcct, Executor: liveExec, Account: account,
 		Halt: commands.NewHaltState(nil),
 	})
 	require.ErrorIs(t, err, domain.ErrInvalidArgument)
 
-	// A LIVE controller wrapping a PAPER executor is refused.
+	// A LIVE controller (real Acct) wrapping a PAPER executor is refused.
 	paperExec, err := moexec.New(ctx, moexec.Config{
-		Mode: moexec.ModePaper, Client: venue, AccID: manualPaperAcc,
-		TraderID: "PAPER-X", Sink: &fillSink{}, Account: account,
+		Account: paperAcct, Client: venue,
+		TraderID: "PAPER-X", Sink: &fillSink{}, Book: account,
 	})
 	require.NoError(t, err)
 	_, err = livetrade.NewManualController(livetrade.ManualControllerConfig{
-		Mode: livengine.ModeLive, Executor: paperExec, Account: account,
+		Acct: liveAcct, Executor: paperExec, Account: account,
 		Halt: commands.NewHaltState(nil),
 	})
 	require.ErrorIs(t, err, domain.ErrInvalidArgument)
@@ -649,20 +650,20 @@ func TestLiveDeskRequiresPerOrderConfirm(t *testing.T) {
 	acct := accounting.NewAccount(domain.MustMoney("100000.00"), nil)
 	account := livetrade.NewAccountAdapter(acct)
 	account.ObserveBar(bar("AAPL", 2, 100))
+	liveAcct := domain.NewBrokerAccount("moomoo", domain.EnvReal, manualRealAcc, "live")
 	liveExec, err := moexec.New(ctx, moexec.Config{
-		Mode:               moexec.ModeLive,
+		Account:            liveAcct,
 		Client:             venue,
-		AccID:              manualRealAcc,
 		TraderID:           moexec.LiveTraderID,
 		ConfirmationPhrase: moexec.LiveConfirmationPhrase,
 		UnlockPassword:     manualUnlock,
 		Sink:               &fillSink{},
-		Account:            account,
+		Book:               account,
 	})
 	require.NoError(t, err)
 	audit := &memAudit{}
 	mc, err := livetrade.NewManualController(livetrade.ManualControllerConfig{
-		Mode:     livengine.ModeLive,
+		Acct:     liveAcct,
 		Executor: liveExec,
 		Gate:     manualGateFor(t, 1.0, 0.10),
 		Account:  account,

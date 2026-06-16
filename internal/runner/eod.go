@@ -158,7 +158,7 @@ func (e *EOD) RunRefresh(ctx context.Context, cfg EODConfig, publisher *publish.
 	})
 
 	sess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModeSignal,
+		Exec:            domain.ExecSignal,
 		Strategies:      as.Assembly.Strategies,
 		Portfolio:       as.Assembly.Portfolio,
 		Context:         as.Assembly.Context,

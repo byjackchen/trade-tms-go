@@ -175,15 +175,15 @@ func NewLive(pool *pgxpool.Pool, rdb *redis.Client, cfg LiveConfig, log zerolog.
 	}
 	mode := cfg.Mode
 	if mode == "" {
-		mode = string(livengine.ModeSignal)
+		mode = string(domain.ModeSignal)
 	}
-	switch livengine.Mode(mode) {
-	case livengine.ModeSignal:
-	case livengine.ModePaper:
+	switch domain.Mode(mode) {
+	case domain.ModeSignal:
+	case domain.ModePaper:
 		if cfg.PaperAccID == 0 {
 			return nil, fmt.Errorf("runner: paper mode requires a SIMULATE acc id (TMS_MOOMOO_PAPER_ACC_ID)")
 		}
-	case livengine.ModeLive:
+	case domain.ModeLive:
 		// SAFETY (decision 8): live mode needs the real acc id + the typed
 		// confirmation phrase configured up front. The MoomooExecutor re-asserts
 		// the full gate (phrase + acc id + UnlockTrade + trader-id) at activation.
@@ -276,13 +276,13 @@ func (l *Live) Mode() string {
 // creds can never switch to live at runtime — there is no code path to real
 // money without the up-front gate.
 func (l *Live) SetMode(_ context.Context, mode string) error {
-	switch livengine.Mode(mode) {
-	case livengine.ModeSignal:
-	case livengine.ModePaper:
+	switch domain.Mode(mode) {
+	case domain.ModeSignal:
+	case domain.ModePaper:
 		if l.cfg.PaperAccID == 0 {
 			return fmt.Errorf("cannot switch to paper: no SIMULATE acc id configured")
 		}
-	case livengine.ModeLive:
+	case domain.ModeLive:
 		if l.cfg.LiveAccID == 0 || l.cfg.LiveConfirmationPhrase != moexec.LiveConfirmationPhrase {
 			return fmt.Errorf("cannot switch to live: real acc id + confirmation phrase not configured (refusing real money)")
 		}
@@ -676,9 +676,16 @@ type streamRunner interface {
 // strategies. It returns the stream runner, the prime function, and a cleanup
 // that detaches the active trade session.
 func (l *Live) buildRunnable(ctx context.Context, mode string, as *Assembled, warmup livengine.WarmupProvider, warmupBatch []domain.Bar, startMoney domain.Money, sink *Sink, sessionID int64, client MoomooClient, warmupEnd time.Time) (streamRunner, func(context.Context) error, func(), error) {
-	if livengine.Mode(mode) == livengine.ModeSignal {
+	if domain.Mode(mode).ExecutionPolicy() == domain.ExecSignal {
+		// Keep the reused sessions row's account_id consistent with the account this
+		// (re)built signal session binds. A node can START in paper/live and switch
+		// BACK to signal at runtime; without this the session row would keep the
+		// stale paper/live account_id while the signal session emits no broker rows.
+		if err := l.syncSessionAccount(ctx, sessionID, l.resolveAccount(mode)); err != nil {
+			return nil, nil, nil, err
+		}
 		sess, err := livengine.NewSession(livengine.Config{
-			Mode:            livengine.ModeSignal,
+			Exec:            domain.ExecSignal,
 			Strategies:      as.Assembly.Strategies,
 			Portfolio:       as.Assembly.Portfolio,
 			Context:         as.Assembly.Context,
@@ -696,33 +703,47 @@ func (l *Live) buildRunnable(ctx context.Context, mode string, as *Assembled, wa
 		return sess, sess.Prime, func() {}, nil
 	}
 
-	// Paper/live: wire the trading stack.
-	tmode := livengine.Mode(mode)
-	accID := l.cfg.PaperAccID
-	if tmode == livengine.ModeLive {
-		accID = l.cfg.LiveAccID
+	// Paper/live (ExecAuto): wire the trading stack against the resolved Account.
+	// The Account's Env (simulate/real) carries the paper-vs-live axis end to end —
+	// the executor derives TrdEnv + the live gate from it, persistence stamps its id.
+	acct := l.resolveAccount(mode)
+
+	// Ensure the account row exists (FK target) BEFORE any session/order/position
+	// write references it.
+	persist := NewLivePersist(l.pool, l.publisher, sessionID, acct.ID, l.cfg.TraderID, "MOOMOO", l.log)
+	if err := persist.UpsertAccount(ctx, acct); err != nil {
+		return nil, nil, nil, fmt.Errorf("runner: ensuring account row: %w", err)
+	}
+	// Re-stamp the reused sessions row's account_id to the account this session's
+	// orders/positions/fills/reconciliation rows are now attributed to. The session
+	// row is opened ONCE (openSession) from the node's initial mode and reused across
+	// mode-switch restarts; on an account-changing switch (signal->paper, signal->live,
+	// paper->live) this keeps sessions.account_id in lockstep with LivePersist's
+	// acct.ID so the one-account-per-(session_id) invariant the position key
+	// (account_id, strategy_id, symbol) + blotter indexes rely on holds. The account
+	// row already exists (UpsertAccount above) so the FK is satisfiable.
+	if err := l.syncSessionAccount(ctx, sessionID, acct); err != nil {
+		return nil, nil, nil, err
 	}
 
-	persist := NewLivePersist(l.pool, l.publisher, sessionID, l.cfg.TraderID, "MOOMOO", l.log)
-	acct := accounting.NewAccount(startMoney, nil)
-	account := livetrade.NewAccountAdapter(acct)
+	book := accounting.NewAccount(startMoney, nil)
+	account := livetrade.NewAccountAdapter(book)
 
 	execCfg := moexec.Config{
-		Mode:     moexec.Mode(mode),
+		Account:  acct,
 		Client:   client.TradeClient(),
-		AccID:    accID,
 		TraderID: l.cfg.TraderID,
 		// The executor settles fills into Account + persists + publishes them; the
 		// Sink only needs to be a non-nil terminal (the engine equity feed is the
 		// account itself in paper/live).
 		Sink:     noopFillSink{},
-		Account:  account,
+		Book:     account,
 		Persist:  persist,
 		Risk:     persist,
 		Strategy: persist, // re-key restored in-flight orders to their strategy (recovery)
 		Logf:     func(f string, a ...any) { l.log.Warn().Msgf("exec: "+f, a...) },
 	}
-	if tmode == livengine.ModeLive {
+	if acct.IsReal() {
 		execCfg.ConfirmationPhrase = l.cfg.LiveConfirmationPhrase
 		execCfg.UnlockPassword = l.cfg.UnlockPassword
 	}
@@ -732,7 +753,7 @@ func (l *Live) buildRunnable(ctx context.Context, mode string, as *Assembled, wa
 	}
 
 	ts, err := livetrade.NewTradeSession(livetrade.TradeSessionConfig{
-		Mode:          tmode,
+		Acct:          acct,
 		Strategies:    as.Assembly.Strategies,
 		Gate:          as.Assembly.Portfolio,
 		Context:       as.Assembly.Context,
@@ -760,8 +781,8 @@ func (l *Live) buildRunnable(ctx context.Context, mode string, as *Assembled, wa
 		Books:           account,
 		Sink:            persist,
 		Alerter:         l.reconcileAlerter(),
-		AccID:           accID,
-		Env:             execEnv(tmode),
+		AccID:           acct.BrokerAccID,
+		Env:             execEnv(acct),
 		ToleranceShares: l.cfg.ReconcileTolerance,
 	})
 	if err != nil {
@@ -840,12 +861,73 @@ type noopFillSink struct{}
 
 func (noopFillSink) EmitFill(domain.Fill) error { return nil }
 
-// execEnv maps a trade mode to the broker env (paper -> SIMULATE, live -> REAL).
-func execEnv(mode livengine.Mode) moomoo.TrdEnv {
-	if mode == livengine.ModeLive {
+// execEnv maps an account to the broker TrdEnv (simulate -> SIMULATE, real -> REAL).
+func execEnv(acct domain.Account) moomoo.TrdEnv {
+	if acct.IsReal() {
 		return moomoo.TrdEnvReal
 	}
 	return moomoo.TrdEnvSimulate
+}
+
+// resolveAccount resolves the ONE domain.Account this node binds for the given
+// legacy mode (the back-compat input until the CLI carries the two axes in a
+// later phase): signal -> a synthetic sim account; paper -> the moomoo SIMULATE
+// account (PaperAccID); live -> the moomoo REAL account (LiveAccID). This is the
+// single point where the paper-vs-live account axis is derived; everything
+// downstream (executor TrdEnv, persistence account_id, reconciler) flows from it.
+func (l *Live) resolveAccount(mode string) domain.Account {
+	switch domain.Mode(mode) {
+	case domain.ModePaper:
+		return domain.NewBrokerAccount("moomoo", domain.EnvSimulate, l.cfg.PaperAccID, "")
+	case domain.ModeLive:
+		return domain.NewBrokerAccount("moomoo", domain.EnvReal, l.cfg.LiveAccID, "")
+	default:
+		return domain.SimAccount("signal")
+	}
+}
+
+// ensureAccount UPSERTs acct into tms.accounts (idempotent) so the FK from
+// tms.sessions.account_id is satisfiable, and returns the FK param (the account
+// id, or SQL NULL when the pool is nil / id empty). It is the single place the
+// session-bound account row is materialised, before the session row is inserted.
+func (l *Live) ensureAccount(ctx context.Context, acct domain.Account) (any, error) {
+	if l.pool == nil || acct.ID == "" {
+		return nil, nil
+	}
+	if err := acct.Validate(); err != nil {
+		return nil, fmt.Errorf("runner: invalid bound account: %w", err)
+	}
+	if _, err := l.pool.Exec(ctx, `
+		INSERT INTO tms.accounts (id, venue, env, broker_acc_id, label)
+		VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (id) DO UPDATE SET
+		    label      = EXCLUDED.label,
+		    updated_at = now()`,
+		acct.ID, acct.Venue, string(acct.Env), int64(acct.BrokerAccID), acct.Label); err != nil {
+		return nil, fmt.Errorf("runner: upsert account %s: %w", acct.ID, err)
+	}
+	return acct.ID, nil
+}
+
+// syncSessionAccount makes the reused tms.sessions row's account_id match acct,
+// the account this (re)built session attributes its broker rows to. It upserts
+// acct first (idempotent — the FK target must exist before the UPDATE) and is a
+// no-op when there is no pool (tests) or acct carries no id. Called on every
+// session (re)build so an account-changing mode-switch never leaves the single
+// reused session row pointing at the prior mode's account_id.
+func (l *Live) syncSessionAccount(ctx context.Context, sessionID int64, acct domain.Account) error {
+	if l.pool == nil || sessionID == 0 || acct.ID == "" {
+		return nil
+	}
+	if _, err := l.ensureAccount(ctx, acct); err != nil {
+		return err
+	}
+	if _, err := l.pool.Exec(ctx,
+		`UPDATE tms.sessions SET account_id=$2 WHERE id=$1`,
+		sessionID, acct.ID); err != nil {
+		return fmt.Errorf("runner: syncing session account_id: %w", err)
+	}
+	return nil
 }
 
 // takeRestartMode returns the pending restart mode (or the current mode) and
@@ -895,11 +977,19 @@ func (l *Live) subscriptionCap() int {
 // openSession inserts a RUNNING session row (one per trader id by the partial
 // unique index). A pre-existing running row is reused (idempotent restart).
 func (l *Live) openSession(ctx context.Context) (int64, error) {
+	// Resolve + ensure the bound account row exists BEFORE the session row so the
+	// sessions.account_id FK is satisfiable (keep sessions.mode for back-compat).
+	mode := l.Mode()
+	acct := l.resolveAccount(mode)
+	accountIDParam, err := l.ensureAccount(ctx, acct)
+	if err != nil {
+		return 0, err
+	}
 	var id int64
-	err := l.pool.QueryRow(ctx,
-		`INSERT INTO tms.sessions (trader_id, mode, status)
-		 VALUES ($1, $2, 'RUNNING') RETURNING id`,
-		l.cfg.TraderID, l.Mode()).Scan(&id)
+	err = l.pool.QueryRow(ctx,
+		`INSERT INTO tms.sessions (trader_id, mode, account_id, status)
+		 VALUES ($1, $2, $3, 'RUNNING') RETURNING id`,
+		l.cfg.TraderID, mode, accountIDParam).Scan(&id)
 	if err == nil {
 		l.log.Info().Int64("session_id", id).Msg("opened live session row")
 		return id, nil

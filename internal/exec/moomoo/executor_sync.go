@@ -137,7 +137,7 @@ func (e *MoomooExecutor) SyncBrokerInto(ctx context.Context, strategyID string) 
 	for sym := range brokerNet {
 		symbols[sym] = struct{}{}
 	}
-	for _, pos := range e.cfg.Account.OpenPositions() {
+	for _, pos := range e.cfg.Book.OpenPositions() {
 		if pos.StrategyID == strategyID && pos.SignedQty != 0 {
 			symbols[pos.Symbol] = struct{}{}
 		}
@@ -166,7 +166,7 @@ func (e *MoomooExecutor) SyncBrokerInto(ctx context.Context, strategyID string) 
 // so re-reflecting the same state is a durable no-op.
 func (e *MoomooExecutor) reflectSymbol(ctx context.Context, strategyID, symbol string, bp mo.BrokerPosition) (bool, error) {
 	bookNet := domain.Qty(0)
-	if pos, ok := e.cfg.Account.Position(strategyID, symbol); ok {
+	if pos, ok := e.cfg.Book.Position(strategyID, symbol); ok {
 		bookNet = pos.SignedQty
 	}
 	delta := bp.Qty - bookNet
@@ -234,7 +234,7 @@ func (e *MoomooExecutor) reflectSymbol(ctx context.Context, strategyID, symbol s
 		TS:            ts,
 	})
 
-	pos, err := e.cfg.Account.ApplyFill(fill)
+	pos, err := e.cfg.Book.ApplyFill(fill)
 	if err != nil {
 		return false, fmt.Errorf("sync: settle reflect fill %s: %w", tradeID, err)
 	}

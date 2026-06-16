@@ -178,13 +178,13 @@ func newHarness(t *testing.T, strat engine.Strategy, gate *portfolio.Portfolio, 
 	acct := accounting.NewAccount(domain.MustMoney(ftoa(navUSD)), nil)
 	account := livetrade.NewAccountAdapter(acct)
 	sink := &fillSink{}
+	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvSimulate, paperAcc, "paper")
 	exec, err := moexec.New(ctx, moexec.Config{
-		Mode:     moexec.ModePaper,
+		Account:  paperAcct,
 		Client:   venue,
-		AccID:    paperAcc,
 		TraderID: "PAPER-TEST-001",
 		Sink:     sink,
-		Account:  account,
+		Book:     account,
 	})
 	require.NoError(t, err)
 
@@ -192,7 +192,7 @@ func newHarness(t *testing.T, strat engine.Strategy, gate *portfolio.Portfolio, 
 	risk := &memRisk{}
 	health := &memHealth{}
 	ts, err := livetrade.NewTradeSession(livetrade.TradeSessionConfig{
-		Mode:       livengine.ModePaper,
+		Acct:       paperAcct,
 		Strategies: []engine.Strategy{strat},
 		Gate:       gate,
 		Account:    account,
@@ -550,15 +550,16 @@ func TestCrashRecoveryResume(t *testing.T) {
 	acct := accounting.NewAccount(domain.MustMoney("100000.00"), nil)
 	account := livetrade.NewAccountAdapter(acct)
 	sink := &fillSink{}
+	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvSimulate, paperAcc, "paper")
 	exec, err := moexec.New(context.Background(), moexec.Config{
-		Mode: moexec.ModePaper, Client: venue, AccID: paperAcc,
-		TraderID: "PAPER-TEST-001", Sink: sink, Account: account,
+		Account: paperAcct, Client: venue,
+		TraderID: "PAPER-TEST-001", Sink: sink, Book: account,
 	})
 	require.NoError(t, err)
 	halt := commands.NewHaltState(nil)
 	strat := &signalStrategy{id: "TEST-001"}
 	ts, err := livetrade.NewTradeSession(livetrade.TradeSessionConfig{
-		Mode: livengine.ModePaper, Strategies: []engine.Strategy{strat},
+		Acct: paperAcct, Strategies: []engine.Strategy{strat},
 		Gate: gate100(t, "TEST-001", 0.10), Account: account, Executor: exec,
 		Halt: halt, NAV: domain.MustMoney("100000.00"), EmitGate: halt.Emitting,
 	})
@@ -594,15 +595,17 @@ func TestLiveActivationGateRejectsPaperMismatch(t *testing.T) {
 	venue := moexec.NewMockVenue(paperAcc)
 	acct := accounting.NewAccount(domain.MustMoney("100000.00"), nil)
 	account := livetrade.NewAccountAdapter(acct)
+	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvSimulate, paperAcc, "paper")
+	realAcct := domain.NewBrokerAccount("moomoo", domain.EnvReal, paperAcc, "live")
 	paperExec, err := moexec.New(context.Background(), moexec.Config{
-		Mode: moexec.ModePaper, Client: venue, AccID: paperAcc,
-		TraderID: "PAPER-TEST-001", Sink: &fillSink{}, Account: account,
+		Account: paperAcct, Client: venue,
+		TraderID: "PAPER-TEST-001", Sink: &fillSink{}, Book: account,
 	})
 	require.NoError(t, err)
 
-	// A LIVE trade session backed by a PAPER executor must be refused.
+	// A LIVE trade session (real Acct) backed by a PAPER executor must be refused.
 	_, err = livetrade.NewTradeSession(livetrade.TradeSessionConfig{
-		Mode: livengine.ModeLive, Strategies: []engine.Strategy{&signalStrategy{id: "X"}},
+		Acct: realAcct, Strategies: []engine.Strategy{&signalStrategy{id: "X"}},
 		Account: account, Executor: paperExec, Halt: commands.NewHaltState(nil),
 		NAV: domain.MustMoney("100000.00"),
 	})

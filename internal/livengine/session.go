@@ -29,29 +29,15 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/portfolio"
 )
 
-// Mode is the live execution mode. Only ModeSignal is wired in P5.
-type Mode string
-
-const (
-	// ModeSignal records SignalIntents and submits no orders (decision 3 + 6).
-	ModeSignal Mode = "signal"
-	// ModePaper runs the full trading loop against the SIMULATE broker account
-	// (paper money) via the injected GatedSubmitter (P6 decision 1+2).
-	ModePaper Mode = "paper"
-	// ModeLive runs against the REAL broker account; reaching it requires the full
-	// live-activation gate in the MoomooExecutor (P6 decision 8).
-	ModeLive Mode = "live"
-)
-
-// IsValid reports whether m is a known mode.
-func (m Mode) IsValid() bool { return m == ModeSignal || m == ModePaper || m == ModeLive }
-
 // Config assembles a live Session. It mirrors the relevant fields of
 // engine.Config so a caller (strategyassembly.Assembly) can build a live session
 // from the SAME inputs as a backtest.
 type Config struct {
-	// Mode is the execution mode (P5: signal only).
-	Mode Mode
+	// Exec is the execution policy: ExecSignal records SignalIntents and submits
+	// no orders (the internal NoopExecutor); ExecAuto runs the full trading loop
+	// through the injected Submitter (paper/live differ only in the bound Account,
+	// which is the executor's concern, not the engine's).
+	Exec domain.ExecutionPolicy
 	// Strategies are the already-constructed engine.Strategy adapters (SEPA /
 	// Sector / Pairs / ORB), the SAME instances a backtest would run.
 	Strategies []engine.Strategy
@@ -93,13 +79,13 @@ type Config struct {
 	// emitted (the cockpit health panel must keep updating during a halt).
 	EmitGate func() bool
 
-	// Submitter, when non-nil, REPLACES the signal-mode NoopExecutor for paper /
-	// live modes (P6 decision 1+2): the strategies run their OnBar through this
+	// Submitter, when non-nil, REPLACES the signal-policy NoopExecutor for ExecAuto
+	// (P6 decision 1+2): the strategies run their OnBar through this
 	// engine.OrderSubmitter, which actually PLACES orders (after the pre-submit
 	// portfolio gate, wired into the submitter) and reads net positions from the
-	// broker-settled account book. It is required for ModePaper / ModeLive and
-	// must be nil for ModeSignal (the session refuses a mismatch). The submitter
-	// owns the gate + executor; the session only drives the bar loop + emission.
+	// broker-settled account book. It is required for ExecAuto and must be nil for
+	// ExecSignal (the session refuses a mismatch). The submitter owns the gate +
+	// executor; the session only drives the bar loop + emission.
 	Submitter engine.OrderSubmitter
 
 	// PostTimestamp, when non-nil, is invoked after each timestamp's strategies
@@ -119,11 +105,11 @@ type Config struct {
 // then RunStream (live) or Replay (batch).
 type Session struct {
 	cfg Config
-	// exec is the signal-mode NoopExecutor; nil in paper/live (the injected
+	// exec is the signal-policy NoopExecutor; nil under ExecAuto (the injected
 	// Submitter is used instead).
 	exec *NoopExecutor
-	// sub is the order submitter the strategies run through: the NoopExecutor in
-	// signal mode, or the injected GatedSubmitter in paper/live.
+	// sub is the order submitter the strategies run through: the NoopExecutor under
+	// ExecSignal, or the injected GatedSubmitter under ExecAuto.
 	sub     engine.OrderSubmitter
 	sink    IntentSink
 	spySym  string
@@ -162,22 +148,22 @@ type stateEval struct {
 // indexes the context consumers and intent evaluators, and prepares the
 // NoopExecutor. It does NOT prime warmup or run; call Prime then RunStream/Replay.
 func NewSession(cfg Config) (*Session, error) {
-	if !cfg.Mode.IsValid() {
-		return nil, fmt.Errorf("%w: unknown live mode %q", domain.ErrInvalidArgument, cfg.Mode)
+	if !cfg.Exec.IsValid() {
+		return nil, fmt.Errorf("%w: unknown execution policy %q", domain.ErrInvalidArgument, cfg.Exec)
 	}
-	// Mode/submitter pairing (P6): signal mode uses the internal NoopExecutor and
-	// MUST NOT carry an injected submitter; paper/live REQUIRE one (the
+	// Policy/submitter pairing (P6): ExecSignal uses the internal NoopExecutor and
+	// MUST NOT carry an injected submitter; ExecAuto REQUIRES one (the
 	// GatedSubmitter that owns the gate + executor). This is a SAFETY invariant —
-	// there is no path where a paper/live session silently runs the no-op
-	// (placing nothing) or a signal session reaches a real executor.
-	switch cfg.Mode {
-	case ModeSignal:
+	// there is no path where an auto session silently runs the no-op (placing
+	// nothing) or a signal session reaches a real executor.
+	switch cfg.Exec {
+	case domain.ExecSignal:
 		if cfg.Submitter != nil {
-			return nil, fmt.Errorf("%w: signal mode must not carry an order submitter (signal places no orders)", domain.ErrInvalidArgument)
+			return nil, fmt.Errorf("%w: signal policy must not carry an order submitter (signal places no orders)", domain.ErrInvalidArgument)
 		}
-	case ModePaper, ModeLive:
+	case domain.ExecAuto:
 		if cfg.Submitter == nil {
-			return nil, fmt.Errorf("%w: %s mode requires an order submitter (the gated executor)", domain.ErrInvalidArgument, cfg.Mode)
+			return nil, fmt.Errorf("%w: auto policy requires an order submitter (the gated executor)", domain.ErrInvalidArgument)
 		}
 	}
 	if len(cfg.Strategies) == 0 {
@@ -199,7 +185,7 @@ func NewSession(cfg Config) (*Session, error) {
 		sink:   sink,
 		spySym: spy,
 	}
-	if cfg.Mode == ModeSignal {
+	if cfg.Exec == domain.ExecSignal {
 		s.exec = NewNoopExecutor()
 		s.sub = s.exec
 	} else {
@@ -225,20 +211,20 @@ func NewSession(cfg Config) (*Session, error) {
 	return s, nil
 }
 
-// Executor exposes the signal-mode NoopExecutor (for telemetry: WouldSubmitCount).
-// It is nil in paper/live mode (the injected Submitter owns execution).
+// Executor exposes the signal-policy NoopExecutor (for telemetry: WouldSubmitCount).
+// It is nil under ExecAuto (the injected Submitter owns execution).
 func (s *Session) Executor() *NoopExecutor { return s.exec }
 
-// Mode returns the session's execution mode (signal | paper | live). It is
-// exposed so the unification proof (internal/unified) can ASSERT that the three
-// streaming modes share ONE Session assembler and differ only in their executor
-// seam (NoopExecutor for signal; the injected GatedSubmitter for paper/live).
-func (s *Session) Mode() Mode { return s.cfg.Mode }
+// Exec returns the session's execution policy (signal | auto). It is exposed so
+// the unification proof (internal/unified) can ASSERT that the streaming
+// runtimes share ONE Session assembler and differ only in their executor seam
+// (NoopExecutor for signal; the injected GatedSubmitter for auto).
+func (s *Session) Exec() domain.ExecutionPolicy { return s.cfg.Exec }
 
 // Submitter returns the order submitter the strategies run through: the internal
-// NoopExecutor in signal mode, or the injected GatedSubmitter in paper/live. It
-// is the mode-specific executor seam — the ONLY component that differs between
-// the three streaming modes (the strategies/portfolio/context are identical).
+// NoopExecutor under ExecSignal, or the injected GatedSubmitter under ExecAuto. It
+// is the policy-specific executor seam — the ONLY component that differs between
+// the streaming runtimes (the strategies/portfolio/context are identical).
 func (s *Session) Submitter() engine.OrderSubmitter { return s.sub }
 
 // Prime feeds the out-of-band warmup history into every WarmupConsumer strategy,

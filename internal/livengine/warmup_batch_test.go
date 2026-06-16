@@ -121,7 +121,7 @@ func buildSectorWarmupSession(t *testing.T, sink livengine.IntentSink, batch []d
 	})
 	require.NoError(t, err)
 	sess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModeSignal,
+		Exec:            domain.ExecSignal,
 		Strategies:      asm.Strategies,
 		Portfolio:       asm.Portfolio,
 		StartingBalance: domain.MustMoney("100000"),
@@ -309,7 +309,7 @@ func buildPairsWarmupSession(t *testing.T, sink livengine.IntentSink, batch []do
 	})
 	require.NoError(t, err)
 	sess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModeSignal,
+		Exec:            domain.ExecSignal,
 		Strategies:      asm.Strategies,
 		Portfolio:       asm.Portfolio,
 		StartingBalance: domain.MustMoney("100000"),

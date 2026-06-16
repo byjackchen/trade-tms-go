@@ -49,7 +49,7 @@ func (e *MoomooExecutor) SubmitMarketSignal(strategyID, symbol string, signalSid
 // read from the account book — the same source the SimExecutor/engine use, so a
 // strategy's FLAT-close sizing behaves identically to backtest.
 func (e *MoomooExecutor) NetPosition(strategyID, symbol string) domain.Qty {
-	pos, ok := e.cfg.Account.Position(strategyID, symbol)
+	pos, ok := e.cfg.Book.Position(strategyID, symbol)
 	if !ok {
 		return 0
 	}
@@ -239,7 +239,7 @@ func (e *MoomooExecutor) applyEffects(ctx context.Context, st *OrderState, effec
 		case EffectFill:
 			// Settle the fill in accounting FIRST (authoritative position), then
 			// persist the fill + the resulting position, then feed the engine.
-			pos, err := e.cfg.Account.ApplyFill(eff.Fill)
+			pos, err := e.cfg.Book.ApplyFill(eff.Fill)
 			if err != nil {
 				e.logf("moomoo executor: accounting apply fill %s: %v", eff.Fill.TradeID, err)
 				continue

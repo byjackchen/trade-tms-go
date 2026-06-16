@@ -23,7 +23,6 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/pb/qotcommon"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
-	"github.com/byjackchen/trade-tms-go/internal/livengine"
 	"github.com/byjackchen/trade-tms-go/internal/livetrade"
 	"github.com/byjackchen/trade-tms-go/internal/portfolio"
 )
@@ -39,13 +38,12 @@ import (
 // MANUAL positions are tracked separately from the auto strategies' books and
 // reconcile cleanly under the MANUAL pseudo-strategy id.
 func (l *Live) ConnectManualSession(ctx context.Context, mode string, paperTradePassword string) (*livetrade.ManualController, error) {
-	tmode := livengine.Mode(mode)
-	switch tmode {
-	case livengine.ModePaper:
+	switch domain.Mode(mode) {
+	case domain.ModePaper:
 		if l.cfg.PaperAccID == 0 {
 			return nil, fmt.Errorf("manual connect: paper desk requires a SIMULATE acc id (TMS_MOOMOO_PAPER_ACC_ID)")
 		}
-	case livengine.ModeLive:
+	case domain.ModeLive:
 		// SAFETY: identical up-front gate as the strategy live path. The executor
 		// constructor re-asserts the full 4-factor activation below.
 		if l.cfg.LiveAccID == 0 {
@@ -69,34 +67,37 @@ func (l *Live) ConnectManualSession(ctx context.Context, mode string, paperTrade
 		return nil, fmt.Errorf("manual connect: moomoo client not connected yet (node still starting)")
 	}
 
-	accID := l.cfg.PaperAccID
-	if tmode == livengine.ModeLive {
-		accID = l.cfg.LiveAccID
-	}
+	// Resolve the ONE broker account this manual desk binds (paper -> simulate
+	// PaperAccID, live -> real LiveAccID). The executor derives TrdEnv + the live
+	// gate from it; persistence stamps its id.
+	tradeAcct := l.resolveAccount(mode)
 
 	startMoney, err := domain.MoneyFromFloat64(l.startingBalance())
 	if err != nil {
 		return nil, fmt.Errorf("manual connect: invalid starting balance: %w", err)
 	}
 
-	// Independent durability + accounting for the manual book.
-	persist := NewLivePersist(l.pool, l.publisher, sessionID, l.cfg.TraderID, "MOOMOO", l.log)
+	// Independent durability + accounting for the manual book. The account row is
+	// ensured before any order/position references it (FK).
+	persist := NewLivePersist(l.pool, l.publisher, sessionID, tradeAcct.ID, l.cfg.TraderID, "MOOMOO", l.log)
+	if err := persist.UpsertAccount(ctx, tradeAcct); err != nil {
+		return nil, fmt.Errorf("manual connect: upserting account %s: %w", tradeAcct.ID, err)
+	}
 	acct := accounting.NewAccount(startMoney, nil)
 	account := livetrade.NewAccountAdapter(acct)
 
 	execCfg := moexec.Config{
-		Mode:     moexec.Mode(mode),
+		Account:  tradeAcct,
 		Client:   client.TradeClient(),
-		AccID:    accID,
 		TraderID: l.cfg.TraderID,
 		Sink:     noopFillSink{},
-		Account:  account,
+		Book:     account,
 		Persist:  persist,
 		Risk:     persist,
 		Strategy: persist,
 		Logf:     func(f string, a ...any) { l.log.Warn().Msgf("manual-exec: "+f, a...) },
 	}
-	if tmode == livengine.ModeLive {
+	if tradeAcct.IsReal() {
 		execCfg.ConfirmationPhrase = l.cfg.LiveConfirmationPhrase
 		execCfg.UnlockPassword = l.cfg.UnlockPassword
 	}
@@ -132,8 +133,8 @@ func (l *Live) ConnectManualSession(ctx context.Context, mode string, paperTrade
 		Books:           combinedBooks,
 		Sink:            persist,
 		Alerter:         l.manualReconcileAlerter(),
-		AccID:           accID,
-		Env:             execEnv(tmode),
+		AccID:           tradeAcct.BrokerAccID,
+		Env:             execEnv(tradeAcct),
 		ToleranceShares: l.cfg.ReconcileTolerance,
 	})
 	if err != nil {
@@ -141,7 +142,7 @@ func (l *Live) ConnectManualSession(ctx context.Context, mode string, paperTrade
 	}
 
 	mc, err := livetrade.NewManualController(livetrade.ManualControllerConfig{
-		Mode:               tmode,
+		Acct:               tradeAcct,
 		Executor:           exec,
 		Gate:               l.manualGate(),
 		Account:            account,
@@ -165,10 +166,10 @@ func (l *Live) ConnectManualSession(ctx context.Context, mode string, paperTrade
 	_ = persist.RecordManualAction(ctx, livetrade.ManualAuditRecord{
 		Operator: "tms-trade:" + l.cfg.TraderID,
 		Action:   "connect",
-		Live:     tmode == livengine.ModeLive,
+		Live:     tradeAcct.IsReal(),
 		TS:       time.Now().UTC(),
 	})
-	l.log.Warn().Str("mode", mode).Bool("live", tmode == livengine.ModeLive).
+	l.log.Warn().Str("mode", mode).Bool("live", tradeAcct.IsReal()).
 		Msg("MANUAL trade desk connected")
 	return mc, nil
 }

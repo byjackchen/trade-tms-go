@@ -65,7 +65,7 @@ func benchSession(b *testing.B, nStrats int) (*Session, []string) {
 		strats = append(strats, &benchStrategy{id: fmt.Sprintf("strat-%02d", i), sym: sym})
 	}
 	sess, err := NewSession(Config{
-		Mode:            ModeSignal,
+		Exec:            domain.ExecSignal,
 		Strategies:      strats,
 		StartingBalance: domain.MustMoney("1000000"),
 		Sink:            DiscardSink{},

@@ -19,7 +19,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/app"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/db"
-	"github.com/byjackchen/trade-tms-go/internal/livengine"
+	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/preflight"
 	"github.com/byjackchen/trade-tms-go/internal/runner"
 )
@@ -190,7 +190,7 @@ func runLive(parent context.Context, env *runtimeEnv, a liveArgs) error {
 		Str("strategy", a.strategy).
 		Logger()
 
-	mode := livengine.Mode(a.mode)
+	mode := domain.Mode(a.mode)
 	if !mode.IsValid() {
 		return fmt.Errorf("--mode %q invalid (want signal|paper|live)", a.mode)
 	}
@@ -263,7 +263,7 @@ func runLive(parent context.Context, env *runtimeEnv, a liveArgs) error {
 	// precondition verification is exactly the bypassable-blocker the preflight
 	// exists to close. For live the preflight is mandatory and non-overridable;
 	// paper/signal may still skip it (loudly).
-	if a.skipPreflight && mode == livengine.ModeLive {
+	if a.skipPreflight && mode == domain.ModeLive {
 		return fmt.Errorf("--skip-preflight is refused for mode=live: the go-live preflight is MANDATORY for real-money trading and cannot be bypassed (run `tms live preflight --mode live ...` to see the failing blockers and resolve them)")
 	}
 	if a.skipPreflight {
@@ -297,7 +297,7 @@ func runLive(parent context.Context, env *runtimeEnv, a liveArgs) error {
 			}
 			// --skip-preflight is offered as an override ONLY for paper/signal; for
 			// mode=live it is refused above, so do not advertise it as an option.
-			if mode == livengine.ModeLive {
+			if mode == domain.ModeLive {
 				return fmt.Errorf("go-live preflight failed: %d blocker(s) must be resolved before real-money (live) trading", len(rep.Blockers()))
 			}
 			return fmt.Errorf("go-live preflight failed: %d blocker(s) must be resolved (or pass --skip-preflight to override for paper/signal)", len(rep.Blockers()))
@@ -395,7 +395,7 @@ type preflightArgs struct {
 func runLivePreflight(parent context.Context, env *runtimeEnv, a preflightArgs) error {
 	log := env.log.With().Str("cmd", "live-preflight").Str("mode", a.mode).Str("strategy", a.strategy).Logger()
 
-	mode := livengine.Mode(a.mode)
+	mode := domain.Mode(a.mode)
 	if !mode.IsValid() {
 		return fmt.Errorf("--mode %q invalid (want signal|paper|live)", a.mode)
 	}

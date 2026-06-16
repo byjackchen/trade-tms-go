@@ -32,7 +32,7 @@ func buildSectorSession(t *testing.T, sink livengine.IntentSink, emitGate func()
 	})
 	require.NoError(t, err)
 	sess, err := livengine.NewSession(livengine.Config{
-		Mode:            livengine.ModeSignal,
+		Exec:            domain.ExecSignal,
 		Strategies:      asm.Strategies,
 		Portfolio:       asm.Portfolio,
 		StartingBalance: domain.MustMoney("100000"),
