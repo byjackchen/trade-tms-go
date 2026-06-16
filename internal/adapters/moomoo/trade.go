@@ -174,6 +174,11 @@ type Funds struct {
 type TradeAccount struct {
 	AccID  uint64
 	TrdEnv TrdEnv
+	// SecurityFirm is the broker entity the account belongs to (Trd_Common
+	// SecurityFirm: 1=FutuSecurities/HK, 2=FutuInc/US, 3=FutuSG, …). REAL-account
+	// UnlockTrade requires it (OpenD rejects an unlock with "missing required
+	// parameter securityFirm" otherwise); 0 = Unknown/unset.
+	SecurityFirm int32
 }
 
 // TrdOrderHandler receives normalised Trd_UpdateOrder pushes. It is invoked
@@ -199,8 +204,11 @@ type TradeClient interface {
 
 	// UnlockTrade unlocks the REAL trading account with the password. It is a
 	// no-op for the SIMULATE env. Live activation REQUIRES it to succeed before
-	// any real PlaceOrder.
-	UnlockTrade(ctx context.Context, env TrdEnv, password string) error
+	// any real PlaceOrder. securityFirm identifies the broker entity the target
+	// account belongs to (Trd_Common SecurityFirm) — OpenD requires it on a real
+	// unlock; resolve it from the account's GetAccList entry. 0 omits it (legacy
+	// behaviour, for OpenD builds that don't require it).
+	UnlockTrade(ctx context.Context, env TrdEnv, password string, securityFirm int32) error
 
 	// PlaceOrder submits one order and returns the venue order id. Idempotent on
 	// req.ClientOrderID (see PlaceOrderRequest doc).

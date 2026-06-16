@@ -243,6 +243,10 @@ func (c *Client) GetAccList(ctx context.Context, env TrdEnv) ([]TradeAccount, er
 	req := &trdgetacclist.Request{C2S: &trdgetacclist.C2S{
 		UserID:      proto.Uint64(0),
 		TrdCategory: proto.Int32(int32(trdcommon.TrdCategory_TrdCategory_Security)),
+		// Return CONSOLIDATED accounts too (综合账户, the HK/US/SG/AU account
+		// system). Without this a user's funded margin/consolidated account is
+		// omitted and only non-consolidated sub-accounts (often empty) are listed.
+		NeedGeneralSecAccount: proto.Bool(true),
 	}}
 	body, err := c.roundTrip(ctx, ProtoTrdGetAccList, req)
 	if err != nil {
@@ -260,13 +264,19 @@ func (c *Client) GetAccList(ctx context.Context, env TrdEnv) ([]TradeAccount, er
 		if TrdEnv(a.GetTrdEnv()) != env {
 			continue
 		}
-		out = append(out, TradeAccount{AccID: a.GetAccID(), TrdEnv: TrdEnv(a.GetTrdEnv())})
+		out = append(out, TradeAccount{
+			AccID:        a.GetAccID(),
+			TrdEnv:       TrdEnv(a.GetTrdEnv()),
+			SecurityFirm: a.GetSecurityFirm(),
+		})
 	}
 	return out, nil
 }
 
 // UnlockTrade unlocks the REAL account (no-op for SIMULATE) (TradeClient).
-func (c *Client) UnlockTrade(ctx context.Context, env TrdEnv, password string) error {
+// securityFirm identifies the account's broker entity; OpenD requires it on a
+// real unlock (else "missing required parameter securityFirm"). 0 omits it.
+func (c *Client) UnlockTrade(ctx context.Context, env TrdEnv, password string, securityFirm int32) error {
 	if env != TrdEnvReal {
 		return nil // paper account requires no unlock
 	}
@@ -274,10 +284,14 @@ func (c *Client) UnlockTrade(ctx context.Context, env TrdEnv, password string) e
 		return fmt.Errorf("%w: UnlockTrade(REAL) requires a password", domain.ErrInvalidArgument)
 	}
 	sum := md5.Sum([]byte(password))
-	req := &trdunlocktrade.Request{C2S: &trdunlocktrade.C2S{
+	c2s := &trdunlocktrade.C2S{
 		Unlock: proto.Bool(true),
 		PwdMD5: proto.String(hex.EncodeToString(sum[:])),
-	}}
+	}
+	if securityFirm > 0 {
+		c2s.SecurityFirm = proto.Int32(securityFirm)
+	}
+	req := &trdunlocktrade.Request{C2S: c2s}
 	body, err := c.roundTrip(ctx, ProtoTrdUnlockTrade, req)
 	if err != nil {
 		return err
@@ -421,7 +435,13 @@ func (c *Client) GetPositionList(ctx context.Context, accID uint64, env TrdEnv) 
 
 // GetFunds returns the funds/buying-power snapshot for (acc, env) (TradeClient).
 func (c *Client) GetFunds(ctx context.Context, accID uint64, env TrdEnv) (Funds, error) {
-	req := &trdgetfunds.Request{C2S: &trdgetfunds.C2S{Header: trdHeader(env, accID)}}
+	// Currency is REQUIRED for consolidated (综合) accounts (OpenD rejects the
+	// query with "missing required parameter currency" otherwise) and ignored for
+	// others. The client trades US (TrdMarketUS header), so request USD.
+	req := &trdgetfunds.Request{C2S: &trdgetfunds.C2S{
+		Header:   trdHeader(env, accID),
+		Currency: proto.Int32(int32(trdcommon.Currency_Currency_USD)),
+	}}
 	body, err := c.roundTrip(ctx, ProtoTrdGetFunds, req)
 	if err != nil {
 		return Funds{}, err

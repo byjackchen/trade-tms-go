@@ -29,6 +29,7 @@ package moomoo
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -250,9 +251,28 @@ func New(ctx context.Context, cfg Config) (*MoomooExecutor, error) {
 			return nil, fmt.Errorf("%w: live acc_id %d not found under REAL env (refusing to activate)",
 				domain.ErrInvalidArgument, cfg.AccID)
 		}
-		// (d) UnlockTrade must succeed BEFORE we bind TrdEnvReal.
-		if err := cfg.Client.UnlockTrade(ctx, mo.TrdEnvReal, cfg.UnlockPassword); err != nil {
-			return nil, fmt.Errorf("live activation: UnlockTrade failed (real orders remain unreachable): %w", err)
+		// (d) Unlock the REAL account BEFORE binding TrdEnvReal. Two OpenD modes:
+		//   - HEADLESS OpenD: the API unlock works — use the password (with the
+		//     account's securityFirm, which OpenD requires on the unlock).
+		//   - GUI OpenD: the API unlock is DISABLED ("use the Unlock button in the
+		//     OpenD window"); the operator unlocks in the GUI instead. We then
+		//     CANNOT unlock over the API, so we proceed and rely on the GUI unlock.
+		//     This is NOT a bypass: queries/sync already require the account to be
+		//     GUI-unlocked, and the venue REJECTS a real order on a still-locked
+		//     account — moomoo enforces the unlock, while TMS still enforces the
+		//     other three factors + the per-order confirm phrase. An empty password
+		//     selects this same GUI-unlock mode and skips the API call.
+		switch {
+		case cfg.UnlockPassword == "":
+			logf("live activation: no unlock password — relying on OpenD GUI 'Unlock Trade' (API unlock not attempted)")
+		default:
+			if err := cfg.Client.UnlockTrade(ctx, mo.TrdEnvReal, cfg.UnlockPassword, accountSecurityFirm(accs, cfg.AccID)); err != nil {
+				if isGUIUnlockDisabled(err) {
+					logf("live activation: OpenD GUI mode disables the API unlock — relying on operator's GUI 'Unlock Trade': %v", err)
+				} else {
+					return nil, fmt.Errorf("live activation: UnlockTrade failed (real orders remain unreachable): %w", err)
+				}
+			}
 		}
 		env = mo.TrdEnvReal
 	}
@@ -295,6 +315,31 @@ func accountExists(accs []mo.TradeAccount, id uint64) bool {
 		}
 	}
 	return false
+}
+
+// isGUIUnlockDisabled reports whether an UnlockTrade error is OpenD's "the GUI
+// version disabled the API unlock — use the Unlock button" response (the operator
+// must unlock in the OpenD GUI), as opposed to a credential failure.
+func isGUIUnlockDisabled(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "disabled the unlock interface") ||
+		strings.Contains(s, "Unlock button")
+}
+
+// accountSecurityFirm returns the broker entity (Trd_Common SecurityFirm) of the
+// REAL account with the given id, or 0 when not found. OpenD requires it on a
+// real UnlockTrade for multi-firm logins (e.g. US Futu Inc + HK Futu Securities),
+// where the firm must match the account being unlocked.
+func accountSecurityFirm(accs []mo.TradeAccount, id uint64) int32 {
+	for _, a := range accs {
+		if a.AccID == id && a.TrdEnv == mo.TrdEnvReal {
+			return a.SecurityFirm
+		}
+	}
+	return 0
 }
 
 // nextClientOrderID returns the deterministic per-process client-order-id used

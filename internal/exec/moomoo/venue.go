@@ -144,7 +144,7 @@ func (v *MockVenue) GetAccList(_ context.Context, env mo.TrdEnv) ([]mo.TradeAcco
 	return out, nil
 }
 
-func (v *MockVenue) UnlockTrade(_ context.Context, env mo.TrdEnv, password string) error {
+func (v *MockVenue) UnlockTrade(_ context.Context, env mo.TrdEnv, password string, _ int32) error {
 	if env != mo.TrdEnvReal {
 		return nil
 	}
