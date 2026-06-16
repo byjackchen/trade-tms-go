@@ -180,7 +180,7 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		Calendar:    cal,
 		PingPG:      pool.Ping,
 		PingRedis:   func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },
-		Live:        apistore.NewLiveStore(pool),
+		Trade:       apistore.NewTradeStore(pool),
 		// SystemReader backs GET /api/v1/system (queue depth, active sessions,
 		// data freshness); the same PGStore satisfies it.
 		System: pgStore,
@@ -225,7 +225,7 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 	liveBridgeDone := make(chan struct{})
 	go func() {
 		defer close(liveBridgeDone)
-		api.RunLiveStreamBridge(ctx, redisClient, srv.Hub(), liveTrader, log)
+		api.RunTradeStreamBridge(ctx, redisClient, srv.Hub(), liveTrader, log)
 	}()
 
 	httpSrv := &http.Server{

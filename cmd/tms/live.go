@@ -24,9 +24,9 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/runner"
 )
 
-// newLiveCmd implements `tms live --mode signal`: the live (real-time) trading
-// node. It wires the native moomoo OpenD client (or the protocol-faithful mock,
-// switched by TMS_MOOMOO_ADDR) -> a streaming feed -> the SAME internal/core
+// newTradeRunCmd implements `tms trade run --mode signal`: the live (real-time)
+// trading node. It wires the native moomoo OpenD client (or the protocol-faithful
+// mock, switched by TMS_MOOMOO_ADDR) -> a streaming feed -> the SAME internal/core
 // engine + strategy / portfolio / warmup code as backtest, driven by a wall
 // clock, recording a SignalIntent per strategy per bar (tms.signal_intents +
 // Redis streams) and submitting NO orders — all under the ops.commands control
@@ -36,7 +36,7 @@ import (
 //
 // Only --mode signal is accepted; paper/live (order submission, fills, FLATTEN)
 // are deferred to P6 (locked decision 1 + 6).
-func newLiveCmd(env *runtimeEnv) *cobra.Command {
+func newTradeRunCmd(env *runtimeEnv) *cobra.Command {
 	var (
 		modeStr       string
 		traderID      string
@@ -56,7 +56,7 @@ func newLiveCmd(env *runtimeEnv) *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "live",
+		Use:   "run",
 		Short: "Run the live trading node (signal mode; paper/live deferred to P6)",
 		Long: "Runs the live (real-time) engine: the SAME internal/core event loop and\n" +
 			"strategy / portfolio / warmup code as backtest, driven by a wall clock and a\n" +
@@ -108,15 +108,14 @@ func newLiveCmd(env *runtimeEnv) *cobra.Command {
 	cmd.Flags().StringVar(&manualMode, "manual-mode", "", "connect an operator MANUAL trade desk: paper | live (independent of --mode; live requires the full 4-factor activation). Serves /api/v1/trade/* on --manual-api-addr")
 	cmd.Flags().StringVar(&manualAPIAddr, "manual-api-addr", "127.0.0.1:18091", "MANUAL trade desk HTTP listen address (bearer-guarded by TMS_API_TOKEN)")
 
-	cmd.AddCommand(newLivePreflightCmd(env))
 	return cmd
 }
 
-// newLivePreflightCmd implements `tms live preflight`: run the go-live precondition
+// newTradePreflightCmd implements `tms trade preflight`: run the go-live precondition
 // checks for a session (mode/strategy/tickers) and print a PASS/FAIL table. Exits 0
 // when all BLOCKER checks pass, 1 otherwise — the machine-enforceable go/no-go gate
 // the operator (and CI) can run before a paper/live session.
-func newLivePreflightCmd(env *runtimeEnv) *cobra.Command {
+func newTradePreflightCmd(env *runtimeEnv) *cobra.Command {
 	var (
 		modeStr      string
 		strategy     string
@@ -134,7 +133,7 @@ func newLivePreflightCmd(env *runtimeEnv) *cobra.Command {
 			"table. Each check reports pass | warn | fail with a blocker | warn severity.\n" +
 			"Exit 0 when every BLOCKER passes, 1 otherwise. signal mode treats data\n" +
 			"freshness + OpenD as advisory (warn); paper/live require all blockers. This\n" +
-			"is the same report 'tms live' enforces at startup and GET /api/v1/live/preflight serves.",
+			"is the same report 'tms trade run' enforces at startup and GET /api/v1/trade/preflight serves.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runLivePreflight(cmd.Context(), env, preflightArgs{
@@ -264,7 +263,7 @@ func runLive(parent context.Context, env *runtimeEnv, a liveArgs) error {
 	// exists to close. For live the preflight is mandatory and non-overridable;
 	// paper/signal may still skip it (loudly).
 	if a.skipPreflight && mode == domain.ModeLive {
-		return fmt.Errorf("--skip-preflight is refused for mode=live: the go-live preflight is MANDATORY for real-money trading and cannot be bypassed (run `tms live preflight --mode live ...` to see the failing blockers and resolve them)")
+		return fmt.Errorf("--skip-preflight is refused for mode=live: the go-live preflight is MANDATORY for real-money trading and cannot be bypassed (run `tms trade preflight --mode live ...` to see the failing blockers and resolve them)")
 	}
 	if a.skipPreflight {
 		log.Warn().Str("mode", a.mode).Msg("PREFLIGHT SKIPPED (--skip-preflight): starting WITHOUT go-live precondition checks — blockers are NOT enforced (NOT permitted for mode=live)")
@@ -377,7 +376,7 @@ func runLive(parent context.Context, env *runtimeEnv, a liveArgs) error {
 	return errors.Join(runErr, shutdownErr)
 }
 
-// preflightArgs carries the `tms live preflight` flags.
+// preflightArgs carries the `tms trade preflight` flags.
 type preflightArgs struct {
 	mode         string
 	strategy     string

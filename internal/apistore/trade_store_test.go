@@ -2,8 +2,8 @@
 
 package apistore
 
-// live_store_test.go validates the paper/live trading READ surface
-// (LiveStore.RecentOrders/RecentFills/OpenPositions/LatestReconciliation)
+// trade_store_test.go validates the paper/live trading READ surface
+// (TradeStore.RecentOrders/RecentFills/OpenPositions/LatestReconciliation)
 // against the real schema: it inserts trading rows directly and asserts the
 // store returns them with correct 1e-4 fixed-point -> float conversion.
 
@@ -54,7 +54,7 @@ func TestLiveStoreTradingReads(t *testing.T) {
 		VALUES ($1, now(), 0, '{AAPL}', '[]'::jsonb, '{}', '{}')`, sessionID)
 	require.NoError(t, err)
 
-	store := NewLiveStore(itestPool)
+	store := NewTradeStore(itestPool)
 
 	orders, err := store.RecentOrders(ctx, "", 10)
 	require.NoError(t, err)
@@ -107,7 +107,7 @@ func TestSessionRealizedPnLIncludesClosed(t *testing.T) {
 		       ($1,'SECT|XLP','SECT','XLP','XLP.MOOMOO',0,3500000,-8597400,'CLOSED',now(),now())`, sessionID)
 	require.NoError(t, err)
 
-	store := NewLiveStore(itestPool)
+	store := NewTradeStore(itestPool)
 
 	// OpenPositions excludes the closed XLP entirely.
 	open, err := store.OpenPositions(ctx)

@@ -172,10 +172,10 @@ func (s *Server) inferFeed(ctx context.Context, now time.Time, metrics *SystemMe
 		sessions.Status = "idle"
 	}
 
-	if s.live == nil {
+	if s.trade == nil {
 		return SystemComponent{Status: "not_configured", Detail: "no live reader"}, sessions
 	}
-	sess, err := s.live.LatestSession(ctx)
+	sess, err := s.trade.LatestSession(ctx)
 	if err != nil {
 		return SystemComponent{Status: "unknown", Detail: err.Error()}, sessions
 	}
@@ -191,7 +191,7 @@ func (s *Server) inferFeed(ctx context.Context, now time.Time, metrics *SystemMe
 		return SystemComponent{Status: "idle", Detail: "session " + sess.Status}, sessions
 	}
 	// RUNNING: infer feed liveness from the latest health snapshot's age.
-	h, herr := s.live.LatestHealth(ctx)
+	h, herr := s.trade.LatestHealth(ctx)
 	if herr != nil || h == nil {
 		return SystemComponent{Status: "degraded", Detail: "running — awaiting bars"}, sessions
 	}

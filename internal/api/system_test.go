@@ -36,7 +36,7 @@ func (s *stubSystemReader) DataFreshness(context.Context) (string, *time.Time, e
 
 // newSystemTestServer builds a server wired with the system reader + live reader
 // + custom pings, for the aggregation tests.
-func newSystemTestServer(t *testing.T, sys SystemReader, live LiveReader, pgPing, redisPing PingFunc) *testServer {
+func newSystemTestServer(t *testing.T, sys SystemReader, live TradeReader, pgPing, redisPing PingFunc) *testServer {
 	t.Helper()
 	cal, err := calendar.NewNYSE()
 	require.NoError(t, err)
@@ -54,7 +54,7 @@ func newSystemTestServer(t *testing.T, sys SystemReader, live LiveReader, pgPing
 		Calendar:    cal,
 		PingPG:      pgPing,
 		PingRedis:   redisPing,
-		Live:        live,
+		Trade:       live,
 		System:      sys,
 		Now:         func() time.Time { return fixedNow },
 	})
@@ -68,10 +68,10 @@ func newSystemTestServer(t *testing.T, sys SystemReader, live LiveReader, pgPing
 func TestSystemEndpointHealthyAggregation(t *testing.T) {
 	sync := fixedNow.Add(-2 * time.Hour)
 	sys := &stubSystemReader{queued: 3, running: 1, active: 1, barDate: "2025-06-10", lastSync: &sync}
-	live := &stubLiveReader{
-		session: &LiveSession{ID: 7, TraderID: "SIGNAL-001", Mode: "signal", Status: "RUNNING", StartedAt: fixedNow},
+	live := &stubTradeReader{
+		session: &TradeSession{ID: 7, TraderID: "SIGNAL-001", Mode: "signal", Status: "RUNNING", StartedAt: fixedNow},
 		// Health one minute old => inside the freshness window => "data flowing".
-		health: &LiveHealth{TS: fixedNow.Add(-1 * time.Minute)},
+		health: &TradeHealth{TS: fixedNow.Add(-1 * time.Minute)},
 	}
 	ts := newSystemTestServer(t, sys, live, pingOK, pingOK)
 
@@ -103,7 +103,7 @@ func TestSystemEndpointHealthyAggregation(t *testing.T) {
 // system to "down" (the truth store is the only fatal dependency).
 func TestSystemEndpointPostgresDownIsDown(t *testing.T) {
 	sys := &stubSystemReader{}
-	ts := newSystemTestServer(t, sys, &stubLiveReader{}, pingErr, pingOK)
+	ts := newSystemTestServer(t, sys, &stubTradeReader{}, pingErr, pingOK)
 
 	rec := ts.do(t, http.MethodGet, "/api/v1/system", nil, true)
 	require.Equal(t, http.StatusOK, rec.Code, "endpoint is always 200; degradation is in the body")
@@ -118,7 +118,7 @@ func TestSystemEndpointPostgresDownIsDown(t *testing.T) {
 // to "degraded", not "down".
 func TestSystemEndpointRedisDownIsDegraded(t *testing.T) {
 	sys := &stubSystemReader{}
-	ts := newSystemTestServer(t, sys, &stubLiveReader{}, pingOK, pingErr)
+	ts := newSystemTestServer(t, sys, &stubTradeReader{}, pingOK, pingErr)
 
 	rec := ts.do(t, http.MethodGet, "/api/v1/system", nil, true)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -135,9 +135,9 @@ func TestSystemEndpointRedisDownIsDegraded(t *testing.T) {
 // session itself is still counted active.
 func TestSystemEndpointStaleFeed(t *testing.T) {
 	sys := &stubSystemReader{active: 1}
-	live := &stubLiveReader{
-		session: &LiveSession{ID: 9, Mode: "paper", Status: "RUNNING", StartedAt: fixedNow},
-		health:  &LiveHealth{TS: fixedNow.Add(-30 * time.Minute)}, // outside 5m window
+	live := &stubTradeReader{
+		session: &TradeSession{ID: 9, Mode: "paper", Status: "RUNNING", StartedAt: fixedNow},
+		health:  &TradeHealth{TS: fixedNow.Add(-30 * time.Minute)}, // outside 5m window
 	}
 	ts := newSystemTestServer(t, sys, live, pingOK, pingOK)
 
@@ -153,7 +153,7 @@ func TestSystemEndpointStaleFeed(t *testing.T) {
 // rollup stays "ok" (idle is not a degradation).
 func TestSystemEndpointNoSession(t *testing.T) {
 	sys := &stubSystemReader{barDate: "2025-06-10"}
-	ts := newSystemTestServer(t, sys, &stubLiveReader{}, pingOK, pingOK)
+	ts := newSystemTestServer(t, sys, &stubTradeReader{}, pingOK, pingOK)
 
 	rec := ts.do(t, http.MethodGet, "/api/v1/system", nil, true)
 	var got SystemResponse
@@ -165,7 +165,7 @@ func TestSystemEndpointNoSession(t *testing.T) {
 
 // TestSystemEndpointRequiresAuth: the endpoint is behind the bearer guard.
 func TestSystemEndpointRequiresAuth(t *testing.T) {
-	ts := newSystemTestServer(t, &stubSystemReader{}, &stubLiveReader{}, pingOK, pingOK)
+	ts := newSystemTestServer(t, &stubSystemReader{}, &stubTradeReader{}, pingOK, pingOK)
 	rec := ts.do(t, http.MethodGet, "/api/v1/system", nil, false)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }

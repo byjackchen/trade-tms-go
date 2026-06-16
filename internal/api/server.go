@@ -38,11 +38,11 @@ type Deps struct {
 	Calendar    *calendar.Calendar
 	PingPG      PingFunc
 	PingRedis   PingFunc
-	// Live is the live cockpit read surface (PG-backed). Optional: when nil the
-	// /api/v1/live/* read endpoints return 503.
-	Live LiveReader
+	// Trade is the trade cockpit read surface (PG-backed). Optional: when nil the
+	// /api/v1/trade/* read endpoints return 503.
+	Trade TradeReader
 	// Commands enqueues audited control commands. Optional: when nil
-	// POST /api/v1/live/commands returns 503.
+	// POST /api/v1/trade/commands returns 503.
 	Commands CommandEnqueuer
 	// System supplies the aggregate counts + freshness for GET /api/v1/system.
 	// Optional: when nil those components report "not_configured" (the endpoint
@@ -54,7 +54,7 @@ type Deps struct {
 	// Sync forces the daily incremental-sync pipeline (POST
 	// /api/v1/data/sync-now). Optional: when nil that endpoint returns 503.
 	Sync SyncForcer
-	// Preflight runs the go-live preflight for GET /api/v1/live/preflight.
+	// Preflight runs the go-live preflight for GET /api/v1/trade/preflight.
 	// Optional: when nil that endpoint returns 503 (preflight not wired).
 	Preflight PreflightRunner
 	// Manual is the operator-driven manual trade desk (the ONLY broker-mutation
@@ -89,7 +89,7 @@ type Server struct {
 	cal         *calendar.Calendar
 	pingPG      PingFunc
 	pingRedis   PingFunc
-	live        LiveReader
+	trade       TradeReader
 	commands    CommandEnqueuer
 	system      SystemReader
 	audit       AuditReader
@@ -138,7 +138,7 @@ func NewServer(d Deps) (*Server, error) {
 		cal:         d.Calendar,
 		pingPG:      d.PingPG,
 		pingRedis:   d.PingRedis,
-		live:        d.Live,
+		trade:       d.Trade,
 		commands:    d.Commands,
 		system:      d.System,
 		audit:       d.Audit,
@@ -222,21 +222,37 @@ func (s *Server) Routes() *chi.Mux {
 			r.Get("/hyperopt/{id}/trials", s.handleHyperoptTrials)
 			r.Post("/hyperopt/{id}/promote", s.handleHyperoptPromote)
 
-			// Live cockpit (P5): read surface from PG + the audited command
+			// Trade cockpit (P5): read surface from PG + the audited command
 			// enqueue endpoint. The trading mutation surface stays out of the
 			// HTTP API (read-only forever); commands are the audited side channel.
-			r.Get("/live/session", s.handleLiveSession)
-			r.Get("/live/intents", s.handleLiveIntents)
-			r.Get("/live/health", s.handleLiveHealth)
-			r.Get("/live/preflight", s.handleLivePreflight)
+			r.Get("/trade/session", s.handleTradeSession)
+			r.Get("/trade/intents", s.handleTradeIntents)
+			r.Get("/trade/health", s.handleTradeHealth)
+			r.Get("/trade/preflight", s.handleTradePreflight)
 			r.Get("/watchlist", s.handleWatchlist)
-			// Paper/live trading read surface (P6 task 6).
-			r.Get("/live/orders", s.handleLiveOrders)
-			r.Get("/live/fills", s.handleLiveFills)
-			r.Get("/live/positions", s.handleLivePositions)
-			r.Get("/live/account", s.handleLiveAccount)
-			r.Get("/live/reconciliation", s.handleLiveReconciliation)
-			r.Post("/live/commands", s.handleLiveCommand)
+			// Paper/live trading read surface (P6 task 6). NOTE: /trade/account is
+			// served by the mutation block below (it predates this rename as a
+			// /trade/* route and, under a ManualProxy, is reverse-proxied with the
+			// rest of /trade/*); registering it here too would collide.
+			r.Get("/trade/orders", s.handleTradeOrders)
+			r.Get("/trade/fills", s.handleTradeFills)
+			r.Get("/trade/positions", s.handleTradePositions)
+			r.Get("/trade/reconciliation", s.handleTradeReconciliation)
+			r.Post("/trade/commands", s.handleTradeCommand)
+
+			// Back-compat: the old /live/* read/control paths 301-redirect to
+			// their /trade/* equivalents so a not-yet-updated UI keeps working.
+			// (The /trade/* mutation surface below is unrelated and never had a
+			// /live/* alias.) These are deliberately the SAME path with the
+			// /live prefix swapped for /trade.
+			for _, suffix := range []string{
+				"session", "intents", "health", "preflight",
+				"orders", "fills", "positions", "account", "reconciliation",
+				"commands",
+			} {
+				old := "/live/" + suffix
+				r.Handle(old, redirectTo("/api/v1/trade/"+suffix))
+			}
 
 			// MANUAL trade-mutation surface (operator-driven discretionary desk):
 			// the ONLY broker-write path in the API. Each endpoint is gated inside
@@ -264,12 +280,25 @@ func (s *Server) Routes() *chi.Mux {
 				// surface (the e2e skip-guard reads this, NOT the always-present
 				// account reader). 503 when no desk is connected.
 				r.Get("/trade/status", s.handleTradeStatus)
-				// Account view reuses the live account read surface.
-				r.Get("/trade/account", s.handleLiveAccount)
+				// Account view reuses the trade account read surface.
+				r.Get("/trade/account", s.handleTradeAccount)
 			}
 		})
 	})
 	return r
+}
+
+// redirectTo returns a handler that 301-redirects to target, preserving the
+// query string. It backs the old /live/* → /trade/* back-compat aliases so a
+// not-yet-updated UI keeps working through the rename.
+func redirectTo(target string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		dst := target
+		if r.URL.RawQuery != "" {
+			dst += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, dst, http.StatusMovedPermanently)
+	}
 }
 
 // depStatus is one dependency's health in the /healthz body.

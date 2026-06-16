@@ -1,16 +1,16 @@
 package api
 
-// live.go adds the live cockpit read surface + the audited command-enqueue
+// trade.go adds the trade cockpit read surface + the audited command-enqueue
 // endpoint (P5 task 3 + 4). The trading mutation surface stays OUT of the HTTP
 // API (api spec §1.1 — read-only forever); the ONLY write here is enqueuing an
-// ops.commands row (POST /api/v1/live/commands), which the tms-live consumer
+// ops.commands row (POST /api/v1/trade/commands), which the trade-node consumer
 // executes under full audit. Reads come from PG (the durable truth, decision 5):
 //
-//	GET  /api/v1/live/session   — latest session state (mode, status, halt)
-//	GET  /api/v1/live/intents   — recent signal intents (from tms.signal_intents)
-//	GET  /api/v1/live/health    — latest PortfolioHealth snapshot
-//	GET  /api/v1/watchlist      — the live universe (latest session's instruments)
-//	POST /api/v1/live/commands  — enqueue a control command (audited)
+//	GET  /api/v1/trade/session   — latest session state (mode, status, halt)
+//	GET  /api/v1/trade/intents   — recent signal intents (from tms.signal_intents)
+//	GET  /api/v1/trade/health    — latest PortfolioHealth snapshot
+//	GET  /api/v1/watchlist       — the trade universe (latest session's instruments)
+//	POST /api/v1/trade/commands  — enqueue a control command (audited)
 
 import (
 	"context"
@@ -23,34 +23,34 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/commands"
 )
 
-// LiveReader is the live cockpit read surface (PG-backed; satisfied by
-// *apistore.LiveStore). All reads are best-effort newest-wins snapshots.
-type LiveReader interface {
+// TradeReader is the trade cockpit read surface (PG-backed; satisfied by
+// *apistore.TradeStore). All reads are best-effort newest-wins snapshots.
+type TradeReader interface {
 	// LatestSession returns the most recent session (any status), or nil when
 	// none exists.
-	LatestSession(ctx context.Context) (*LiveSession, error)
+	LatestSession(ctx context.Context) (*TradeSession, error)
 	// RecentIntents returns up to limit newest signal intents, optionally
 	// filtered by strategy_id ("" = any).
-	RecentIntents(ctx context.Context, strategyID string, limit int) ([]LiveIntent, error)
+	RecentIntents(ctx context.Context, strategyID string, limit int) ([]TradeIntent, error)
 	// LatestHealth returns the newest PortfolioHealth snapshot, or nil when none.
-	LatestHealth(ctx context.Context) (*LiveHealth, error)
+	LatestHealth(ctx context.Context) (*TradeHealth, error)
 	// Watchlist returns the distinct symbols the latest session is tracking.
 	Watchlist(ctx context.Context) ([]string, error)
 	// LatestIntentsBySymbol returns the latest intent per symbol in the data
 	// frontier window, ranked actionable-first (see apistore). It backs the
 	// watchlist's per-symbol state so the whole universe shows its signal in one
 	// read and actionable names rank to the top.
-	LatestIntentsBySymbol(ctx context.Context, limit int) ([]LiveIntent, error)
+	LatestIntentsBySymbol(ctx context.Context, limit int) ([]TradeIntent, error)
 }
 
 // CommandEnqueuer enqueues an audited control command (satisfied by
-// *commands.Enqueuer). It is the ONLY write path of the live API.
+// *commands.Enqueuer). It is the ONLY write path of the trade API.
 type CommandEnqueuer interface {
 	Enqueue(ctx context.Context, p commands.EnqueueParams) (int64, error)
 }
 
-// LiveSession is the wire shape of a live session.
-type LiveSession struct {
+// TradeSession is the wire shape of a trade session.
+type TradeSession struct {
 	ID        int64           `json:"id"`
 	TraderID  string          `json:"trader_id"`
 	Mode      string          `json:"mode"`
@@ -59,18 +59,18 @@ type LiveSession struct {
 	EndedAt   *time.Time      `json:"ended_at"`
 	Config    json.RawMessage `json:"config"`
 	// Halt is the active halt (nil when none active).
-	Halt *LiveHalt `json:"halt"`
+	Halt *TradeHalt `json:"halt"`
 }
 
-// LiveHalt is the active halt summary.
-type LiveHalt struct {
+// TradeHalt is the active halt summary.
+type TradeHalt struct {
 	Kind        string    `json:"kind"`
 	Reason      string    `json:"reason"`
 	TriggeredAt time.Time `json:"triggered_at"`
 }
 
-// LiveIntent is the wire shape of one recent signal intent.
-type LiveIntent struct {
+// TradeIntent is the wire shape of one recent signal intent.
+type TradeIntent struct {
 	StrategyID string          `json:"strategy_id"`
 	Symbol     string          `json:"symbol"`
 	State      string          `json:"state"`
@@ -81,8 +81,8 @@ type LiveIntent struct {
 	TSEventNS  int64           `json:"ts_event"`
 }
 
-// LiveHealth is the wire shape of the latest portfolio-health snapshot.
-type LiveHealth struct {
+// TradeHealth is the wire shape of the latest portfolio-health snapshot.
+type TradeHealth struct {
 	DayPnL           float64   `json:"day_pnl"`
 	DayPnLPct        float64   `json:"day_pnl_pct"`
 	DailyLossHalt    bool      `json:"daily_loss_halt"`
@@ -91,15 +91,15 @@ type LiveHealth struct {
 	TS               time.Time `json:"ts"`
 }
 
-// handleLiveSession serves GET /api/v1/live/session.
-func (s *Server) handleLiveSession(w http.ResponseWriter, r *http.Request) {
-	if s.live == nil {
-		writeError(w, http.StatusServiceUnavailable, "unavailable", "live reader not configured")
+// handleTradeSession serves GET /api/v1/trade/session.
+func (s *Server) handleTradeSession(w http.ResponseWriter, r *http.Request) {
+	if s.trade == nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "trade reader not configured")
 		return
 	}
-	sess, err := s.live.LatestSession(r.Context())
+	sess, err := s.trade.LatestSession(r.Context())
 	if err != nil {
-		internalError(w, s.log, "live session", err)
+		internalError(w, s.log, "trade session", err)
 		return
 	}
 	if sess == nil {
@@ -109,10 +109,10 @@ func (s *Server) handleLiveSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sess)
 }
 
-// handleLiveIntents serves GET /api/v1/live/intents?strategy_id=&limit=.
-func (s *Server) handleLiveIntents(w http.ResponseWriter, r *http.Request) {
-	if s.live == nil {
-		writeError(w, http.StatusServiceUnavailable, "unavailable", "live reader not configured")
+// handleTradeIntents serves GET /api/v1/trade/intents?strategy_id=&limit=.
+func (s *Server) handleTradeIntents(w http.ResponseWriter, r *http.Request) {
+	if s.trade == nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "trade reader not configured")
 		return
 	}
 	strategyID := strings.TrimSpace(r.URL.Query().Get("strategy_id"))
@@ -120,31 +120,31 @@ func (s *Server) handleLiveIntents(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	intents, err := s.live.RecentIntents(r.Context(), strategyID, limit)
+	intents, err := s.trade.RecentIntents(r.Context(), strategyID, limit)
 	if err != nil {
-		internalError(w, s.log, "live intents", err)
+		internalError(w, s.log, "trade intents", err)
 		return
 	}
 	if intents == nil {
-		intents = []LiveIntent{}
+		intents = []TradeIntent{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"intents": intents})
 }
 
-// handleLiveHealth serves GET /api/v1/live/health.
-func (s *Server) handleLiveHealth(w http.ResponseWriter, r *http.Request) {
-	if s.live == nil {
-		writeError(w, http.StatusServiceUnavailable, "unavailable", "live reader not configured")
+// handleTradeHealth serves GET /api/v1/trade/health.
+func (s *Server) handleTradeHealth(w http.ResponseWriter, r *http.Request) {
+	if s.trade == nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "trade reader not configured")
 		return
 	}
-	health, err := s.live.LatestHealth(r.Context())
+	health, err := s.trade.LatestHealth(r.Context())
 	if err != nil {
-		internalError(w, s.log, "live health", err)
+		internalError(w, s.log, "trade health", err)
 		return
 	}
 	if health == nil {
 		writeError(w, http.StatusServiceUnavailable, "no_health",
-			"PortfolioHealth stream is empty — no live producer running")
+			"PortfolioHealth stream is empty — no trade producer running")
 		return
 	}
 	writeJSON(w, http.StatusOK, health)
@@ -152,11 +152,11 @@ func (s *Server) handleLiveHealth(w http.ResponseWriter, r *http.Request) {
 
 // handleWatchlist serves GET /api/v1/watchlist.
 func (s *Server) handleWatchlist(w http.ResponseWriter, r *http.Request) {
-	if s.live == nil {
-		writeError(w, http.StatusServiceUnavailable, "unavailable", "live reader not configured")
+	if s.trade == nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "trade reader not configured")
 		return
 	}
-	syms, err := s.live.Watchlist(r.Context())
+	syms, err := s.trade.Watchlist(r.Context())
 	if err != nil {
 		internalError(w, s.log, "watchlist", err)
 		return
@@ -168,34 +168,34 @@ func (s *Server) handleWatchlist(w http.ResponseWriter, r *http.Request) {
 	// every rendered row carries its current signal state without a separate
 	// capped intents poll. Additive: `symbols` stays for back-compat (WS frame +
 	// the e2e suite); `intents` enriches the rows the UI shows.
-	intents, err := s.live.LatestIntentsBySymbol(r.Context(), 5000)
+	intents, err := s.trade.LatestIntentsBySymbol(r.Context(), 5000)
 	if err != nil {
 		internalError(w, s.log, "watchlist intents", err)
 		return
 	}
 	if intents == nil {
-		intents = []LiveIntent{}
+		intents = []TradeIntent{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"symbols": syms, "intents": intents})
 }
 
-// liveCommandBody is the POST /api/v1/live/commands request shape.
-type liveCommandBody struct {
+// tradeCommandBody is the POST /api/v1/trade/commands request shape.
+type tradeCommandBody struct {
 	Name         string `json:"name"`
 	Mode         string `json:"mode,omitempty"`
 	Reason       string `json:"reason,omitempty"`
 	ConfirmToken string `json:"confirm_token,omitempty"`
 }
 
-// handleLiveCommand serves POST /api/v1/live/commands: enqueue an audited
+// handleTradeCommand serves POST /api/v1/trade/commands: enqueue an audited
 // control command. kill/halt/resume/stop/start are always allowed; set_mode to
 // paper/live requires a confirmation token (returns 412 without one).
-func (s *Server) handleLiveCommand(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleTradeCommand(w http.ResponseWriter, r *http.Request) {
 	if s.commands == nil {
 		writeError(w, http.StatusServiceUnavailable, "unavailable", "command enqueuer not configured")
 		return
 	}
-	var body liveCommandBody
+	var body tradeCommandBody
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&body); err != nil {

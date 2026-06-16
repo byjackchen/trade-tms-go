@@ -1,9 +1,11 @@
 package main
 
-// trade.go implements `tms trade <command>`: a thin HTTP client for the operator-
-// driven MANUAL trade desk served by the live node (`tms live --manual-mode
-// paper|live`, the process holding the broker connection). It speaks the bearer-
-// guarded /api/v1/trade/* surface:
+// trade.go implements `tms trade <command>`: the `tms trade` group. `run` is the
+// live (real-time) trading NODE and `preflight` is the go-live precondition gate
+// (both formerly `tms live`); place/cancel/close/sync are a thin HTTP client for
+// the operator-driven MANUAL trade desk served by the trade node (`tms trade run
+// --manual-mode paper|live`, the process holding the broker connection). The
+// client speaks the bearer-guarded /api/v1/trade/* surface:
 //
 //	tms trade place  --symbol AAPL --side buy --qty 10 [--type limit --limit 195] \
 //	                 [--override] [--confirm <phrase|trade-pw>] [--key <idem>]
@@ -38,15 +40,22 @@ func newTradeCmd(env *runtimeEnv) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "trade",
 		Short: "Operator MANUAL trade desk: place/cancel/close orders + sync from broker",
-		Long: "HTTP client for the MANUAL trade desk served by `tms live --manual-mode`.\n" +
+		Long: "The `tms trade` group: `run` is the live trading node, `preflight` the\n" +
+			"go-live gate, and place/cancel/close/sync an HTTP client for the MANUAL\n" +
+			"trade desk served by `tms trade run --manual-mode`.\n" +
 			"Every safety gate (4-factor live activation, per-order confirm, risk gate,\n" +
 			"audit) lives in the desk behind the API. `tms trade sync` pulls the broker's\n" +
 			"ACTUAL state and reflects it into TMS (READ-ONLY; places no orders).",
 		Args: cobra.NoArgs,
 	}
 	cmd.PersistentFlags().StringVar(&addr, "addr", "http://127.0.0.1:18091",
-		"MANUAL trade desk base URL (the --manual-api-addr of the live node)")
+		"MANUAL trade desk base URL (the --manual-api-addr of the trade node)")
 	cmd.AddCommand(
+		// `tms trade run` is the live (real-time) trading NODE; `tms trade
+		// preflight` is the go-live precondition gate (both formerly `tms live`).
+		newTradeRunCmd(env),
+		newTradePreflightCmd(env),
+		// Manual-desk HTTP client subcommands (the broker-mutation surface).
 		newTradePlaceCmd(env, &addr),
 		newTradeCancelCmd(env, &addr),
 		newTradeCloseCmd(env, &addr),

@@ -39,7 +39,7 @@ func newMockOpenDCmd(env *runtimeEnv) *cobra.Command {
 		Use:   "mock-opend",
 		Short: "Run the standalone protocol-faithful mock OpenD trading venue (paper; PG-driven bars)",
 		Long: "Binds a TCP listener and serves the moomoo wire protocol (market-data +\n" +
-			"the Trd_* trading venue) so a `tms live --mode paper` node — and its MANUAL\n" +
+			"the Trd_* trading venue) so a `tms trade run --mode paper` node — and its MANUAL\n" +
 			"trade desk — can place/cancel/close orders + sync, end to end, with NO real\n" +
 			"OpenD and NO real money. Bars are sourced from the project's Postgres. Point\n" +
 			"the live node at it via TMS_MOOMOO_ADDR=<this-host>:<port>.",

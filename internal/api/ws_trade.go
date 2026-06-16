@@ -1,6 +1,6 @@
 package api
 
-// ws_live.go bridges the live Redis STREAMS (trader-{id}:stream:{topic}, the
+// ws_trade.go bridges the trade Redis STREAMS (trader-{id}:stream:{topic}, the
 // reference key shape, api-ws-redis.md §2.1/§4.1) to the WebSocket hub so the
 // cockpit sees SignalIntent / StrategyState / PortfolioHealth / Watchlist /
 // Position updates in real time. It tails each topic with XREAD BLOCK starting
@@ -25,7 +25,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/publish"
 )
 
-// WS envelope types for the live streams (additive to the job/sync types).
+// WS envelope types for the trade streams (additive to the job/sync types).
 const (
 	WSTypeSignalIntent    = "signal_intent"
 	WSTypeStrategyState   = "strategy_state"
@@ -42,15 +42,15 @@ const (
 	WSTypeAccountUpdate = "account_update"
 )
 
-// liveTopic pairs a Redis stream topic with its WS envelope type.
-type liveTopic struct {
+// tradeTopic pairs a Redis stream topic with its WS envelope type.
+type tradeTopic struct {
 	topic  string
 	wsType string
 }
 
-// liveTopics is the set of live stream topics the bridge tails.
-func liveTopics() []liveTopic {
-	return []liveTopic{
+// tradeTopics is the set of trade stream topics the bridge tails.
+func tradeTopics() []tradeTopic {
+	return []tradeTopic{
 		{publish.TopicSignalIntent, WSTypeSignalIntent},
 		{publish.TopicStrategyState, WSTypeStrategyState},
 		{publish.TopicPortfolioHealth, WSTypePortfolioHealth},
@@ -64,19 +64,19 @@ func liveTopics() []liveTopic {
 	}
 }
 
-// RunLiveStreamBridge tails every live stream for traderID and fans entries to
+// RunTradeStreamBridge tails every trade stream for traderID and fans entries to
 // the hub until ctx is canceled. Each topic gets its own tail goroutine (one
 // XREAD BLOCK per topic; they share nothing). A nil client is a no-op (Redis-less
 // deployment). It returns when ctx is canceled.
-func RunLiveStreamBridge(ctx context.Context, client *redis.Client, hub *Hub, traderID string, log zerolog.Logger) {
+func RunTradeStreamBridge(ctx context.Context, client *redis.Client, hub *Hub, traderID string, log zerolog.Logger) {
 	if client == nil || traderID == "" {
 		return
 	}
-	blog := log.With().Str("component", "ws-live-bridge").Str("trader_id", traderID).Logger()
-	topics := liveTopics()
+	blog := log.With().Str("component", "ws-trade-bridge").Str("trader_id", traderID).Logger()
+	topics := tradeTopics()
 	done := make(chan struct{}, len(topics))
 	for _, lt := range topics {
-		go func(lt liveTopic) {
+		go func(lt tradeTopic) {
 			defer func() { done <- struct{}{} }()
 			tailStream(ctx, client, hub, traderID, lt, blog)
 		}(lt)
@@ -84,11 +84,11 @@ func RunLiveStreamBridge(ctx context.Context, client *redis.Client, hub *Hub, tr
 	for range topics {
 		<-done
 	}
-	blog.Info().Msg("live stream bridge stopped")
+	blog.Info().Msg("trade stream bridge stopped")
 }
 
 // tailStream tails one topic's stream, broadcasting each entry's payload.
-func tailStream(ctx context.Context, client *redis.Client, hub *Hub, traderID string, lt liveTopic, log zerolog.Logger) {
+func tailStream(ctx context.Context, client *redis.Client, hub *Hub, traderID string, lt tradeTopic, log zerolog.Logger) {
 	key := publish.StreamKey(traderID, lt.topic)
 	lastID := "$" // only new entries (no history replay; §4.1 default)
 	consecutiveErr := 0
@@ -112,9 +112,9 @@ func tailStream(ctx context.Context, client *redis.Client, hub *Hub, traderID st
 			// Redis read failure: keep tailing (WS stays open), backoff 1s. First
 			// failure logs at error; subsequent at warn (no traceback spam, §4.1).
 			if consecutiveErr == 0 {
-				log.Error().Err(err).Str("key", key).Msg("live stream read failed; retrying")
+				log.Error().Err(err).Str("key", key).Msg("trade stream read failed; retrying")
 			} else {
-				log.Warn().Err(err).Str("key", key).Msg("live stream read still failing")
+				log.Warn().Err(err).Str("key", key).Msg("trade stream read still failing")
 			}
 			consecutiveErr++
 			select {
@@ -136,20 +136,20 @@ func tailStream(ctx context.Context, client *redis.Client, hub *Hub, traderID st
 
 // broadcastEntry extracts the entry's `payload` JSON and broadcasts it. A
 // missing payload field or invalid JSON is skipped with a warning (§2.2/§4.1).
-func broadcastEntry(hub *Hub, lt liveTopic, values map[string]any, key string, log zerolog.Logger) {
+func broadcastEntry(hub *Hub, lt tradeTopic, values map[string]any, key string, log zerolog.Logger) {
 	raw, ok := values["payload"]
 	if !ok {
-		log.Warn().Str("key", key).Msg("live stream entry missing payload field; skipping")
+		log.Warn().Str("key", key).Msg("trade stream entry missing payload field; skipping")
 		return
 	}
 	payloadStr, ok := raw.(string)
 	if !ok {
-		log.Warn().Str("key", key).Msg("live stream payload not a string; skipping")
+		log.Warn().Str("key", key).Msg("trade stream payload not a string; skipping")
 		return
 	}
 	payload := json.RawMessage(payloadStr)
 	if !json.Valid(payload) {
-		log.Warn().Str("key", key).Msg("live stream payload not valid JSON; skipping")
+		log.Warn().Str("key", key).Msg("trade stream payload not valid JSON; skipping")
 		return
 	}
 	hub.Broadcast(lt.wsType, payload)

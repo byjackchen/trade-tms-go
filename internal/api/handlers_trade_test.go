@@ -16,17 +16,17 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 )
 
-// stubLiveReader is an in-memory LiveReader.
-type stubLiveReader struct {
-	session *LiveSession
-	intents []LiveIntent
-	health  *LiveHealth
+// stubTradeReader is an in-memory TradeReader.
+type stubTradeReader struct {
+	session *TradeSession
+	intents []TradeIntent
+	health  *TradeHealth
 	watch   []string
 }
 
-func (s *stubLiveReader) LatestSession(context.Context) (*LiveSession, error) { return s.session, nil }
-func (s *stubLiveReader) RecentIntents(_ context.Context, strategyID string, limit int) ([]LiveIntent, error) {
-	var out []LiveIntent
+func (s *stubTradeReader) LatestSession(context.Context) (*TradeSession, error) { return s.session, nil }
+func (s *stubTradeReader) RecentIntents(_ context.Context, strategyID string, limit int) ([]TradeIntent, error) {
+	var out []TradeIntent
 	for _, it := range s.intents {
 		if strategyID == "" || it.StrategyID == strategyID {
 			out = append(out, it)
@@ -37,9 +37,9 @@ func (s *stubLiveReader) RecentIntents(_ context.Context, strategyID string, lim
 	}
 	return out, nil
 }
-func (s *stubLiveReader) LatestHealth(context.Context) (*LiveHealth, error) { return s.health, nil }
-func (s *stubLiveReader) Watchlist(context.Context) ([]string, error)       { return s.watch, nil }
-func (s *stubLiveReader) LatestIntentsBySymbol(_ context.Context, _ int) ([]LiveIntent, error) {
+func (s *stubTradeReader) LatestHealth(context.Context) (*TradeHealth, error) { return s.health, nil }
+func (s *stubTradeReader) Watchlist(context.Context) ([]string, error)        { return s.watch, nil }
+func (s *stubTradeReader) LatestIntentsBySymbol(_ context.Context, _ int) ([]TradeIntent, error) {
 	return s.intents, nil
 }
 
@@ -58,7 +58,7 @@ func (e *stubEnqueuer) Enqueue(_ context.Context, p commands.EnqueueParams) (int
 	return e.nextID, nil
 }
 
-func newLiveTestServer(t *testing.T, live LiveReader, enq CommandEnqueuer) *testServer {
+func newTradeTestServer(t *testing.T, trade TradeReader, enq CommandEnqueuer) *testServer {
 	t.Helper()
 	cal, err := calendar.NewNYSE()
 	require.NoError(t, err)
@@ -76,7 +76,7 @@ func newLiveTestServer(t *testing.T, live LiveReader, enq CommandEnqueuer) *test
 		Calendar:    cal,
 		PingPG:      pingOK,
 		PingRedis:   pingOK,
-		Live:        live,
+		Trade:       trade,
 		Commands:    enq,
 		Now:         func() time.Time { return fixedNow },
 	})
@@ -85,16 +85,16 @@ func newLiveTestServer(t *testing.T, live LiveReader, enq CommandEnqueuer) *test
 }
 
 func TestLiveSessionEndpoint(t *testing.T) {
-	live := &stubLiveReader{session: &LiveSession{
+	trade := &stubTradeReader{session: &TradeSession{
 		ID: 3, TraderID: "SIGNAL-001", Mode: "signal", Status: "RUNNING",
 		StartedAt: fixedNow, Config: json.RawMessage(`{}`),
-		Halt: &LiveHalt{Kind: "manual", Reason: "stop", TriggeredAt: fixedNow},
+		Halt: &TradeHalt{Kind: "manual", Reason: "stop", TriggeredAt: fixedNow},
 	}}
-	ts := newLiveTestServer(t, live, &stubEnqueuer{})
+	ts := newTradeTestServer(t, trade, &stubEnqueuer{})
 
-	rec := ts.do(t, http.MethodGet, "/api/v1/live/session", nil, true)
+	rec := ts.do(t, http.MethodGet, "/api/v1/trade/session", nil, true)
 	require.Equal(t, http.StatusOK, rec.Code)
-	var got LiveSession
+	var got TradeSession
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	assert.Equal(t, "SIGNAL-001", got.TraderID)
 	assert.Equal(t, "signal", got.Mode)
@@ -103,17 +103,17 @@ func TestLiveSessionEndpoint(t *testing.T) {
 }
 
 func TestLiveIntentsEndpoint(t *testing.T) {
-	live := &stubLiveReader{intents: []LiveIntent{
+	trade := &stubTradeReader{intents: []TradeIntent{
 		{StrategyID: "sepa", Symbol: "AAPL", State: "buy", Strength: 75, Generation: 1,
 			Intent: json.RawMessage(`{"symbol":"AAPL"}`), TS: fixedNow},
 		{StrategyID: "pairs", Symbol: "KO", State: "hold", Intent: json.RawMessage(`{}`), TS: fixedNow},
 	}}
-	ts := newLiveTestServer(t, live, &stubEnqueuer{})
+	ts := newTradeTestServer(t, trade, &stubEnqueuer{})
 
-	rec := ts.do(t, http.MethodGet, "/api/v1/live/intents?strategy_id=sepa", nil, true)
+	rec := ts.do(t, http.MethodGet, "/api/v1/trade/intents?strategy_id=sepa", nil, true)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var body struct {
-		Intents []LiveIntent `json:"intents"`
+		Intents []TradeIntent `json:"intents"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Len(t, body.Intents, 1)
@@ -121,18 +121,18 @@ func TestLiveIntentsEndpoint(t *testing.T) {
 }
 
 func TestLiveHealthEndpoint(t *testing.T) {
-	ts := newLiveTestServer(t, &stubLiveReader{health: &LiveHealth{TS: fixedNow}}, &stubEnqueuer{})
-	rec := ts.do(t, http.MethodGet, "/api/v1/live/health", nil, true)
+	ts := newTradeTestServer(t, &stubTradeReader{health: &TradeHealth{TS: fixedNow}}, &stubEnqueuer{})
+	rec := ts.do(t, http.MethodGet, "/api/v1/trade/health", nil, true)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// No health -> 503.
-	ts2 := newLiveTestServer(t, &stubLiveReader{}, &stubEnqueuer{})
-	rec2 := ts2.do(t, http.MethodGet, "/api/v1/live/health", nil, true)
+	ts2 := newTradeTestServer(t, &stubTradeReader{}, &stubEnqueuer{})
+	rec2 := ts2.do(t, http.MethodGet, "/api/v1/trade/health", nil, true)
 	assert.Equal(t, http.StatusServiceUnavailable, rec2.Code)
 }
 
 func TestWatchlistEndpoint(t *testing.T) {
-	ts := newLiveTestServer(t, &stubLiveReader{watch: []string{"AAPL", "MSFT"}}, &stubEnqueuer{})
+	ts := newTradeTestServer(t, &stubTradeReader{watch: []string{"AAPL", "MSFT"}}, &stubEnqueuer{})
 	rec := ts.do(t, http.MethodGet, "/api/v1/watchlist", nil, true)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var body struct {
@@ -144,38 +144,64 @@ func TestWatchlistEndpoint(t *testing.T) {
 
 func TestLiveCommandEnqueue(t *testing.T) {
 	enq := &stubEnqueuer{}
-	ts := newLiveTestServer(t, &stubLiveReader{}, enq)
+	ts := newTradeTestServer(t, &stubTradeReader{}, enq)
 
 	// halt is accepted (202).
-	rec := ts.do(t, http.MethodPost, "/api/v1/live/commands",
+	rec := ts.do(t, http.MethodPost, "/api/v1/trade/commands",
 		strings.NewReader(`{"name":"halt","reason":"stop"}`), true)
 	require.Equal(t, http.StatusAccepted, rec.Code)
 	require.Len(t, enq.enqueued, 1)
 	assert.Equal(t, commands.NameHalt, enq.enqueued[0].Name)
 
 	// set_mode -> live without a token is 412.
-	rec = ts.do(t, http.MethodPost, "/api/v1/live/commands",
+	rec = ts.do(t, http.MethodPost, "/api/v1/trade/commands",
 		strings.NewReader(`{"name":"set_mode","mode":"live"}`), true)
 	assert.Equal(t, http.StatusPreconditionFailed, rec.Code)
 
 	// set_mode -> live WITH a token is accepted.
-	rec = ts.do(t, http.MethodPost, "/api/v1/live/commands",
+	rec = ts.do(t, http.MethodPost, "/api/v1/trade/commands",
 		strings.NewReader(`{"name":"set_mode","mode":"live","confirm_token":"ok"}`), true)
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 
 	// unknown command -> 400.
-	rec = ts.do(t, http.MethodPost, "/api/v1/live/commands",
+	rec = ts.do(t, http.MethodPost, "/api/v1/trade/commands",
 		strings.NewReader(`{"name":"frobnicate"}`), true)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestLiveEndpointsUnconfigured(t *testing.T) {
-	// nil live reader + nil enqueuer -> 503 on every live route.
-	ts := newLiveTestServer(t, nil, nil)
-	for _, path := range []string{"/api/v1/live/session", "/api/v1/live/intents", "/api/v1/live/health", "/api/v1/watchlist"} {
+	// nil trade reader + nil enqueuer -> 503 on every trade route.
+	ts := newTradeTestServer(t, nil, nil)
+	for _, path := range []string{"/api/v1/trade/session", "/api/v1/trade/intents", "/api/v1/trade/health", "/api/v1/watchlist"} {
 		rec := ts.do(t, http.MethodGet, path, nil, true)
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code, path)
 	}
-	rec := ts.do(t, http.MethodPost, "/api/v1/live/commands", strings.NewReader(`{"name":"halt"}`), true)
+	rec := ts.do(t, http.MethodPost, "/api/v1/trade/commands", strings.NewReader(`{"name":"halt"}`), true)
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+}
+
+// TestLiveRedirects locks the back-compat aliases: the old /live/* read/control
+// paths 301-redirect to their /trade/* equivalents (query string preserved) so a
+// not-yet-updated UI keeps working through the rename.
+func TestLiveRedirects(t *testing.T) {
+	ts := newTradeTestServer(t, &stubTradeReader{}, &stubEnqueuer{})
+	cases := []struct {
+		method, path, wantLocation string
+	}{
+		{http.MethodGet, "/api/v1/live/session", "/api/v1/trade/session"},
+		{http.MethodGet, "/api/v1/live/intents?strategy_id=sepa", "/api/v1/trade/intents?strategy_id=sepa"},
+		{http.MethodGet, "/api/v1/live/health", "/api/v1/trade/health"},
+		{http.MethodGet, "/api/v1/live/preflight", "/api/v1/trade/preflight"},
+		{http.MethodGet, "/api/v1/live/orders", "/api/v1/trade/orders"},
+		{http.MethodGet, "/api/v1/live/fills", "/api/v1/trade/fills"},
+		{http.MethodGet, "/api/v1/live/positions", "/api/v1/trade/positions"},
+		{http.MethodGet, "/api/v1/live/account", "/api/v1/trade/account"},
+		{http.MethodGet, "/api/v1/live/reconciliation", "/api/v1/trade/reconciliation"},
+		{http.MethodPost, "/api/v1/live/commands", "/api/v1/trade/commands"},
+	}
+	for _, c := range cases {
+		rec := ts.do(t, c.method, c.path, nil, true)
+		assert.Equal(t, http.StatusMovedPermanently, rec.Code, c.path)
+		assert.Equal(t, c.wantLocation, rec.Header().Get("Location"), c.path)
+	}
 }

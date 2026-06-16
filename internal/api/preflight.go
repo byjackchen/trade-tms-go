@@ -5,7 +5,7 @@ package api
 // market caps, universe, OpenD, PG/Redis) without an operator shelling into the
 // node. Read-only + bearer-guarded like the rest of /api/v1.
 //
-//	GET /api/v1/live/preflight?mode=&strategy=&tickers=&orb_symbol=&check_opend=&max_stale_days=
+//	GET /api/v1/trade/preflight?mode=&strategy=&tickers=&orb_symbol=&check_opend=&max_stale_days=
 //
 // The Server holds a PreflightRunner (wired in cmd to the real PG/sharadar/moomoo
 // probes); when nil the endpoint returns 503 (preflight not configured for this
@@ -54,10 +54,10 @@ type PreflightRunner interface {
 	RunPreflight(ctx context.Context, p PreflightParams) PreflightReport
 }
 
-// handleLivePreflight serves GET /api/v1/live/preflight. HTTP is always 200 with
+// handleTradePreflight serves GET /api/v1/trade/preflight. HTTP is always 200 with
 // the report in the body (the OK bool is the go/no-go bit); a failing preflight
 // is a valid, expected response the UI renders, not an HTTP error.
-func (s *Server) handleLivePreflight(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleTradePreflight(w http.ResponseWriter, r *http.Request) {
 	if s.preflight == nil {
 		writeError(w, http.StatusServiceUnavailable, "unavailable", "preflight runner not configured")
 		return

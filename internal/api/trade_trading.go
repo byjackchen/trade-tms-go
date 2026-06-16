@@ -1,6 +1,6 @@
 package api
 
-// live_trading.go adds the paper/live trading read surface (P6 task 6): orders,
+// trade_trading.go adds the paper/live trading read surface (P6 task 6): orders,
 // fills, positions, account/buying-power + day-PnL, and the latest reconciliation
 // report. All reads are from PG (the durable system-of-record, decision 5); the
 // cockpit follows the Redis streams live and reconstructs from these on connect.
@@ -14,26 +14,26 @@ import (
 	"time"
 )
 
-// LiveTradingReader is the paper/live trading read surface (PG-backed; satisfied
-// by *apistore.LiveStore). It extends the signal-mode LiveReader.
-type LiveTradingReader interface {
+// TradeTradingReader is the paper/live trading read surface (PG-backed; satisfied
+// by *apistore.TradeStore). It extends the signal-mode TradeReader.
+type TradeTradingReader interface {
 	// RecentOrders returns up to limit newest orders, optionally filtered by symbol.
-	RecentOrders(ctx context.Context, symbol string, limit int) ([]LiveOrder, error)
+	RecentOrders(ctx context.Context, symbol string, limit int) ([]TradeOrder, error)
 	// RecentFills returns up to limit newest fills, optionally filtered by symbol.
-	RecentFills(ctx context.Context, symbol string, limit int) ([]LiveFill, error)
+	RecentFills(ctx context.Context, symbol string, limit int) ([]TradeFill, error)
 	// OpenPositions returns the live position book (non-flat positions).
-	OpenPositions(ctx context.Context) ([]LiveTradePosition, error)
+	OpenPositions(ctx context.Context) ([]TradePosition, error)
 	// SessionRealizedPnL returns Σ realized PnL over the FULL position book
 	// (open AND closed). Day P/L must include realized gains/losses from
 	// positions closed intraday (e.g. a rebalance dropping a sector), which
 	// OpenPositions excludes.
 	SessionRealizedPnL(ctx context.Context) (float64, error)
 	// LatestReconciliation returns the newest reconciliation report, or nil.
-	LatestReconciliation(ctx context.Context) (*LiveReconciliation, error)
+	LatestReconciliation(ctx context.Context) (*TradeReconciliation, error)
 }
 
-// LiveOrder is the wire shape of one order.
-type LiveOrder struct {
+// TradeOrder is the wire shape of one order.
+type TradeOrder struct {
 	ClientOrderID string    `json:"client_order_id"`
 	VenueOrderID  string    `json:"venue_order_id,omitempty"`
 	StrategyID    string    `json:"strategy_id"`
@@ -47,8 +47,8 @@ type LiveOrder struct {
 	TS            time.Time `json:"ts"`
 }
 
-// LiveFill is the wire shape of one execution.
-type LiveFill struct {
+// TradeFill is the wire shape of one execution.
+type TradeFill struct {
 	TradeID    string    `json:"trade_id"`
 	Symbol     string    `json:"symbol"`
 	Qty        int64     `json:"qty"`
@@ -57,8 +57,8 @@ type LiveFill struct {
 	TS         time.Time `json:"ts"`
 }
 
-// LiveTradePosition is the wire shape of one open position.
-type LiveTradePosition struct {
+// TradePosition is the wire shape of one open position.
+type TradePosition struct {
 	StrategyID  string  `json:"strategy_id"`
 	Symbol      string  `json:"symbol"`
 	SignedQty   int64   `json:"signed_qty"`
@@ -67,8 +67,8 @@ type LiveTradePosition struct {
 	Status      string  `json:"status"`
 }
 
-// LiveAccount is the wire shape of the account/buying-power + day-PnL snapshot.
-type LiveAccount struct {
+// TradeAccount is the wire shape of the account/buying-power + day-PnL snapshot.
+type TradeAccount struct {
 	TotalAssets    float64   `json:"total_assets"`
 	Cash           float64   `json:"cash"`
 	AvailableFunds float64   `json:"available_funds"` // buying power
@@ -77,8 +77,8 @@ type LiveAccount struct {
 	TS             time.Time `json:"ts"`
 }
 
-// LiveReconciliation is the wire shape of the latest reconciliation report.
-type LiveReconciliation struct {
+// TradeReconciliation is the wire shape of the latest reconciliation report.
+type TradeReconciliation struct {
 	TS                      time.Time       `json:"ts"`
 	HasIssues               bool            `json:"has_issues"`
 	ToleranceShares         int64           `json:"tolerance_shares"`
@@ -96,11 +96,11 @@ type ReconMismatch struct {
 	Diff             int64  `json:"diff"`
 }
 
-// handleLiveOrders serves GET /api/v1/live/orders?symbol=&limit=.
-func (s *Server) handleLiveOrders(w http.ResponseWriter, r *http.Request) {
-	reader, ok := s.liveTrading()
+// handleTradeOrders serves GET /api/v1/trade/orders?symbol=&limit=.
+func (s *Server) handleTradeOrders(w http.ResponseWriter, r *http.Request) {
+	reader, ok := s.tradeTrading()
 	if !ok {
-		writeError(w, http.StatusServiceUnavailable, "unavailable", "live trading reader not configured")
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "trade trading reader not configured")
 		return
 	}
 	symbol := queryStr(r, "symbol")
@@ -110,20 +110,20 @@ func (s *Server) handleLiveOrders(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := reader.RecentOrders(r.Context(), symbol, limit)
 	if err != nil {
-		internalError(w, s.log, "live orders", err)
+		internalError(w, s.log, "trade orders", err)
 		return
 	}
 	if out == nil {
-		out = []LiveOrder{}
+		out = []TradeOrder{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"orders": out})
 }
 
-// handleLiveFills serves GET /api/v1/live/fills?symbol=&limit=.
-func (s *Server) handleLiveFills(w http.ResponseWriter, r *http.Request) {
-	reader, ok := s.liveTrading()
+// handleTradeFills serves GET /api/v1/trade/fills?symbol=&limit=.
+func (s *Server) handleTradeFills(w http.ResponseWriter, r *http.Request) {
+	reader, ok := s.tradeTrading()
 	if !ok {
-		writeError(w, http.StatusServiceUnavailable, "unavailable", "live trading reader not configured")
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "trade trading reader not configured")
 		return
 	}
 	symbol := queryStr(r, "symbol")
@@ -133,44 +133,44 @@ func (s *Server) handleLiveFills(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := reader.RecentFills(r.Context(), symbol, limit)
 	if err != nil {
-		internalError(w, s.log, "live fills", err)
+		internalError(w, s.log, "trade fills", err)
 		return
 	}
 	if out == nil {
-		out = []LiveFill{}
+		out = []TradeFill{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"fills": out})
 }
 
-// handleLivePositions serves GET /api/v1/live/positions.
-func (s *Server) handleLivePositions(w http.ResponseWriter, r *http.Request) {
-	reader, ok := s.liveTrading()
+// handleTradePositions serves GET /api/v1/trade/positions.
+func (s *Server) handleTradePositions(w http.ResponseWriter, r *http.Request) {
+	reader, ok := s.tradeTrading()
 	if !ok {
-		writeError(w, http.StatusServiceUnavailable, "unavailable", "live trading reader not configured")
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "trade trading reader not configured")
 		return
 	}
 	out, err := reader.OpenPositions(r.Context())
 	if err != nil {
-		internalError(w, s.log, "live positions", err)
+		internalError(w, s.log, "trade positions", err)
 		return
 	}
 	if out == nil {
-		out = []LiveTradePosition{}
+		out = []TradePosition{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"positions": out})
 }
 
-// handleLiveAccount serves GET /api/v1/live/account: account/buying-power +
+// handleTradeAccount serves GET /api/v1/trade/account: account/buying-power +
 // day-PnL, derived from the position book + the session's starting NAV.
-func (s *Server) handleLiveAccount(w http.ResponseWriter, r *http.Request) {
-	reader, ok := s.liveTrading()
+func (s *Server) handleTradeAccount(w http.ResponseWriter, r *http.Request) {
+	reader, ok := s.tradeTrading()
 	if !ok {
-		writeError(w, http.StatusServiceUnavailable, "unavailable", "live trading reader not configured")
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "trade trading reader not configured")
 		return
 	}
 	positions, err := reader.OpenPositions(r.Context())
 	if err != nil {
-		internalError(w, s.log, "live account", err)
+		internalError(w, s.log, "trade account", err)
 		return
 	}
 	// Day P&L = Σ realized over the FULL book (open + intraday-closed), so a
@@ -179,31 +179,31 @@ func (s *Server) handleLiveAccount(w http.ResponseWriter, r *http.Request) {
 	// follows the Redis account stream for live marks.
 	dayPnL, err := reader.SessionRealizedPnL(r.Context())
 	if err != nil {
-		internalError(w, s.log, "live account", err)
+		internalError(w, s.log, "trade account", err)
 		return
 	}
 	var marketValue float64
 	for _, p := range positions {
 		marketValue += float64(p.SignedQty) * p.AvgEntryPx
 	}
-	writeJSON(w, http.StatusOK, LiveAccount{
+	writeJSON(w, http.StatusOK, TradeAccount{
 		MarketValue: marketValue,
 		DayPnL:      dayPnL,
 		TS:          time.Now().UTC(),
 	})
 }
 
-// handleLiveReconciliation serves GET /api/v1/live/reconciliation: the latest
+// handleTradeReconciliation serves GET /api/v1/trade/reconciliation: the latest
 // reconciliation report (broker vs strategy books).
-func (s *Server) handleLiveReconciliation(w http.ResponseWriter, r *http.Request) {
-	reader, ok := s.liveTrading()
+func (s *Server) handleTradeReconciliation(w http.ResponseWriter, r *http.Request) {
+	reader, ok := s.tradeTrading()
 	if !ok {
-		writeError(w, http.StatusServiceUnavailable, "unavailable", "live trading reader not configured")
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "trade trading reader not configured")
 		return
 	}
 	rep, err := reader.LatestReconciliation(r.Context())
 	if err != nil {
-		internalError(w, s.log, "live reconciliation", err)
+		internalError(w, s.log, "trade reconciliation", err)
 		return
 	}
 	if rep == nil {
@@ -213,13 +213,13 @@ func (s *Server) handleLiveReconciliation(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, rep)
 }
 
-// liveTrading returns the trading reader (the LiveStore, when it implements the
+// tradeTrading returns the trading reader (the TradeStore, when it implements the
 // trading surface). Signal-mode-only deployments still expose the signal reads.
-func (s *Server) liveTrading() (LiveTradingReader, bool) {
-	if s.live == nil {
+func (s *Server) tradeTrading() (TradeTradingReader, bool) {
+	if s.trade == nil {
 		return nil, false
 	}
-	tr, ok := s.live.(LiveTradingReader)
+	tr, ok := s.trade.(TradeTradingReader)
 	return tr, ok
 }
 

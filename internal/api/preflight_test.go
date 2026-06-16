@@ -59,7 +59,7 @@ func getPreflight(t *testing.T, srv *Server, target string) *httptest.ResponseRe
 
 func TestHandleLivePreflight_NotConfigured(t *testing.T) {
 	srv := newPreflightServer(t, nil)
-	rec := getPreflight(t, srv, "/api/v1/live/preflight")
+	rec := getPreflight(t, srv, "/api/v1/trade/preflight")
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
 
@@ -69,7 +69,7 @@ func TestHandleLivePreflight_OK(t *testing.T) {
 		Checks: []PreflightResult{{Check: "DATA_CURRENT", Status: "pass", Severity: "blocker", Detail: "fresh"}},
 	}}
 	srv := newPreflightServer(t, pf)
-	rec := getPreflight(t, srv, "/api/v1/live/preflight?mode=paper&strategy=multi&tickers=AAPL,MSFT&check_opend=1&max_stale_days=2")
+	rec := getPreflight(t, srv, "/api/v1/trade/preflight?mode=paper&strategy=multi&tickers=AAPL,MSFT&check_opend=1&max_stale_days=2")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var body PreflightReport
@@ -89,7 +89,7 @@ func TestHandleLivePreflight_OK(t *testing.T) {
 func TestHandleLivePreflight_Defaults(t *testing.T) {
 	pf := &stubPreflight{report: PreflightReport{OK: false}}
 	srv := newPreflightServer(t, pf)
-	rec := getPreflight(t, srv, "/api/v1/live/preflight")
+	rec := getPreflight(t, srv, "/api/v1/trade/preflight")
 	require.Equal(t, http.StatusOK, rec.Code) // failing preflight is still HTTP 200
 	require.Equal(t, "signal", pf.got.Mode)
 	require.Equal(t, "multi", pf.got.Strategy)
@@ -101,10 +101,10 @@ func TestHandleLivePreflight_BadParams(t *testing.T) {
 	pf := &stubPreflight{}
 	srv := newPreflightServer(t, pf)
 	for _, target := range []string{
-		"/api/v1/live/preflight?mode=bogus",
-		"/api/v1/live/preflight?strategy=bogus",
-		"/api/v1/live/preflight?max_stale_days=-3",
-		"/api/v1/live/preflight?max_stale_days=abc",
+		"/api/v1/trade/preflight?mode=bogus",
+		"/api/v1/trade/preflight?strategy=bogus",
+		"/api/v1/trade/preflight?max_stale_days=-3",
+		"/api/v1/trade/preflight?max_stale_days=abc",
 	} {
 		rec := getPreflight(t, srv, target)
 		require.Equal(t, http.StatusBadRequest, rec.Code, "target %s", target)
@@ -113,7 +113,7 @@ func TestHandleLivePreflight_BadParams(t *testing.T) {
 
 func TestHandleLivePreflight_RequiresAuth(t *testing.T) {
 	srv := newPreflightServer(t, &stubPreflight{})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/live/preflight", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/trade/preflight", nil)
 	rec := httptest.NewRecorder()
 	srv.Routes().ServeHTTP(rec, req)
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
