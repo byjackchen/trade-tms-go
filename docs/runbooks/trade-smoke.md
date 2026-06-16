@@ -1,4 +1,4 @@
-# Live OpenD smoke (DEFERRED to market hours)
+# Trade OpenD smoke (DEFERRED to market hours)
 
 > ## ✅ FULLY VERIFIED against the REAL OpenD — signal-mode smoke complete
 > (connection + history + intents on 2026-06-14 Sunday; **real-time `Qot_UpdateKL`
@@ -38,12 +38,12 @@
 >   warmup snapshot (11 ETFs × each generation in `tms.signal_intents`; Redis
 >   `data.SignalIntentUpdate` stream grew to 33 entries; latest
 >   `ts_event=2026-06-15T14:44:00Z`).
-> - **Cockpit WS live-update**: with `/live` open and NO reload, the intent "As
+> - **Cockpit WS live-update**: with `/trade` open and NO reload, the intent "As
 >   of" cells flipped `3m ago → 8s ago` the moment the `14:44:00Z` generation
 >   pushed over the SSE/WS bridge — the cockpit re-rendered purely from the
 >   streamed frame. Screenshot: `realopend-signal-stream-cockpit-live.png`.
 > - **Zero-order invariant**: `tms.orders=0`, `tms.fills=0`, `tms.positions=0`
->   throughout (PG + `/api/v1/live/{orders,fills,positions}` all empty); no
+>   throughout (PG + `/api/v1/trade/{orders,fills,positions}` all empty); no
 >   `Trd_*`/`PlaceOrder`/`UnlockTrade`/`ModifyOrder` and no trade password in any
 >   live-node log.
 >
@@ -104,7 +104,7 @@
 >
 > The **connection + GetGlobalState + historical-kline + signal-intent** portion
 > of the signal-mode smoke ran against the user's REAL moomoo OpenD gateway
-> (`moomoo_OpenD` on the host, `127.0.0.1:11111`; reached from the `tms-live`
+> (`moomoo_OpenD` on the host, `127.0.0.1:11111`; reached from the `tmsgo-live`
 > container as `host.docker.internal:11111`). This was the FIRST time the native
 > Go OpenD client touched the real gateway (everything prior used the in-repo
 > mock). SIGNAL MODE ONLY — NoopExecutor, **zero** orders/fills/positions; no
@@ -128,7 +128,7 @@
 >   **11 SignalIntents** (one per ETF: states buy/hold/exit/forming/no_setup,
 >   strengths 0–100) into `tms.signal_intents` (idempotent UPSERT — re-run kept
 >   11 rows), the Redis `SignalIntentUpdate` stream (902 entries), and the
->   cockpit `/live` page (11 instruments rendered; Positions/Orders/Fills all 0).
+>   cockpit `/trade` page (11 instruments rendered; Positions/Orders/Fills all 0).
 > - **Zero-order invariant**: `tms.orders=0`, `tms.fills=0`, `tms.positions=0`
 >   throughout; no `Trd_*`/`PlaceOrder`/`UnlockTrade` in any log.
 >
@@ -149,7 +149,7 @@ records the exact manual steps + acceptance for that deferred smoke.
 > (`internal/runner`, `internal/publish`), the **idempotent EOD engine-replay**
 > (`tms eod` + `eod.refresh` job), the **ops.commands control plane**
 > (`internal/commands`, halt/resume/kill/stop/set_mode), the **live REST + WS
-> bridge** (`/api/v1/live/*`, `/api/v1/watchlist`) and the **`tms-live` compose
+> bridge** (`/api/v1/trade/*`, `/api/v1/watchlist`) and the **`tmsgo-live` compose
 > service** (live profile) are all wired. The real-OpenD smoke below is the ONLY
 > deferred piece (decision 7); the mock-driven deterministic gate is the
 > permanent CI path.
@@ -210,7 +210,7 @@ PATH="$PWD/bin:$PATH" protoc \
   `TestLiveStreamEqualsBatchReplay` + `TestLiveWarmupConsistency` assert the
   streaming (virtual-clock) live path emits SignalIntents IDENTICAL to a batch
   replay of the same bars.
-- `tms live --mode signal` lifecycle: ctx cancellation (SIGINT/SIGTERM), graceful
+- `tms trade run --mode signal` lifecycle: ctx cancellation (SIGINT/SIGTERM), graceful
   shutdown, structured logs.
 - **EOD idempotency** (`internal/runner`, mock/PG-driven, `-race`): running the
   EOD engine-replay twice for the same `as_of` yields the SAME
@@ -226,7 +226,7 @@ PATH="$PWD/bin:$PATH" protoc \
   command idempotently and audits it (`TestCommandConsumerHaltAudited`); the
   confirmation gate blocks an unconfirmed `set_mode` to paper/live
   (`TestEnqueueConfirmationGate`).
-- **Mode-switch via graceful session restart**: `tms live`'s supervisor restarts
+- **Mode-switch via graceful session restart**: `tms trade run`'s supervisor restarts
   the session on a `set_mode` command (P5 accepts only `signal`; paper/live are
   rejected, deferred to P6).
 
@@ -242,9 +242,9 @@ framing, so the whole live path is exercised end-to-end without real OpenD:
 tms mock-opend --listen 127.0.0.1:11111 --paper-acc-id 700001
 # then point the live node at it and run a session:
 export TMS_MOOMOO_ADDR=127.0.0.1:11111
-tms live --mode signal --trader-id SIGNAL-GATE-001 --strategy sector_rotation
+tms trade run --mode signal --trader-id SIGNAL-GATE-001 --strategy sector_rotation
 # observe tms.signal_intents rows appended + Redis streams populated +
-# /api/v1/live/intents returning them + the cockpit WS bridging them.
+# /api/v1/trade/intents returning them + the cockpit WS bridging them.
 ```
 
 The real-vs-mock switch is config-only (`TMS_MOOMOO_ADDR`): the same node code
@@ -260,7 +260,7 @@ place/cancel/close + sync lifecycle runs end-to-end with no OpenD and no real mo
 export TMS_MOOMOO_ADDR=127.0.0.1:11111
 export TMS_MOOMOO_PAPER_ACC_ID=700001
 export TMS_MOOMOO_TRADE_PASSWORD=paper-trade-password
-tms live --mode signal --trader-id MANUAL-DESK-001 \
+tms trade run --mode signal --trader-id MANUAL-DESK-001 \
   --manual-mode paper --manual-api-addr 127.0.0.1:18091 --skip-preflight
 # place a manual BUY (paper password in confirm_token), then sync:
 tms trade place --addr http://127.0.0.1:18091 --symbol AAPL --side buy --qty 10 \
@@ -276,10 +276,10 @@ node's manual listener so the UI + e2e hit one host. The manual-desk e2e specs
 ## Go-live preflight (REQUIRED — all-pass before paper/live)
 
 Before any paper/live session, the **go-live preflight** must pass. It is enforced
-by the system, not by eyeball: `tms live` runs it at startup and **REFUSES to
+by the system, not by eyeball: `tms trade run` runs it at startup and **REFUSES to
 start** if any BLOCKER fails (an earlier audit found three latent gaps —
 SEPA-only warmup, stale data, the freshness watermark bug — each of which a
-preflight would have blocked). The same checks back `GET /api/v1/live/preflight`
+preflight would have blocked). The same checks back `GET /api/v1/trade/preflight`
 and the UI System page **Go-live preflight** panel.
 
 The checks (each a real query/probe):
@@ -299,18 +299,18 @@ Run the standalone preflight (exit 0 = all blockers pass, 1 = a blocker failed):
 
 ```sh
 # dry-check a signal session (DATA_CURRENT + OpenD are advisory):
-tms live preflight --mode signal --strategy multi
+tms trade preflight --mode signal --strategy multi
 
 # the REQUIRED paper/live gate — every blocker must pass, OpenD is probed:
 export TMS_MOOMOO_ADDR=host.docker.internal:11111   # or the mock port
-tms live preflight --mode paper --strategy multi --check-opend
+tms trade preflight --mode paper --strategy multi --check-opend
 echo "exit=$?"   # MUST be 0 before starting a paper/live session
 
 # JSON for tooling / CI:
-tms live preflight --mode paper --strategy multi --json | jq .ok   # must be true
+tms trade preflight --mode paper --strategy multi --json | jq .ok   # must be true
 ```
 
-`tms live` runs the same gate automatically: a failing blocker aborts startup with
+`tms trade run` runs the same gate automatically: a failing blocker aborts startup with
 a non-zero exit and the failing checks logged. `--skip-preflight` overrides the
 gate (loud warning) for **paper/signal only** — it is **REFUSED for `--mode live`**
 (real money): the preflight is mandatory and non-overridable for a live start, so an
@@ -350,7 +350,7 @@ Steps:
 2. Start a signal session:
 
    ```sh
-   tms live --mode signal --trader-id SIGNAL-SMOKE-001 --strategy multi \
+   tms trade run --mode signal --trader-id SIGNAL-SMOKE-001 --strategy multi \
      --tickers AAPL,MSFT,KO --moomoo-addr "$TMS_MOOMOO_ADDR"
    ```
 
@@ -367,14 +367,14 @@ Steps:
    ```sh
    # halt: stops emitting NEW intents (state stays warm; no FLATTEN in signal mode)
    curl -XPOST -H "Authorization: Bearer $TMS_API_TOKEN" \
-     localhost:18080/api/v1/live/commands -d '{"name":"halt","reason":"smoke"}'
-   # observe: no new intents appear; GET /api/v1/live/session shows the active halt.
+     localhost:18080/api/v1/trade/commands -d '{"name":"halt","reason":"smoke"}'
+   # observe: no new intents appear; GET /api/v1/trade/session shows the active halt.
    # resume: intents flow again.
    curl -XPOST -H "Authorization: Bearer $TMS_API_TOKEN" \
-     localhost:18080/api/v1/live/commands -d '{"name":"resume"}'
+     localhost:18080/api/v1/trade/commands -d '{"name":"resume"}'
    # a paper/live switch without a token is rejected 412:
    curl -XPOST -H "Authorization: Bearer $TMS_API_TOKEN" \
-     localhost:18080/api/v1/live/commands -d '{"name":"set_mode","mode":"live"}'
+     localhost:18080/api/v1/trade/commands -d '{"name":"set_mode","mode":"live"}'
    ```
 
    Confirm each command produced a `tms.commands` row (status `completed`/
@@ -476,9 +476,9 @@ flatten) is proven against the mock venue in `internal/livetrade`:
 
    ```sh
    TMS_LIVE_MODE=paper TMS_LIVE_TRADER_ID=PAPER-SMOKE-001 \
-     docker compose --profile live up -d tms-live
+     docker compose --profile live up -d tmsgo-live
    # or, locally:
-   tms live --mode paper --trader-id PAPER-SMOKE-001 --strategy sector_rotation
+   tms trade run --mode paper --trader-id PAPER-SMOKE-001 --strategy sector_rotation
    ```
 
    Verify in the logs: the executor bound to `SIMULATE`, push subscriptions
@@ -486,11 +486,11 @@ flatten) is proven against the mock venue in `internal/livetrade`:
    reconcile ran at startup.
 
 3. Let a strategy fire (or inject a scripted entry). Confirm:
-   - `GET /api/v1/live/orders` shows an order reaching `FILLED` (or
+   - `GET /api/v1/trade/orders` shows an order reaching `FILLED` (or
      `PARTIALLY_FILLED` → `FILLED`);
-   - `GET /api/v1/live/fills` shows matching per-execution fills (no double-count);
-   - `GET /api/v1/live/positions` shows the expected signed qty + avg price;
-   - `tms ctl reconcile` (or `GET /api/v1/live/reconciliation`) reports `matched`
+   - `GET /api/v1/trade/fills` shows matching per-execution fills (no double-count);
+   - `GET /api/v1/trade/positions` shows the expected signed qty + avg price;
+   - `tms ctl reconcile` (or `GET /api/v1/trade/reconciliation`) reports `matched`
      with no mismatch / one-sided drift.
 
 4. Issue **flatten** and confirm it closes every open position:
@@ -499,7 +499,7 @@ flatten) is proven against the mock venue in `internal/livetrade`:
    tms ctl flatten --confirm --reason "paper smoke flatten"
    ```
 
-   After fills, `GET /api/v1/live/positions` is empty and the broker is flat.
+   After fills, `GET /api/v1/trade/positions` is empty and the broker is flat.
 
 5. Kill the process mid-session, restart, and confirm crash recovery: the node
    restores positions from the broker (`RestoreFromBroker`) + strategy SG state
@@ -524,7 +524,7 @@ flatten) is proven against the mock venue in `internal/livetrade`:
 
 2. Confirm activation logs: `GetAccList(REAL)` found the acc id, `UnlockTrade`
    succeeded, executor bound `REAL`. Confirm the order fills, `live.{orders,
-   fills,positions}` are written (`GET /api/v1/live/*`), and `tms ctl reconcile`
+   fills,positions}` are written (`GET /api/v1/trade/*`), and `tms ctl reconcile`
    matches the broker.
 
 3. Immediately **flatten** (`tms ctl flatten --confirm`) — or

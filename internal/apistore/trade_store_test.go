@@ -20,7 +20,7 @@ import (
 
 func TestMain(m *testing.M) { os.Exit(pgtest.Run(m, "apistore")) }
 
-func TestLiveStoreTradingReads(t *testing.T) {
+func TestTradeStoreTradingReads(t *testing.T) {
 	itestPool := pgtest.RequirePG(t)
 	ctx := context.Background()
 	_, err := itestPool.Exec(ctx, `TRUNCATE tms.sessions, tms.orders, tms.fills, tms.positions,

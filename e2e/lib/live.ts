@@ -1,23 +1,23 @@
 /**
- * Live cockpit e2e helpers (P5).
+ * Trade cockpit e2e helpers (P5).
  *
- * The /live cockpit is the read surface over the live trading node: signal
+ * The /trade cockpit is the read surface over the trade node: signal
  * intents streaming in over the WS (bridged from Redis, durable truth in
  * tms.signal_intents), portfolio health + session state, the watchlist
  * (tracked universe), and the audited control surface (halt / kill-switch /
- * mode-switch via POST /api/v1/live/commands). See docs/api.md "Live (P5)" and
+ * mode-switch via POST /api/v1/trade/commands). See docs/api.md "Trade (P5)" and
  * docs/spec/{ui-runner-modes-eod,portfolio-risk}.md.
  *
- * GATE TOPOLOGY (P5 decisions 2/3/7): the gate runs `tms-live --mode signal`
+ * GATE TOPOLOGY (P5 decisions 2/3/7): the gate runs `tms trade run --mode signal`
  * against the in-repo MOCK OpenD server, which replays a day of bars out of our
  * Postgres — so a signal session emits intents into tms.signal_intents + the
  * Redis streams the API bridges to WS, with NO real OpenD. The real-OpenD smoke
- * is deferred to market hours (docs/runbooks/live-smoke.md).
+ * is deferred to market hours (docs/runbooks/trade-smoke.md).
  *
- * BUILD ORDER: the /live cockpit + the live read endpoints land in P5, after
+ * BUILD ORDER: the /trade cockpit + the trade read endpoints land in P5, after
  * the P1 Data / P2 Backtests / P3 Strategies+Hyperopt workspaces. These specs
  * are PERMANENT and assert the documented contract; while the section is still
- * the coming-soon placeholder, the live reader is absent (endpoints 503), or no
+ * the coming-soon placeholder, the trade reader is absent (endpoints 503), or no
  * signal session has run yet, they self-skip cleanly so the gate stays green —
  * exactly like specs 07-17 did for their workspaces before they landed.
  *
@@ -51,7 +51,7 @@ export const INTENT_STATES = [
 ] as const;
 
 /**
- * True once the real /live cockpit replaced the coming-soon placeholder.
+ * True once the real /trade cockpit replaced the coming-soon placeholder.
  *
  * Mirrors backtestsUiReady / strategiesUiReady: the cockpit root (`live-page`)
  * only exists in the real workspace; the placeholder (`live-placeholder`, the
@@ -59,7 +59,7 @@ export const INTENT_STATES = [
  * appeared (route not built at all) or the placeholder is still showing.
  */
 export async function liveUiReady(page: Page): Promise<boolean> {
-  await page.goto("/live", { waitUntil: "domcontentloaded" });
+  await page.goto("/trade", { waitUntil: "domcontentloaded" });
   const shell = page.getByTestId("app-shell");
   try {
     await shell.waitFor({ state: "visible", timeout: 15_000 });
@@ -84,11 +84,11 @@ export async function liveUiReady(page: Page): Promise<boolean> {
  * live reader."). A 200 OR a `{session:null}` 200 means the reader is present;
  * a 503 means the live surface is unavailable and the cockpit specs must skip.
  *
- * We probe GET /api/v1/live/session: 503 → no reader; anything else (200 with a
+ * We probe GET /api/v1/trade/session: 503 → no reader; anything else (200 with a
  * session or {session:null}, even 404-ish) → reader present.
  */
 export async function liveReaderAvailable(): Promise<boolean> {
-  const res = await getAuthed("live/session");
+  const res = await getAuthed("trade/session");
   return res.status !== 503;
 }
 
@@ -98,7 +98,7 @@ export async function currentSession(): Promise<LiveSessionTruth | null> {
   return withDb((c) => latestSession(c));
 }
 
-/** A RUNNING signal session exists (the gate's `tms-live --mode signal` node).
+/** A RUNNING signal session exists (the gate's `tms trade run --mode signal` node).
  * Several specs require a live emitter to be running; they skip otherwise. */
 export async function hasRunningSignalSession(): Promise<boolean> {
   const s = await currentSession();
@@ -106,7 +106,7 @@ export async function hasRunningSignalSession(): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
-// Paper/live TRADING helpers (P6). The gate runs `tms-live --mode paper`
+// Paper/live TRADING helpers (P6). The gate runs `tms trade run --mode paper`
 // against the in-repo MOCK trading venue (an extension of the P5 mock OpenD):
 // it accepts Trd_PlaceOrder, simulates accept->fill (or reject), pushes
 // Trd_UpdateOrder / Trd_UpdateOrderFill, and maintains mock positions/funds
@@ -123,21 +123,21 @@ export async function hasRunningSignalSession(): Promise<boolean> {
 
 /**
  * Whether the API was started WITH a trading reader (the LiveStore implementing
- * LiveTradingReader, internal/api/live_trading.go). The trading read endpoints
- * (/live/orders, /live/positions, /live/account, /live/reconciliation) return
+ * LiveTradingReader, internal/api/trade_trading.go). The trading read endpoints
+ * (/trade/orders, /trade/positions, /trade/account, /trade/reconciliation) return
  * 503 "unavailable" when no trading reader is configured. We probe
- * GET /api/v1/live/positions: 503 → no trading reader; any other status (200
+ * GET /api/v1/trade/positions: 503 → no trading reader; any other status (200
  * with a possibly-empty book) → reader present.
  *
  * This is strictly stronger than liveReaderAvailable() (which only needs the
  * signal reader): a stack can have the signal reader but no trading reader.
  */
 export async function liveTradingAvailable(): Promise<boolean> {
-  const res = await getAuthed("live/positions");
+  const res = await getAuthed("trade/positions");
   return res.status !== 503;
 }
 
-/** A RUNNING paper session exists (the gate's `tms-live --mode paper` node over
+/** A RUNNING paper session exists (the gate's `tms trade run --mode paper` node over
  * the mock venue). The paper-trading specs require it; they skip otherwise. */
 export async function hasRunningPaperSession(): Promise<boolean> {
   const s = await currentSession();
@@ -326,7 +326,7 @@ export async function manualSyncAvailable(): Promise<boolean> {
  * returns false when neither has appeared or the placeholder is still showing.
  */
 export async function manualDeskUiReady(page: Page): Promise<boolean> {
-  await page.goto("/live/desk", { waitUntil: "domcontentloaded" });
+  await page.goto("/trade/desk", { waitUntil: "domcontentloaded" });
   const shell = page.getByTestId("app-shell");
   try {
     await shell.waitFor({ state: "visible", timeout: 15_000 });

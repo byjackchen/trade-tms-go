@@ -1,8 +1,8 @@
 /**
  * (2) Live cockpit — portfolio health + session state render and update.
  *
- * The cockpit's session strip reflects GET /api/v1/live/session (mode + status
- * + connected/halt), and its health strip reflects GET /api/v1/live/health (the
+ * The cockpit's session strip reflects GET /api/v1/trade/session (mode + status
+ * + connected/halt), and its health strip reflects GET /api/v1/trade/health (the
  * flat-book informational NAV in signal mode — day P&L 0, no halt; decision 6)
  * overlaid by the `portfolio_health` WS frame. This spec proves both surfaces
  * mount and agree with the DB session truth.
@@ -61,7 +61,7 @@ test.describe("live cockpit — health + session", () => {
       new RegExp(session.mode, "i"),
     );
 
-    // Connected indicator: in the gate, tms-live is attached to the mock feed,
+    // Connected indicator: in the gate, the trade node is attached to the mock feed,
     // so the cockpit's connection indicator should report connected once the WS
     // is open. (When the session has STOPPED replaying, connected may be false;
     // we only require the indicator to EXIST and carry a boolean.)
@@ -90,7 +90,7 @@ test.describe("live cockpit — health + session", () => {
 
     await expect(page.getByTestId("live-page")).toBeVisible();
 
-    // Health strip mounts. GET /api/v1/live/health returns the flat-book NAV in
+    // Health strip mounts. GET /api/v1/trade/health returns the flat-book NAV in
     // signal mode; the WS overlays last-write-wins (api spec §3.10/§5.11). The
     // panel must render even before the first WS frame (REST snapshot on mount).
     const health = page.getByTestId("live-health");

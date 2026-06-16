@@ -34,7 +34,7 @@
 // # Build phases
 //
 // Build1 (this build) defines the core wiring, the NoopExecutor, the publish /
-// persist seams (in-memory recorder for tests) and the `tms live --mode signal`
+// persist seams (in-memory recorder for tests) and the `tms trade run --mode signal`
 // subcommand scaffold. Build2 wires the real DB upsert (live.signal_intents) and
 // the Redis stream publisher behind the same seams.
 package livengine

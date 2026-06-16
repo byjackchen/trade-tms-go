@@ -1,6 +1,6 @@
 # `live` → `trade` refactor + 2D (execution × account) separation
 
-Status: in progress. Locked decisions (operator, 2026-06-16):
+Status: phases 1-6 complete. Locked decisions (operator, 2026-06-16):
 
 - **Full first-class account model** — a `tms.accounts` registry + `account_id` FK
   on `sessions/orders/positions/fills/reconciliation_reports`; positions key on
@@ -35,18 +35,24 @@ runtimes (backtest/hyperopt/signal/paper/live) become points in (policy × accou
 
 0. Design sign-off — DONE.
 1. **Domain abstractions** — add `ExecutionPolicy`, `BrokerEnv`, `Account` + a
-   bridge from legacy `Mode`. Additive; no behavior change; tree stays green.
+   bridge from legacy `Mode`. Additive; no behavior change; tree stays green. DONE.
 2. **DB account dimension** — `000014_accounts` migration: `tms.accounts` +
    `account_id` on sessions/orders/positions/fills/recon; backfill existing rows
-   to a derived default account. Persistence writes/reads the account.
+   to a derived default account. Persistence writes/reads the account. DONE.
 3. **runner/exec decoupling** — node config takes `(execution policy, account)`;
    executor binds an `Account` (TrdEnv derived from `account.env`); drop the
-   `mode==live ? live : paper` account selection. Collapse the 3 Mode enums.
+   `mode==live ? live : paper` account selection. Collapse the 3 Mode enums. DONE.
 4. **API + CLI** — `tms trade` command (`--exec`, `--account`); `/trade/*` read
-   surface (consolidate with mutations); `/live/*` → 301.
+   surface (consolidate with mutations); `/live/*` → 301. DONE.
 5. **UI** — `/live` → `/trade`; account selector; per-account position/blotter
-   views; exec-policy + account pickers replace the mode switch.
-6. **Cleanup** — remove bridges/aliases; docs; e2e.
+   views; exec-policy + account pickers replace the mode switch. DONE.
+6. **Cleanup** — cosmetic renames (`cmd/tms/live.go` → `trade_run.go` + its
+   `live*` helpers → `trade*`; residual `TestLive*` → `TestTrade*`, keeping the
+   `/live` alias test as `TestLegacyLiveRedirects`); e2e specs/helpers/README
+   moved to `/trade` + `trade/*` with a new account-selector spec; docs/README +
+   compose `tms trade run` and `/trade/*`; runbook `live-smoke.md` → `trade-smoke.md`.
+   DONE. (The runtime node type `internal/runner.Live`/`NewLive`/`LiveConfig` is
+   intentionally NOT renamed — out of scope.)
 
 ## Invariants preserved
 

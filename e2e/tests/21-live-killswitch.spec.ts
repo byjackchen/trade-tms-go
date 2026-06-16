@@ -3,7 +3,7 @@
  *
  * The cockpit's halt control is the audited side channel for the trading
  * mutation surface: clicking it enqueues a `halt` (or `kill`) command via
- * POST /api/v1/live/commands, which the tms-live consumer applies idempotently —
+ * POST /api/v1/trade/commands, which the trade-node consumer applies idempotently —
  * it STOPS emitting NEW intents and sets the halt state, writing a tms.halts row
  * (docs/api.md "Live (P5)"; P5 decision 6; FLATTEN deferred to P6).
  *

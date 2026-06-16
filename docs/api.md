@@ -862,16 +862,28 @@ has no tunable params (`validation` code); `400` for a missing `trial_id`.
 
 ---
 
-## Live (P5)
+## Trade (P5)
 
-The live cockpit read surface plus the audited command-enqueue endpoint. The
+The trade cockpit read surface plus the audited command-enqueue endpoint. The
 **trading mutation surface stays out of the HTTP API** (read-only forever); the
 ONLY write here enqueues an `ops.commands` row that the `tmsgo-live` node executes
 under full audit. Reads come from PostgreSQL (the durable truth); Redis is
-transport-only. The live read endpoints return `503` when the API was started
-without a live reader.
+transport-only. The trade read endpoints return `503` when the API was started
+without a trade reader.
 
-### `GET /api/v1/live/session`
+> **Back-compat:** these endpoints were formerly `/api/v1/live/*` (and the CLI
+> `tms live`). The `live`→`trade` refactor renamed the surface to `/api/v1/trade/*`
+> and `tms trade run` / `tms trade preflight`; the old `/api/v1/live/*` read/control
+> paths **301-redirect** (query string preserved) to their `/trade/*` equivalents
+> so a not-yet-updated client keeps working. The aliases are transitional.
+
+The account-aware reads (orders / fills / positions / account / reconciliation)
+take an optional **`account_id=<id>`** query param that filters to a single
+registered account (`tms.accounts`); omitted, they return the unfiltered book
+(all accounts, incl. unattributed rows). The cockpit/desk account selector is
+backed by `GET /api/v1/trade/accounts`.
+
+### `GET /api/v1/trade/session`
 
 The most recent trading session with its active halt (if any):
 
@@ -894,7 +906,7 @@ The most recent trading session with its active halt (if any):
 
 When no session has ever run: `{ "session": null }`.
 
-### `GET /api/v1/live/intents?strategy_id=<id>&limit=<n>`
+### `GET /api/v1/trade/intents?strategy_id=<id>&limit=<n>`
 
 Recent signal intents from `tms.signal_intents`, newest first. `strategy_id`
 (`sepa` | `pairs` | `sector_rotation` | `intraday_breakout`) is optional;
@@ -911,7 +923,7 @@ Recent signal intents from `tms.signal_intents`, newest first. `strategy_id`
 `intent` is the unwrapped `SignalIntentUnion` variant (the full per-strategy
 payload, snake_case — api-ws-redis.md §5.9).
 
-### `GET /api/v1/live/health`
+### `GET /api/v1/trade/health`
 
 The latest portfolio-health snapshot. In signal mode there are no positions, so
 the snapshot is the flat-book informational NAV (day P&L 0, no halt — decision
@@ -922,7 +934,7 @@ the snapshot is the flat-book informational NAV (day P&L 0, no halt — decision
   "halt_headroom_pct": 0, "concentration_pct": 0, "ts": "2026-06-12T13:30:00Z" }
 ```
 
-### `GET /api/v1/live/preflight?mode=&strategy=&tickers=&orb_symbol=&check_opend=&max_stale_days=`
+### `GET /api/v1/trade/preflight?mode=&strategy=&tickers=&orb_symbol=&check_opend=&max_stale_days=`
 
 The **go-live preflight** report: the structured precondition checks that must
 pass before a paper/live (and, with relaxed severity, a signal) session is
@@ -958,8 +970,8 @@ Severity is resolved **per mode**: `DATA_CURRENT` and `OPEND_REACHABLE` are
 `blocker` for paper/live but advisory (`warn`, and `OPEND` is `skip`ped without
 `check_opend`) for signal. `PARAMS_PROMOTED` is always a `warn` (live still runs
 on baseline params; the operator is flagged). `ok` is `true` iff **no blocker
-check failed**. The same report is what `tms live` enforces at startup and
-`tms live preflight` prints. At `tms live` startup the gate is **mandatory and
+check failed**. The same report is what `tms trade run` enforces at startup and
+`tms trade preflight` prints. At `tms trade run` startup the gate is **mandatory and
 non-overridable for `--mode live`** (real money): `--skip-preflight` is accepted
 only for paper/signal and refused with a hard error for a live start.
 
@@ -968,7 +980,7 @@ only for paper/signal and refused with a hard error for a live start.
 The distinct symbols the recent sessions emitted intents for (the tracked
 universe): `{ "symbols": ["AAPL", "MSFT", ...] }`.
 
-### `POST /api/v1/live/commands`
+### `POST /api/v1/trade/commands`
 
 Enqueue an **audited** control command (the audited side channel for the trading
 mutation surface). Body:
@@ -1001,38 +1013,50 @@ market orders closing every open position, `emergency_kill` halts + flattens +
 stops, `reconcile` compares broker vs strategy books) and writes a
 `tms.audit_log` row for every applied/rejected command.
 
-## Live trading (P6, paper/live)
+## Trade trading (P6, paper/live)
 
 The paper/live trading read surface. All reads come from PG (the durable
 system-of-record); the cockpit follows the Redis `data.*` streams live and
 reconstructs from these on (re)connect. **READ-ONLY** (the trading mutation
 surface stays on the audited command channel above).
 
-### `GET /api/v1/live/orders?symbol=<sym>&limit=<n>`
+### `GET /api/v1/trade/orders?symbol=<sym>&limit=<n>&account_id=<id>`
 
 `{ "orders": [ { client_order_id, venue_order_id, strategy_id, symbol, side,
 qty, filled_qty, avg_fill_px, status, reason, ts } ] }` — newest first. Prices
 are floats (USD); `status` is the order lifecycle state
 (`SUBMITTED`/`ACCEPTED`/`PARTIALLY_FILLED`/`FILLED`/`REJECTED`/`CANCELED`).
+Optional `account_id` filters to one registered account.
 
-### `GET /api/v1/live/fills?symbol=<sym>&limit=<n>`
+### `GET /api/v1/trade/fills?symbol=<sym>&limit=<n>&account_id=<id>`
 
 `{ "fills": [ { trade_id, symbol, qty, price, commission, ts } ] }` — newest
-executions first.
+executions first. Optional `account_id` filters to one registered account.
 
-### `GET /api/v1/live/positions`
+### `GET /api/v1/trade/positions?account_id=<id>`
 
 `{ "positions": [ { strategy_id, symbol, signed_qty, avg_entry_px,
-realized_pnl, status } ] }` — the open (non-flat) position book.
+realized_pnl, status } ] }` — the open (non-flat) position book. Optional
+`account_id` filters to one registered account (positions key on
+`(account_id, strategy_id, symbol)`); omitted, the full book is returned.
 
-### `GET /api/v1/live/account`
+### `GET /api/v1/trade/accounts`
+
+`{ "accounts": [ { id, venue, env, broker_acc_id, label } ] }` — the registered
+trading accounts from the `tms.accounts` registry (the first-class account
+dimension added in the `live`→`trade` refactor). `env ∈ {sim, simulate, real}`
+is the paper-vs-real discriminator. This backs the cockpit/desk **account
+selector**; selecting an account drives the `account_id` filter on the reads
+above. Returns `503` when the API has no trade reader.
+
+### `GET /api/v1/trade/account`
 
 `{ total_assets, cash, available_funds, market_value, day_pnl, ts }` — the
 account / buying-power + day-P&L snapshot. Live buying-power / market-value
 ride the Redis `data.AccountUpdate` stream (broker funds); this endpoint derives
 day-P&L from the persisted position book.
 
-### `GET /api/v1/live/reconciliation`
+### `GET /api/v1/trade/reconciliation`
 
 `{ ts, has_issues, tolerance_shares, matched, mismatches: [ { symbol,
 strategy_books_sum, broker_net, diff } ], symbols_only_in_strategies,
@@ -1054,7 +1078,7 @@ accounting stay clean.
 
 These endpoints are served by the **live-node process** (it holds the broker
 connection), on a separate bearer-guarded listener (`--manual-api-addr`, default
-`127.0.0.1:18091`), enabled with `tms live --manual-mode paper|live`. When no
+`127.0.0.1:18091`), enabled with `tms trade run --manual-mode paper|live`. When no
 manual desk is connected every endpoint returns **503**.
 
 **Topology (single host).** The main API process cannot itself hold a broker
@@ -1072,7 +1096,7 @@ docker compose --profile app --profile manual up -d --build --wait
 ```
 
 which brings up the standalone mock OpenD trading venue (`tms mock-opend`) + a paper
-live node with the operator manual desk (`tms live --mode signal --manual-mode
+live node with the operator manual desk (`tms trade run --mode signal --manual-mode
 paper`) over that mock.
 
 **SAFETY (paramount — this can place real orders):**
@@ -1180,12 +1204,12 @@ mismatches } }` · **503** no desk connected.
 
 ### `GET /api/v1/trade/account`
 
-Account / buying-power + day-PnL view (alias of `GET /api/v1/live/account`).
+Account / buying-power + day-PnL view (alias of `GET /api/v1/trade/account`).
 
 ### CLI twins
 
 `tms eod --as-of <YYYY-MM-DD> [...]` runs (or enqueues) the idempotent EOD
-engine-replay refresh. `tms live --mode signal|paper|live --trader-id <id>
+engine-replay refresh. `tms trade run --mode signal|paper|live --trader-id <id>
 [--strategy ... --tickers ... --moomoo-addr ... --bar-seconds 86400]` runs the
 live node (paper/live require the broker creds in `secrets/moomoo.env`). Add
 `--manual-mode paper|live [--manual-api-addr 127.0.0.1:18091]` to attach the
@@ -1193,7 +1217,7 @@ operator MANUAL trade desk (serves `POST /api/v1/trade/*`, bearer-guarded by
 `TMS_API_TOKEN`); a `live` desk re-runs the full 4-factor activation at connect.
 `tms ctl <reconcile|flatten|emergency-kill|halt|resume|stop|kill|set-mode>
 [--confirm]` enqueues an audited control command (the CLI twin of
-`POST /api/v1/live/commands`).
+`POST /api/v1/trade/commands`).
 
 `tms trade <place|cancel|close|sync> [--addr http://127.0.0.1:18091]` is the HTTP
 client for the manual desk (bearer-guarded by `TMS_API_TOKEN`): `tms trade place

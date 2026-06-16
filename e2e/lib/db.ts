@@ -420,7 +420,7 @@ export async function storedStrategyCount(c: Client): Promise<number> {
 // ---------------------------------------------------------------------------
 
 /** The most recent trading session (any trader), or null when none has run.
- * Mirrors GET /api/v1/live/session's "most recent session" selection. */
+ * Mirrors GET /api/v1/trade/session's "most recent session" selection. */
 export type LiveSessionTruth = {
   id: number;
   traderId: string;
@@ -554,7 +554,10 @@ export async function haltRowCount(c: Client): Promise<number> {
 // ---------------------------------------------------------------------------
 
 /** Total order rows for a session (the blotter's lifetime order count). */
-export async function orderCount(c: Client, sessionId: number): Promise<number> {
+export async function orderCount(
+  c: Client,
+  sessionId: number,
+): Promise<number> {
   const { rows } = await c.query<{ n: string }>(
     `SELECT COUNT(*)::text AS n FROM tms.orders WHERE session_id = $1`,
     [sessionId],
@@ -657,7 +660,7 @@ export type PositionTruth = {
 };
 
 /** The OPEN (non-flat) position book for a session — the positions-panel rows.
- * Mirrors GET /api/v1/live/positions (status OPEN; signed_qty <> 0). */
+ * Mirrors GET /api/v1/trade/positions (status OPEN; signed_qty <> 0). */
 export async function openPositions(
   c: Client,
   sessionId: number,
@@ -709,7 +712,7 @@ export async function openPositionCount(
 }
 
 /** Day P&L for a session in USD — Σ realized_pnl over the position book, the
- * same derivation GET /api/v1/live/account uses (handleLiveAccount). The account
+ * same derivation GET /api/v1/trade/account uses (handleTradeAccount). The account
  * panel's "day P/L" card renders this number. */
 export async function sessionDayPnlUsd(
   c: Client,
@@ -817,7 +820,7 @@ export async function activeDailyLossHalt(
 }
 
 /** The latest reconciliation report (any session), or null — the reconciliation
- * panel's source. Mirrors GET /api/v1/live/reconciliation: the four lists +
+ * panel's source. Mirrors GET /api/v1/trade/reconciliation: the four lists +
  * mismatches + has_issues (portfolio-risk.md §6). */
 export type ReconciliationTruth = {
   hasIssues: boolean;
@@ -1172,4 +1175,54 @@ export async function openManualPositionSymbols(
     [sessionId, MANUAL_STRATEGY_ID],
   );
   return rows.map((r) => r.symbol);
+}
+
+/** A registered trading account from the `tms.accounts` registry — the rows the
+ * cockpit/desk account selector lists. Mirrors GET /api/v1/trade/accounts
+ * (handleTradeAccounts): the first-class account dimension added in the
+ * live→trade refactor (migration 000014_accounts). */
+export type AccountTruth = {
+  id: string;
+  venue: string;
+  env: "sim" | "simulate" | "real";
+  brokerAccId: number;
+  label: string;
+};
+
+/** The full `tms.accounts` registry, ordered by id — the ground truth the
+ * account selector's dropdown options must match (one <option> per row plus the
+ * sentinel "All accounts"). */
+export async function tradingAccounts(c: Client): Promise<AccountTruth[]> {
+  const { rows } = await c.query<{
+    id: string;
+    venue: string;
+    env: string;
+    broker_acc_id: string;
+    label: string;
+  }>(
+    `SELECT id, venue, env, broker_acc_id::text AS broker_acc_id, label
+       FROM tms.accounts
+      ORDER BY id ASC`,
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    venue: r.venue,
+    env: r.env as AccountTruth["env"],
+    brokerAccId: Number(r.broker_acc_id),
+    label: r.label,
+  }));
+}
+
+/** Distinct account_ids that actually carry an OPEN position — the accounts for
+ * which selecting `?account=<id>` yields a non-empty positions panel. NULL
+ * account_id rows (unattributed legacy/signal book) are excluded. */
+export async function accountsWithOpenPositions(c: Client): Promise<string[]> {
+  const { rows } = await c.query<{ account_id: string }>(
+    `SELECT DISTINCT account_id
+       FROM tms.positions
+      WHERE account_id IS NOT NULL
+        AND status = 'OPEN' AND signed_qty <> 0
+      ORDER BY account_id ASC`,
+  );
+  return rows.map((r) => r.account_id);
 }

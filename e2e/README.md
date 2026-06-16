@@ -66,14 +66,14 @@ e2e/
     16-hyperopt-cancel   launch a larger study, cancel mid-run from the UI -> canceled
                          (study row INTERRUPTED; race-tolerant, DB-checked)
     17-hyperopt-console   zero severe console errors on /hyperopt + /hyperopt/{id}
-    18-live-intents       /live cockpit streams signal intents over the WS; the
+    18-live-intents       /trade cockpit streams signal intents over the WS; the
                           rendered (strategy_id, symbol) rows MATCH tms.signal_intents
                           (as_of NULL streaming rows); the live-intent count agrees
                           with the DB streaming truth and is append-only (DB-checked)
-    19-live-health        /live session strip == GET /live/session (mode=signal,
+    19-live-health        /trade session strip == GET /trade/session (mode=signal,
                           status, connected); health strip renders the flat-book
                           informational NAV snapshot (signal mode: no halt; DB-gated)
-    20-live-watchlist     /live watchlist rows == the DB tracked universe (distinct
+    20-live-watchlist     /trade watchlist rows == the DB tracked universe (distinct
                           intent symbols); never renders a fabricated/unemitted symbol
     21-live-killswitch    click halt -> confirmation -> command enqueued; tms.halts
                           gains an active row; cockpit reflects halted; NO NEW intents
@@ -82,7 +82,7 @@ e2e/
                           submit is disabled until the phrase is typed (guard only — no
                           actual switch); API rejects set_mode->paper w/o confirm_token
                           (412 confirmation_required); session mode unchanged (DB-checked)
-    23-live-console       zero severe console errors on /live (placeholder OR real
+    23-live-console       zero severe console errors on /trade (placeholder OR real
                           cockpit; opening+dismissing the halt dialog stays clean)
     24-paper-blotter      paper session over the mock venue: blotter rows == tms.orders
                           (>=1 FILLED), positions panel == open book, account day-P&L
@@ -104,6 +104,11 @@ e2e/
                           mismatch is VISUALLY FLAGGED; clean report is not flagged
     30-paper-console      zero severe console errors on the paper cockpit (trading
                           panels render clean; opening+dismissing flatten stays clean)
+    39-account-selector   the account selector lists GET /api/v1/trade/accounts (==
+                          the tms.accounts registry) + an "All accounts" sentinel;
+                          selecting one sets ?account=<id> and threads account_id=<id>
+                          into the positions read (per-account filter); clearing to
+                          "All accounts" drops both (DB- + request-checked)
 ```
 
 ### Strategies specs and build order
@@ -145,20 +150,24 @@ points, and the promotion's effect is verified against tms.active_params JOIN
 tms.param_sets (audit columns promoted_by / source_study / source_trial /
 source_id) — no fabricated values.
 
-### Live cockpit specs and build order
+### Trade cockpit specs and build order
 
-The /live cockpit ships in P5, after the P1 Data + P2 Backtests + P3
+The /trade cockpit ships in P5, after the P1 Data + P2 Backtests + P3
 Strategies/Hyperopt workspaces. Specs 18-23 are **permanent** and assert the
-documented contract (`docs/api.md` "Live (P5)"; `docs/spec/portfolio-risk.md`,
-`docs/spec/ui-runner-modes-eod.md`). The gate runs `tms-live --mode signal`
+documented contract (`docs/api.md` "Trade (P5)"; `docs/spec/portfolio-risk.md`,
+`docs/spec/ui-runner-modes-eod.md`). The gate runs `tms trade run --mode signal`
 against the in-repo **mock OpenD** (`TMS_MOOMOO_ADDR` → mock), which replays a
 day of bars out of Postgres, so a signal session emits intents into
 `tms.signal_intents` + the Redis streams the API bridges to the cockpit's WS.
-The real-OpenD smoke is deferred to market hours (`docs/runbooks/live-smoke.md`).
+The real-OpenD smoke is deferred to market hours (`docs/runbooks/trade-smoke.md`).
 
 Conventional `data-testid`s the cockpit must expose:
 - cockpit root `live-page` (placeholder is `live-placeholder`, the ComingSoon
   testid the suite skips on);
+- account selector `account-selector` with the `account-selector-input`
+  `<select>` (one `account-option` per `GET /api/v1/trade/accounts` row + an
+  "All accounts" sentinel); selecting writes `?account=<id>` which the positions
+  panel / blotter / account panel read back as their `account_id` filter;
 - session strip `live-session` [`data-mode` / `data-status` / `data-halted`];
   connection indicator `live-connection` [`data-connected`];
 - health strip `live-health` [`data-daily-loss-halt`], optional
@@ -186,17 +195,17 @@ without a `confirm_token`); neither test ever completes a real mode switch.
 ### Paper-trading specs and build order (P6)
 
 Specs 24-30 cover the **paper-trading cockpit + safety** and ship in P6, after
-the P5 signal cockpit. The gate runs `tms-live --mode paper` against the in-repo
+the P5 signal cockpit. The gate runs `tms trade run --mode paper` against the in-repo
 **mock trading venue** (the P5 mock OpenD extended to accept `Trd_PlaceOrder` and
 simulate accept->fill / reject + push `Trd_UpdateOrder` / `Trd_UpdateOrderFill`,
 P6 decision 9), so a strategy order flows through the portfolio gate (decision 4),
 the `MoomooExecutor` (decision 2) and the order-state machine (decision 3) into
 `tms.orders` / `fills` / `positions` / `risk_events` (decision 5, the durable
 system-of-record). The real paper/live-account smoke is **deferred** to market
-hours (`docs/runbooks/live-smoke.md`).
+hours (`docs/runbooks/trade-smoke.md`).
 
-Contract these specs assert (`docs/api.md` "Live trading (P6, paper/live)";
-`docs/spec/portfolio-risk.md`). API reads: `GET /live/{orders,fills,positions,
+Contract these specs assert (`docs/api.md` "Trade trading (P6, paper/live)";
+`docs/spec/portfolio-risk.md`). API reads: `GET /trade/{orders,fills,positions,
 account,reconciliation}` (503 when no trading reader — gated via
 `liveTradingAvailable()`). Commands: `flatten` / `emergency_kill` / `set_mode`
 to `paper`/`live` require a `confirm_token` (412 `confirmation_required` without

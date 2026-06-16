@@ -49,7 +49,7 @@ test.describe("LIVE safety — real money is never activated without the full ga
 
     // set_mode -> live WITHOUT confirm_token must be rejected at the boundary.
     // A 412 means live did NOT activate — the safety boundary held.
-    const res = await postAuthed("live/commands", {
+    const res = await postAuthed("trade/commands", {
       name: "set_mode",
       mode: "live",
     });

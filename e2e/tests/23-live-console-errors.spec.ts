@@ -1,7 +1,7 @@
 /**
- * (6) Zero severe console errors on the /live cockpit pages.
+ * (6) Zero severe console errors on the /trade cockpit pages.
  *
- * The /live cockpit opens long-lived WS connections (signal_intent /
+ * The /trade cockpit opens long-lived WS connections (signal_intent /
  * portfolio_health / watchlist frames bridged from Redis) and polls the live
  * read endpoints. None of that may produce a severe browser console error or an
  * uncaught page error — only genuine React/JS defects fail here (network-
@@ -11,7 +11,7 @@
  * Like spec 06, we navigate with waitUntil "domcontentloaded" (the app shell's
  * persistent SSE stream + the cockpit's WS defer the `load` event past the test
  * budget) and prove the content mounted via testid visibility before asserting
- * the console is clean. This runs whether /live is still the coming-soon
+ * the console is clean. This runs whether /trade is still the coming-soon
  * placeholder OR the real cockpit — both must be console-clean.
  */
 
@@ -46,14 +46,14 @@ async function waitReady(
     .toBe(true);
 }
 
-test.describe("no severe console errors on /live", () => {
-  test("/live renders without severe console errors", async ({
+test.describe("no severe console errors on /trade", () => {
+  test("/trade renders without severe console errors", async ({
     page,
     consoleErrors,
   }) => {
     // domcontentloaded, not the default "load": the app shell's SSE stream and
     // the cockpit's live WS defer the load event past the test budget.
-    await page.goto("/live", { waitUntil: "domcontentloaded" });
+    await page.goto("/trade", { waitUntil: "domcontentloaded" });
 
     await expect(page.getByTestId("app-shell")).toBeVisible();
     // The page is "mounted" once EITHER the real cockpit root or the coming-soon
@@ -67,7 +67,7 @@ test.describe("no severe console errors on /live", () => {
 
     expect(
       consoleErrors,
-      `severe console/page errors on /live:\n` +
+      `severe console/page errors on /trade:\n` +
         consoleErrors.map((e) => `  [${e.kind}] ${e.text}`).join("\n"),
     ).toHaveLength(0);
   });
@@ -78,7 +78,7 @@ test.describe("no severe console errors on /live", () => {
   }) => {
     // Only meaningful once the real cockpit + live reader are present; otherwise
     // this is redundant with the page-load check above.
-    await page.goto("/live", { waitUntil: "domcontentloaded" });
+    await page.goto("/trade", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("app-shell")).toBeVisible();
 
     const realCockpit = page.getByTestId("live-page");
@@ -116,7 +116,7 @@ test.describe("no severe console errors on /live", () => {
     await page.waitForTimeout(1_500);
     expect(
       consoleErrors,
-      `severe console/page errors during /live interaction:\n` +
+      `severe console/page errors during /trade interaction:\n` +
         consoleErrors.map((e) => `  [${e.kind}] ${e.text}`).join("\n"),
     ).toHaveLength(0);
   });

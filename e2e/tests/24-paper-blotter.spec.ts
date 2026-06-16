@@ -1,7 +1,7 @@
 /**
  * (1) Paper session over the mock venue — blotter -> positions -> account.
  *
- * The gate runs `tms-live --mode paper` against the in-repo MOCK trading venue
+ * The gate runs `tms trade run --mode paper` against the in-repo MOCK trading venue
  * (the P5 mock OpenD extended to accept Trd_PlaceOrder and simulate accept->fill,
  * P6 decision 9). A strategy emits an order; the MoomooExecutor (decision 2)
  * submits it through the portfolio gate (decision 4), the order-state machine

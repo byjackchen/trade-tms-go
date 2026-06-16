@@ -71,9 +71,9 @@ func newTradeRunCmd(env *runtimeEnv) *cobra.Command {
 				healthAddr = env.cfg.WorkerHealthAddr
 			}
 			if healthProbe {
-				return probeLiveHealth(cmd.Context(), healthAddr)
+				return probeTradeHealth(cmd.Context(), healthAddr)
 			}
-			return runLive(cmd.Context(), env, liveArgs{
+			return runTradeRun(cmd.Context(), env, tradeRunArgs{
 				mode:          strings.TrimSpace(modeStr),
 				traderID:      strings.TrimSpace(traderID),
 				strategy:      strings.TrimSpace(strategy),
@@ -136,7 +136,7 @@ func newTradePreflightCmd(env *runtimeEnv) *cobra.Command {
 			"is the same report 'tms trade run' enforces at startup and GET /api/v1/trade/preflight serves.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runLivePreflight(cmd.Context(), env, preflightArgs{
+			return runTradePreflight(cmd.Context(), env, preflightArgs{
 				mode:         strings.TrimSpace(modeStr),
 				strategy:     strings.TrimSpace(strategy),
 				tickersCSV:   tickersCSV,
@@ -159,7 +159,7 @@ func newTradePreflightCmd(env *runtimeEnv) *cobra.Command {
 	return cmd
 }
 
-type liveArgs struct {
+type tradeRunArgs struct {
 	mode          string
 	traderID      string
 	strategy      string
@@ -176,14 +176,14 @@ type liveArgs struct {
 	manualAPIAddr string
 }
 
-// runLive assembles and runs the live signal-mode trading node (P5): the native
+// runTradeRun assembles and runs the live signal-mode trading node (P5): the native
 // moomoo OpenD client (or mock by TMS_MOOMOO_ADDR) -> a streaming feed -> the
 // same internal/core engine + strategy/portfolio/warmup as backtest, driven by
 // a wall clock, recording a SignalIntent per strategy per bar to PG + Redis and
 // submitting NO orders, under the ops.commands control plane.
-func runLive(parent context.Context, env *runtimeEnv, a liveArgs) error {
+func runTradeRun(parent context.Context, env *runtimeEnv, a tradeRunArgs) error {
 	log := env.log.With().
-		Str("cmd", "live").
+		Str("cmd", "trade run").
 		Str("mode", a.mode).
 		Str("trader_id", a.traderID).
 		Str("strategy", a.strategy).
@@ -226,7 +226,7 @@ func runLive(parent context.Context, env *runtimeEnv, a liveArgs) error {
 
 	cal, err := calendar.NewNYSE()
 	if err != nil {
-		return fmt.Errorf("live: building NYSE calendar: %w", err)
+		return fmt.Errorf("trade: building NYSE calendar: %w", err)
 	}
 
 	// Redis is best-effort transport (decision 5): without it the node still
@@ -334,7 +334,7 @@ func runLive(parent context.Context, env *runtimeEnv, a liveArgs) error {
 	}
 
 	// Liveness HTTP server (compose healthcheck on :18090 via host port).
-	healthSrv, err := startLiveHealthServer(a.healthAddr, node, log)
+	healthSrv, err := startTradeHealthServer(a.healthAddr, node, log)
 	if err != nil {
 		return err
 	}
@@ -388,11 +388,11 @@ type preflightArgs struct {
 	asJSON       bool
 }
 
-// runLivePreflight runs the go-live preflight for a session and prints the
+// runTradePreflight runs the go-live preflight for a session and prints the
 // PASS/FAIL table (or JSON). It returns a non-nil error (so the process exits
 // non-zero) iff any BLOCKER check failed — the machine-checkable go/no-go gate.
-func runLivePreflight(parent context.Context, env *runtimeEnv, a preflightArgs) error {
-	log := env.log.With().Str("cmd", "live-preflight").Str("mode", a.mode).Str("strategy", a.strategy).Logger()
+func runTradePreflight(parent context.Context, env *runtimeEnv, a preflightArgs) error {
+	log := env.log.With().Str("cmd", "trade preflight").Str("mode", a.mode).Str("strategy", a.strategy).Logger()
 
 	mode := domain.Mode(a.mode)
 	if !mode.IsValid() {
@@ -472,21 +472,21 @@ func runLivePreflight(parent context.Context, env *runtimeEnv, a preflightArgs) 
 	return nil
 }
 
-// liveHealthServer serves the live node's liveness + control state.
-type liveHealthServer struct {
+// tradeHealthServer serves the trade node's liveness + control state.
+type tradeHealthServer struct {
 	srv *http.Server
 }
 
 // Shutdown gracefully stops the health server.
-func (s *liveHealthServer) Shutdown(ctx context.Context) error { return s.srv.Shutdown(ctx) }
+func (s *tradeHealthServer) Shutdown(ctx context.Context) error { return s.srv.Shutdown(ctx) }
 
-// startLiveHealthServer serves GET /healthz with the node's mode + halt state
+// startTradeHealthServer serves GET /healthz with the node's mode + halt state
 // on addr (the compose healthcheck targets the internal :18090 via host port).
-func startLiveHealthServer(addr string, node *runner.Live, log zerolog.Logger) (*liveHealthServer, error) {
-	hlog := log.With().Str("component", "live-health").Logger()
+func startTradeHealthServer(addr string, node *runner.Live, log zerolog.Logger) (*tradeHealthServer, error) {
+	hlog := log.With().Str("component", "trade-health").Logger()
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("live: health listener on %s: %w", addr, err)
+		return nil, fmt.Errorf("trade: health listener on %s: %w", addr, err)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -520,11 +520,11 @@ func startLiveHealthServer(addr string, node *runner.Live, log zerolog.Logger) (
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			hlog.Error().Err(err).Msg("live health server stopped unexpectedly")
+			hlog.Error().Err(err).Msg("trade health server stopped unexpectedly")
 		}
 	}()
-	hlog.Info().Str("addr", ln.Addr().String()).Msg("live health endpoint listening")
-	return &liveHealthServer{srv: srv}, nil
+	hlog.Info().Str("addr", ln.Addr().String()).Msg("trade health endpoint listening")
+	return &tradeHealthServer{srv: srv}, nil
 }
 
 // parseUintEnv reads an unsigned-int env var, returning 0 when unset/invalid
@@ -555,12 +555,12 @@ func parseDurationEnv(key string, def time.Duration) time.Duration {
 	return d
 }
 
-// probeLiveHealth is the --health container-healthcheck mode: GET /healthz on
+// probeTradeHealth is the --health container-healthcheck mode: GET /healthz on
 // addr with a short deadline; exit 0 on HTTP 200.
-func probeLiveHealth(ctx context.Context, addr string) error {
+func probeTradeHealth(ctx context.Context, addr string) error {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
-		return fmt.Errorf("live health probe: invalid address %q: %w", addr, err)
+		return fmt.Errorf("trade health probe: invalid address %q: %w", addr, err)
 	}
 	switch host {
 	case "", "0.0.0.0", "::":
@@ -571,15 +571,15 @@ func probeLiveHealth(ctx context.Context, addr string) error {
 	url := "http://" + net.JoinHostPort(host, port) + "/healthz"
 	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, url, nil)
 	if err != nil {
-		return fmt.Errorf("live health probe: %w", err)
+		return fmt.Errorf("trade health probe: %w", err)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("live health probe: %w", err)
+		return fmt.Errorf("trade health probe: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("live health probe: %s returned %s", url, resp.Status)
+		return fmt.Errorf("trade health probe: %s returned %s", url, resp.Status)
 	}
 	return nil
 }

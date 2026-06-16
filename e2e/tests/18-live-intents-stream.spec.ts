@@ -1,7 +1,7 @@
 /**
  * (1) Live cockpit — signal intents stream in over the WS and MATCH the DB.
  *
- * The gate runs `tms-live --mode signal` against the MOCK OpenD server, which
+ * The gate runs `tms trade run --mode signal` against the MOCK OpenD server, which
  * replays a day of bars out of our Postgres. Each strategy evaluate_intent per
  * bar records a SignalIntent into tms.signal_intents (append-only, as_of NULL)
  * AND publishes to the Redis stream the API bridges to the cockpit's WS
@@ -13,7 +13,7 @@
  *     pair the cockpit renders is present in tms.signal_intents, and the
  *     cockpit's reported intent count agrees with the DB streaming-intent count.
  *
- * Robustness: self-skips when the /live cockpit is still the coming-soon
+ * Robustness: self-skips when the /trade cockpit is still the coming-soon
  * placeholder, when the API has no live reader (503), or when no streaming
  * intents exist yet (no signal session has emitted) — exactly like the
  * Backtests/Strategies specs self-skipped before their workspaces landed. Once

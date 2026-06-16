@@ -60,7 +60,7 @@ test.describe("paper trading — flatten closes all positions", () => {
     // flatten WITHOUT confirm_token must be rejected at the boundary — a denied
     // confirmation means NO positions were touched (safety: a fat-fingered
     // flatten cannot fire without the typed phrase).
-    const res = await postAuthed("live/commands", {
+    const res = await postAuthed("trade/commands", {
       name: "flatten",
       reason: "e2e guard check (no token)",
     });

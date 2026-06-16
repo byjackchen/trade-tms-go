@@ -290,14 +290,14 @@ services:
   #   - REAL OpenD: TMS_MOOMOO_ADDR=host.docker.internal:11111 (OpenD runs on the
   #                 host; extra_hosts maps host.docker.internal to the gateway).
   #                 The real-OpenD smoke is DEFERRED to market hours with a
-  #                 user-confirmed OpenD login — see docs/runbooks/live-smoke.md.
+  #                 user-confirmed OpenD login — see docs/runbooks/trade-smoke.md.
   #
   # Secrets: moomoo credentials (if any) are read from a secrets FILE
   # (/run/secrets/moomoo, mounted from ./secrets/moomoo.env) — NEVER baked into
   # the image and NEVER logged. For market-data + signal mode on localhost OpenD,
   # no credentials are required (encrypt=off); the file is optional.
   #
-  # Healthcheck: the distroless image execs `tms live --health`, which GETs the
+  # Healthcheck: the distroless image execs `tms trade run --health`, which GETs the
   # node's own loopback /healthz (TMS_WORKER_HEALTH_ADDR, shared netns) and exits
   # 0/1. The node also exposes that endpoint on host port 18090.
   tmsgo-live:
@@ -321,7 +321,8 @@ services:
     # refuses live without them). Paper/live also need the mock or real OpenD
     # trading venue on TMS_MOOMOO_ADDR.
     command:
-      - "live"
+      - "trade"
+      - "run"
       - "--mode"
       - "${TMS_LIVE_MODE:-signal}"
       - "--strategy"
@@ -372,7 +373,7 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "/usr/local/bin/tms", "live", "--health", "--health-addr", "127.0.0.1:18090"]
+      test: ["CMD", "/usr/local/bin/tms", "trade", "run", "--health", "--health-addr", "127.0.0.1:18090"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -453,7 +454,8 @@ services:
     container_name: tmsgo-live-manual
     profiles: ["manual"]
     command:
-      - "live"
+      - "trade"
+      - "run"
       - "--mode"
       - "signal"
       - "--strategy"
@@ -504,7 +506,7 @@ services:
       tmsgo-mock-opend:
         condition: service_started
     healthcheck:
-      test: ["CMD", "/usr/local/bin/tms", "live", "--health", "--health-addr", "127.0.0.1:18090"]
+      test: ["CMD", "/usr/local/bin/tms", "trade", "run", "--health", "--health-addr", "127.0.0.1:18090"]
       interval: 30s
       timeout: 5s
       retries: 3

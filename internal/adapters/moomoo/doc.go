@@ -34,7 +34,7 @@
 //   - internal/adapters/moomoo/proto/ — the vendored .proto subset (go_package
 //     rewritten to this module). Source of truth.
 //   - internal/adapters/moomoo/pb/<pkg>/ — protoc-gen-go output. Regenerate via
-//     the command in docs/runbooks/live-smoke.md after editing the .proto.
+//     the command in docs/runbooks/trade-smoke.md after editing the .proto.
 //
 // # Client
 //

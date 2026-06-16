@@ -7,7 +7,7 @@ import (
 )
 
 // RenderTable writes a human-readable PASS/WARN/FAIL table of the report to w,
-// followed by a one-line verdict. It is the CLI surface (`tms live preflight`).
+// followed by a one-line verdict. It is the CLI surface (`tms trade preflight`).
 func RenderTable(w io.Writer, r Report) {
 	fmt.Fprintf(w, "PREFLIGHT  mode=%s  strategy=%s  (%s)\n", r.Mode, r.Strategy, r.TS.Format("2006-01-02 15:04:05Z07:00"))
 	fmt.Fprintln(w, strings.Repeat("-", 78))

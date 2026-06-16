@@ -194,7 +194,7 @@ test.describe("manual desk — cancel a working order", () => {
     page,
     consoleErrors,
   }) => {
-    await page.goto("/live/desk", { waitUntil: "domcontentloaded" });
+    await page.goto("/trade/desk", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("app-shell")).toBeVisible();
 
     // Mounted once either the real desk root or the coming-soon placeholder shows.

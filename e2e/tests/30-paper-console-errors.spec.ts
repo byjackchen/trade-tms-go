@@ -28,11 +28,11 @@ async function settle(page: import("@playwright/test").Page): Promise<void> {
 }
 
 test.describe("no severe console errors on the paper-trading cockpit", () => {
-  test("the /live cockpit renders the trading surface without severe console errors", async ({
+  test("the /trade cockpit renders the trading surface without severe console errors", async ({
     page,
     consoleErrors,
   }) => {
-    await page.goto("/live", { waitUntil: "domcontentloaded" });
+    await page.goto("/trade", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("app-shell")).toBeVisible();
 
     // Mounted once either the real cockpit root or the coming-soon placeholder is
@@ -65,7 +65,7 @@ test.describe("no severe console errors on the paper-trading cockpit", () => {
     page,
     consoleErrors,
   }) => {
-    await page.goto("/live", { waitUntil: "domcontentloaded" });
+    await page.goto("/trade", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("app-shell")).toBeVisible();
 
     const realCockpit = page.getByTestId("live-page");

@@ -35,7 +35,7 @@ Notes:
   stack's `tms-api` / `tms-ui` containers on a shared host. A regression guard
   (`internal/app/deployguard_test.go`) pins this.
 - The runtime image is distroless (no shell), so healthchecks exec the binary
-  itself: `tms api --health`, `tms worker --health`, `tms live --health` each GET
+  itself: `tms api --health`, `tms worker --health`, `tms trade run --health` each GET
   the service's own loopback `/healthz` inside the shared container netns.
 
 ### Full system from zero
@@ -110,7 +110,7 @@ Copy `.env.example` to `.env` and fill in:
   bars and exercises the full message set deterministically.
 
 The real-OpenD smoke is deferred to market hours with a user-confirmed OpenD
-login — see `docs/runbooks/live-smoke.md`. The mock-driven path is the permanent
+login — see `docs/runbooks/trade-smoke.md`. The mock-driven path is the permanent
 CI path.
 
 ### Live mode bring-up

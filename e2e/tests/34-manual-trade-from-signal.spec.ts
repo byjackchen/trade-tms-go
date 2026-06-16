@@ -70,12 +70,12 @@ test.describe("manual desk — trade from a watchlist signal", () => {
     const sessionId = session!.id;
 
     // The Trade-from-signal affordance lives on the watchlist signals. It may be
-    // embedded in the desk, or on the existing /live/watchlist view. Find the
+    // embedded in the desk, or on the existing /trade/watchlist view. Find the
     // first Trade control wherever it is surfaced.
     const tradeControl = page.getByTestId("manual-trade-from-signal").first();
     if (!(await tradeControl.count())) {
       // The desk may surface signals only on the dedicated watchlist tab.
-      await page.goto("/live/watchlist", { waitUntil: "domcontentloaded" });
+      await page.goto("/trade/watchlist", { waitUntil: "domcontentloaded" });
       await expect(page.getByTestId("app-shell")).toBeVisible();
     }
     const trade = page.getByTestId("manual-trade-from-signal").first();

@@ -28,15 +28,34 @@ The thesis: backtest, hyperopt, live-signal, paper, and live all run on the SAME
 deterministic event-loop engine (`internal/core` + `internal/engine`), the SAME
 strategy implementations, and the SAME portfolio (allocator / risk /
 reconciliation) layer. Only the edge adapters — clock, data feed, executor,
-publisher — differ between modes.
+publisher — differ between runtimes.
 
-| Mode | Clock | Feed | Executor | Purpose |
+The legacy 1-D `Mode {signal, paper, live}` switch is gone. Live trading is now
+described by **two orthogonal axes plus a first-class account** (the `live`→`trade`
+refactor, phases 1–6):
+
+- **Execution policy** (`domain.ExecutionPolicy`): `signal` (emit intents, no auto
+  orders — the operator executes by hand) vs `auto` (auto-submit orders).
+- **Account** (`domain.Account` = `{id, venue, env, broker_acc_id, label}`, the
+  `tms.accounts` registry): "paper vs real" is `account.env ∈ {sim, simulate,
+  real}`, not a mode. Sessions / orders / positions / fills / reconciliation carry
+  an `account_id` FK, and positions key on `(account_id, strategy_id, symbol)`.
+
+So the old runtimes are just points in (policy × account): `signal → (signal, no
+acct)`, `paper → (auto, simulate acct)`, `live → (auto, real acct)`. The CLI is
+`tms trade run --mode … ` / `tms trade preflight`, the read+control surface is
+`/api/v1/trade/*` (the old `/api/v1/live/*` paths 301-redirect for back-compat),
+and the cockpit (`/trade`) carries an **account selector** that filters the
+per-account position/blotter/account views. Each trade node still binds exactly
+ONE account; multi-account is a read/aggregation concern.
+
+| Runtime | Clock | Feed | Executor | Purpose |
 |---|---|---|---|---|
 | backtest | SimClock | historical (Postgres) | SimExecutor + FillModel | reproducible simulation |
 | hyperopt | SimClock ×N | historical | SimExecutor | NSGA-II walk-forward search |
-| live-signal | WallClock | moomoo OpenD stream | NoopExecutor | signals, no orders |
-| paper | WallClock | moomoo OpenD stream | MoomooExecutor (paper) | simulated fills, real venue |
-| live | WallClock | moomoo OpenD stream | MoomooExecutor (live, gated) | REAL money, 4-factor gate |
+| signal | WallClock | moomoo OpenD stream | NoopExecutor | signals, no orders (signal policy) |
+| paper | WallClock | moomoo OpenD stream | MoomooExecutor | simulated fills, real venue (auto × simulate acct) |
+| live | WallClock | moomoo OpenD stream | MoomooExecutor (gated) | REAL money, 4-factor gate (auto × real acct) |
 
 ---
 
@@ -54,7 +73,8 @@ Three hard requirements the system meets:
    system: Postgres, Redis, migrations, API, worker, UI.
 3. **UI fully visual + controllable.** Every datum is observable AND every
    control is actionable from the UI (Data / Backtests / Strategies / Hyperopt /
-   Live-cockpit), including kill / halt / flatten / mode-switch with confirmation.
+   Trade-cockpit), including kill / halt / flatten / mode-switch with confirmation,
+   plus a first-class account selector that filters the per-account book.
 
 ---
 
@@ -74,10 +94,10 @@ docker compose --profile app up -d --wait   # api (18080) + worker + ui (13000)
 - API: <http://localhost:18080> — `/healthz` and `/version` are public; every
   `/api/*` route requires `Authorization: Bearer <TMS_API_TOKEN>`.
 
-Start a live signal node (separate `live` profile — never started by `app`):
+Start a trade signal node (separate `live` profile — never started by `app`):
 
 ```bash
-docker compose --profile live up -d tms-live   # signal mode, no credentials
+docker compose --profile live up -d tmsgo-live   # `tms trade run`, signal mode, no credentials
 ```
 
 Local development:
@@ -131,7 +151,7 @@ the oracle, and neither is part of the shipped image.
 - **Real-OpenD smoke.** The full live operations layer is built and proven
   against a protocol-faithful **mock** OpenD. Connecting to a real OpenD is
   deferred to market hours with a user-confirmed login — see
-  [docs/runbooks/live-smoke.md](docs/runbooks/live-smoke.md). The mock-driven
+  [docs/runbooks/trade-smoke.md](docs/runbooks/trade-smoke.md). The mock-driven
   deterministic gate is the permanent CI path.
 
 ---

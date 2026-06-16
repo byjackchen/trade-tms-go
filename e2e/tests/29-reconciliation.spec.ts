@@ -73,7 +73,7 @@ test.describe("paper trading — reconciliation panel", () => {
 
     // Cross-check the API proxies the same report the DB holds (the UI renders the
     // API's proxy; both must agree with the DB). has_issues + list cardinalities.
-    const api = await getAuthed("live/reconciliation");
+    const api = await getAuthed("trade/reconciliation");
     expect(api.status, "reconciliation endpoint is reachable").toBe(200);
     const apiBody = api.body as {
       has_issues?: boolean;

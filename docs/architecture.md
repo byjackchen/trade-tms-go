@@ -256,11 +256,11 @@ assembler described above (there is no separate per-mode engine):
 |---|---|---|
 | backtest | `tms backtest …` (inline or `--enqueue`) → `handlers.Backtest` | `strategyassembly.Assemble` → `engine.New` |
 | hyperopt | `tms hyperopt …` → `study.Evaluator.Evaluate` (per trial) | `strategyassembly.Assemble` → `engine.New` |
-| signal | `tms live --mode signal …` → `runner.NewLive` | `runner.Assembler` → `livengine.NewSession(ModeSignal)` |
-| paper | `tms live --mode paper …` | `runner.Assembler` → `livengine.NewSession(ModePaper, GatedSubmitter)` |
-| live | `tms live --mode live …` (4-factor gated) | `runner.Assembler` → `livengine.NewSession(ModeLive, GatedSubmitter)` |
+| signal | `tms trade run --mode signal …` → `runner.NewLive` | `runner.Assembler` → `livengine.NewSession(ModeSignal)` |
+| paper | `tms trade run --mode paper …` | `runner.Assembler` → `livengine.NewSession(ModePaper, GatedSubmitter)` |
+| live | `tms trade run --mode live …` (4-factor gated) | `runner.Assembler` → `livengine.NewSession(ModeLive, GatedSubmitter)` |
 
-The three live modes share a single subcommand (`tms live --mode`) and a single
+The three trade runtimes share a single subcommand (`tms trade run --mode`) and a single
 session assembler (`runner.buildRunnable`), branching only on the executor; the
 two batch modes share `engine.New`. `runner.Assembler` and the backtest handler
 resolve the identical DB params → `strategyassembly.Assemble` inputs, so a live
@@ -410,7 +410,7 @@ byte-for-byte identical to the SDK's `pack_pb_req` output, and the Go decoder
 parses SDK-encoded reply/push frames. The build gate and CI run entirely against
 a **protocol-faithful mock OpenD** (`internal/adapters/moomoo/mock`) driven from
 the Postgres bars; the real-OpenD smoke is the only deferred item
-(`docs/runbooks/live-smoke.md`).
+(`docs/runbooks/trade-smoke.md`).
 
 The real-vs-mock switch is a single env var, `TMS_MOOMOO_ADDR`:
 

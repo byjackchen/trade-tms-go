@@ -38,7 +38,7 @@ test.describe("live cockpit — mode-switch confirmation guard", () => {
     const before = await withDb((c) => latestSession(c));
 
     // set_mode -> paper WITHOUT confirm_token must be rejected at the boundary.
-    const res = await postAuthed("live/commands", {
+    const res = await postAuthed("trade/commands", {
       name: "set_mode",
       mode: "paper",
     });

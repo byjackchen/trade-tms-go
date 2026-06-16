@@ -130,7 +130,7 @@ func newTradeTestServer(t *testing.T, trade TradeReader, enq CommandEnqueuer) *t
 	return &testServer{srv: srv}
 }
 
-func TestLiveSessionEndpoint(t *testing.T) {
+func TestTradeSessionEndpoint(t *testing.T) {
 	trade := &stubTradeReader{session: &TradeSession{
 		ID: 3, TraderID: "SIGNAL-001", Mode: "signal", Status: "RUNNING",
 		StartedAt: fixedNow, Config: json.RawMessage(`{}`),
@@ -148,7 +148,7 @@ func TestLiveSessionEndpoint(t *testing.T) {
 	assert.Equal(t, "manual", got.Halt.Kind)
 }
 
-func TestLiveIntentsEndpoint(t *testing.T) {
+func TestTradeIntentsEndpoint(t *testing.T) {
 	trade := &stubTradeReader{intents: []TradeIntent{
 		{StrategyID: "sepa", Symbol: "AAPL", State: "buy", Strength: 75, Generation: 1,
 			Intent: json.RawMessage(`{"symbol":"AAPL"}`), TS: fixedNow},
@@ -166,7 +166,7 @@ func TestLiveIntentsEndpoint(t *testing.T) {
 	assert.Equal(t, "AAPL", body.Intents[0].Symbol)
 }
 
-func TestLiveHealthEndpoint(t *testing.T) {
+func TestTradeHealthEndpoint(t *testing.T) {
 	ts := newTradeTestServer(t, &stubTradeReader{health: &TradeHealth{TS: fixedNow}}, &stubEnqueuer{})
 	rec := ts.do(t, http.MethodGet, "/api/v1/trade/health", nil, true)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -235,7 +235,7 @@ func TestTradeAccountFilter(t *testing.T) {
 	assert.Equal(t, "", tr.lastPositionsAcct)
 }
 
-func TestLiveCommandEnqueue(t *testing.T) {
+func TestTradeCommandEnqueue(t *testing.T) {
 	enq := &stubEnqueuer{}
 	ts := newTradeTestServer(t, &stubTradeReader{}, enq)
 
@@ -262,7 +262,7 @@ func TestLiveCommandEnqueue(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestLiveEndpointsUnconfigured(t *testing.T) {
+func TestTradeEndpointsUnconfigured(t *testing.T) {
 	// nil trade reader + nil enqueuer -> 503 on every trade route.
 	ts := newTradeTestServer(t, nil, nil)
 	for _, path := range []string{"/api/v1/trade/session", "/api/v1/trade/intents", "/api/v1/trade/health", "/api/v1/watchlist", "/api/v1/trade/accounts"} {
@@ -273,10 +273,10 @@ func TestLiveEndpointsUnconfigured(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
 
-// TestLiveRedirects locks the back-compat aliases: the old /live/* read/control
+// TestLegacyLiveRedirects locks the back-compat aliases: the old /live/* read/control
 // paths 301-redirect to their /trade/* equivalents (query string preserved) so a
 // not-yet-updated UI keeps working through the rename.
-func TestLiveRedirects(t *testing.T) {
+func TestLegacyLiveRedirects(t *testing.T) {
 	ts := newTradeTestServer(t, &stubTradeReader{}, &stubEnqueuer{})
 	cases := []struct {
 		method, path, wantLocation string
