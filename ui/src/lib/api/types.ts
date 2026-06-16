@@ -676,7 +676,10 @@ export type LiveHealth = {
   ts: string;
 };
 
-export type WatchlistResponse = { symbols: string[] };
+// `intents` (additive) carries the latest intent per symbol, frontier-windowed
+// and ranked actionable-first by the API, so every watchlist row shows its state
+// without a separate capped intents poll. Older servers omit it (undefined).
+export type WatchlistResponse = { symbols: string[]; intents?: LiveIntent[] };
 
 /** Live control command names (commands.Name; docs/api.md §POST live/commands). */
 export type CommandName =

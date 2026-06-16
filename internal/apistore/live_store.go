@@ -131,13 +131,21 @@ func (s *LiveStore) LatestHealth(ctx context.Context) (*api.LiveHealth, error) {
 	}, nil
 }
 
-// Watchlist returns the distinct symbols the most recent session emitted
+// Watchlist returns the distinct symbols the most recent signal batch emitted
 // intents for (its tracked universe). Empty when no intents exist yet.
+//
+// The freshness window is anchored to the DATA FRONTIER (the newest intent ts),
+// NOT wall-clock now(): the latest batch of signals always shows even when the
+// data is a few days behind the wall clock (weekend / holiday / data-vendor lag
+// / clock skew). Anchoring on now() would silently empty the watchlist whenever
+// the freshest data is older than the cutoff — the same class of bug fixed for
+// the sync freshness logic (frontier-driven, not last-operation-time-driven).
 func (s *LiveStore) Watchlist(ctx context.Context) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `
+		WITH frontier AS (SELECT max(ts) AS f FROM tms.signal_intents)
 		SELECT DISTINCT symbol
-		  FROM tms.signal_intents
-		 WHERE ts >= now() - interval '2 days'
+		  FROM tms.signal_intents, frontier
+		 WHERE ts >= frontier.f - interval '2 days'
 		 ORDER BY symbol`)
 	if err != nil {
 		return nil, err
@@ -150,6 +158,53 @@ func (s *LiveStore) Watchlist(ctx context.Context) ([]string, error) {
 			return nil, err
 		}
 		out = append(out, sym)
+	}
+	return out, rows.Err()
+}
+
+// LatestIntentsBySymbol returns the LATEST intent per symbol within the data
+// frontier window (the newest signal batch — anchored to max(ts), not wall-clock;
+// see Watchlist), ranked ACTIONABLE-FIRST: states that call for operator attention
+// (forming / hold / buy / sell — anything but no_setup/flat) sort ahead of the
+// idle no_setup tail, then by strength desc, then symbol. It caps at limit rows.
+//
+// This powers the watchlist's per-symbol state column for the WHOLE tracked
+// universe in ONE query, so every rendered row shows its current signal and the
+// handful of actionable names float to the top of a multi-thousand-symbol
+// universe — instead of a separate newest-N intents poll that, when the batch
+// stamps thousands of same-ts intents, never reliably contains the actionable few.
+func (s *LiveStore) LatestIntentsBySymbol(ctx context.Context, limit int) ([]api.LiveIntent, error) {
+	if limit <= 0 {
+		limit = 5000
+	}
+	rows, err := s.pool.Query(ctx, `
+		WITH frontier AS (SELECT max(ts) AS f FROM tms.signal_intents),
+		latest AS (
+			SELECT DISTINCT ON (symbol)
+			       strategy_id, symbol, state, strength, generation, intent::text AS itext, ts, ts_event_ns
+			  FROM tms.signal_intents, frontier
+			 WHERE ts >= frontier.f - interval '2 days'
+			 ORDER BY symbol, ts DESC, id DESC
+		)
+		SELECT strategy_id, symbol, state, strength, generation, itext, ts, ts_event_ns
+		  FROM latest
+		 ORDER BY (state NOT IN ('no_setup','flat')) DESC, strength DESC NULLS LAST, symbol
+		 LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []api.LiveIntent
+	for rows.Next() {
+		var it api.LiveIntent
+		var intentText string
+		if err := rows.Scan(&it.StrategyID, &it.Symbol, &it.State, &it.Strength,
+			&it.Generation, &intentText, &it.TS, &it.TSEventNS); err != nil {
+			return nil, err
+		}
+		it.Intent = json.RawMessage(intentText)
+		out = append(out, it)
 	}
 	return out, rows.Err()
 }

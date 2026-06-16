@@ -88,32 +88,56 @@ export function WatchlistTable() {
     },
   });
 
-  // Latest intent per symbol from the poll, then overlaid by WS pushes.
+  // Latest intent per symbol. Primary source: the watchlist payload's own
+  // `intents` (the API joins the latest intent PER SYMBOL across the whole
+  // tracked universe, frontier-windowed + ranked actionable-first) so every row
+  // has its state. The capped `live/intents` poll and the WS `signal_intent`
+  // pushes then overlay on top for freshness (latest ts wins).
   const intentBySymbol = useMemo(() => {
     const m = new Map<string, IntentInfo>();
+    const merge = (
+      sym: string,
+      strategy_id: string,
+      state: string,
+      strength: number,
+      ts: string,
+    ) => {
+      const info: IntentInfo = { strategy_id, state, strength, ts, tsMs: new Date(ts).getTime() };
+      const existing = m.get(sym);
+      if (!existing || info.tsMs >= existing.tsMs) m.set(sym, info);
+    };
+    for (const i of symbolsQ.data?.intents ?? []) {
+      merge(i.symbol, i.strategy_id, i.state, i.strength, i.ts);
+    }
     for (const i of intentsQ.data?.intents ?? []) {
-      const info: IntentInfo = {
-        strategy_id: i.strategy_id,
-        state: i.state,
-        strength: i.strength,
-        ts: i.ts,
-        tsMs: new Date(i.ts).getTime(),
-      };
-      const existing = m.get(i.symbol);
-      if (!existing || info.tsMs >= existing.tsMs) m.set(i.symbol, info);
+      merge(i.symbol, i.strategy_id, i.state, i.strength, i.ts);
     }
     for (const [sym, info] of wsIntents) {
       const existing = m.get(sym);
       if (!existing || info.tsMs >= existing.tsMs) m.set(sym, info);
     }
     return m;
-  }, [intentsQ.data, wsIntents]);
+  }, [symbolsQ.data, intentsQ.data, wsIntents]);
 
   const symbols = useMemo(() => {
     const set = new Set<string>(wsSymbols ?? symbolsQ.data?.symbols ?? []);
     // Any symbol that has an intent but isn't in the published list still belongs.
     for (const s of intentBySymbol.keys()) set.add(s);
-    return [...set].sort();
+    // Rank ACTIONABLE signals (anything but no_setup/flat) to the top, then by
+    // strength desc, then alphabetically — so the handful of forming/buy/hold/sell
+    // names surface immediately in a multi-thousand-symbol universe.
+    const idle = (st?: string) => !st || st === "no_setup" || st === "flat";
+    return [...set].sort((a, b) => {
+      const ia = intentBySymbol.get(a);
+      const ib = intentBySymbol.get(b);
+      const aa = ia && !idle(ia.state) ? 0 : 1;
+      const ba = ib && !idle(ib.state) ? 0 : 1;
+      if (aa !== ba) return aa - ba;
+      const sa = ia?.strength ?? -Infinity;
+      const sb = ib?.strength ?? -Infinity;
+      if (aa === 0 && sa !== sb) return sb - sa;
+      return a.localeCompare(b);
+    });
   }, [wsSymbols, symbolsQ.data, intentBySymbol]);
 
   const noReader =

@@ -36,6 +36,11 @@ type LiveReader interface {
 	LatestHealth(ctx context.Context) (*LiveHealth, error)
 	// Watchlist returns the distinct symbols the latest session is tracking.
 	Watchlist(ctx context.Context) ([]string, error)
+	// LatestIntentsBySymbol returns the latest intent per symbol in the data
+	// frontier window, ranked actionable-first (see apistore). It backs the
+	// watchlist's per-symbol state so the whole universe shows its signal in one
+	// read and actionable names rank to the top.
+	LatestIntentsBySymbol(ctx context.Context, limit int) ([]LiveIntent, error)
 }
 
 // CommandEnqueuer enqueues an audited control command (satisfied by
@@ -159,7 +164,19 @@ func (s *Server) handleWatchlist(w http.ResponseWriter, r *http.Request) {
 	if syms == nil {
 		syms = []string{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"symbols": syms})
+	// Join the latest intent per symbol (frontier-windowed, actionable-first) so
+	// every rendered row carries its current signal state without a separate
+	// capped intents poll. Additive: `symbols` stays for back-compat (WS frame +
+	// the e2e suite); `intents` enriches the rows the UI shows.
+	intents, err := s.live.LatestIntentsBySymbol(r.Context(), 5000)
+	if err != nil {
+		internalError(w, s.log, "watchlist intents", err)
+		return
+	}
+	if intents == nil {
+		intents = []LiveIntent{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"symbols": syms, "intents": intents})
 }
 
 // liveCommandBody is the POST /api/v1/live/commands request shape.

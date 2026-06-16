@@ -39,6 +39,9 @@ func (s *stubLiveReader) RecentIntents(_ context.Context, strategyID string, lim
 }
 func (s *stubLiveReader) LatestHealth(context.Context) (*LiveHealth, error) { return s.health, nil }
 func (s *stubLiveReader) Watchlist(context.Context) ([]string, error)       { return s.watch, nil }
+func (s *stubLiveReader) LatestIntentsBySymbol(_ context.Context, _ int) ([]LiveIntent, error) {
+	return s.intents, nil
+}
 
 // stubEnqueuer records enqueued commands and can gate on confirmation.
 type stubEnqueuer struct {
