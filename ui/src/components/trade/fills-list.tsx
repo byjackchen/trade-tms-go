@@ -70,8 +70,8 @@ function fromPush(p: WsFillUpdate): Row {
  * executions live. Capped at 200 rows in the view (the tape can be long; the
  * DB stays the full record).
  */
-export function FillsList() {
-  const q = useLiveFills();
+export function FillsList({ accountId }: { accountId?: string } = {}) {
+  const q = useLiveFills(undefined, accountId);
   const [pushed, setPushed] = useState<Map<string, Row>>(new Map());
   const [now, setNow] = useState(() => Date.now());
 

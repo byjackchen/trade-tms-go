@@ -827,6 +827,36 @@ export type LiveAccount = {
   ts: string;
 };
 
+// ---- Account registry (GET /api/v1/trade/accounts) ----
+//
+// The tms.accounts registry that backs the cockpit/desk account selector. Mirrors
+// the Go wire type `api.TradeAccountInfo` (distinct from the funds snapshot above).
+// `id` is the selector value (e.g. "moomoo:real:123", "sim:signal"); the
+// positions/blotter/account reads pass it back as `?account_id=`.
+
+/** One registered broker/sim account (GET /api/v1/trade/accounts). */
+export type TradeAccountInfo = {
+  id: string;
+  venue: string;
+  env: string;
+  broker_acc_id: number;
+  label: string;
+};
+
+export type TradeAccountsResponse = { accounts: TradeAccountInfo[] };
+
+// Trade* aliases for the renamed cockpit (P5). The /trade/* wire shapes are
+// byte-identical to the legacy Live* ones, so these are pure type aliases kept so
+// callers can speak in the new vocabulary without a sweeping rename.
+export type TradeOrderStatus = LiveOrderStatus;
+export type TradeOrder = LiveOrder;
+export type TradeOrdersResponse = LiveOrdersResponse;
+export type TradeFill = LiveFill;
+export type TradeFillsResponse = LiveFillsResponse;
+export type TradePosition = LiveTradePosition;
+export type TradePositionsResponse = LivePositionsResponse;
+export type TradeAccountFunds = LiveAccount;
+
 /** One reconciliation mismatch row (diff = broker_net − strategy_books_sum). */
 export type ReconMismatch = {
   symbol: string;

@@ -90,8 +90,14 @@ function pnlTone(v: number): string {
  *     A close bypasses the allocator budget. Only MANUAL-attributed rows are
  *     closable here — auto books are the strategy's to manage (the flatten cmd).
  */
-export function TradePositionsPanel({ liveArmed }: { liveArmed: boolean }) {
-  const q = useLivePositions();
+export function TradePositionsPanel({
+  liveArmed,
+  accountId,
+}: {
+  liveArmed: boolean;
+  accountId?: string;
+}) {
+  const q = useLivePositions(accountId);
   const close = useCloseManualPosition();
   const desk = useTradeDesk();
 

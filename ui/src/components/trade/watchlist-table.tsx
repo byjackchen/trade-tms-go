@@ -448,7 +448,7 @@ export function WatchlistTable() {
                             the symbol + a side suggested by the signal state. The
                             operator reviews + confirms on the trade desk. */}
                         <Link
-                          href={`/live/desk?symbol=${encodeURIComponent(sym)}&side=${suggestedSide(info?.state)}`}
+                          href={`/trade/desk?symbol=${encodeURIComponent(sym)}&side=${suggestedSide(info?.state)}`}
                           data-testid="manual-trade-from-signal"
                           data-symbol={sym}
                           data-side={suggestedSide(info?.state)}

@@ -8,7 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ErrorState, LoadingRows } from "@/components/shell/states";
-import { StatusDot } from "@/components/live/live-badges";
+import { StatusDot } from "@/components/trade/live-badges";
 import { useSystem, useSystemHealth } from "@/lib/api/hooks";
 import { useJobStream } from "@/lib/api/use-job-stream";
 import { formatRelative, formatTs } from "@/lib/format";

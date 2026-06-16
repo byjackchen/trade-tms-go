@@ -19,10 +19,19 @@ import (
 type TradeTradingReader interface {
 	// RecentOrders returns up to limit newest orders, optionally filtered by symbol.
 	RecentOrders(ctx context.Context, symbol string, limit int) ([]TradeOrder, error)
+	// RecentOrdersFor is RecentOrders with an optional account filter (accountID
+	// "" = all accounts).
+	RecentOrdersFor(ctx context.Context, symbol, accountID string, limit int) ([]TradeOrder, error)
 	// RecentFills returns up to limit newest fills, optionally filtered by symbol.
 	RecentFills(ctx context.Context, symbol string, limit int) ([]TradeFill, error)
+	// RecentFillsFor is RecentFills with an optional account filter (accountID
+	// "" = all accounts).
+	RecentFillsFor(ctx context.Context, symbol, accountID string, limit int) ([]TradeFill, error)
 	// OpenPositions returns the live position book (non-flat positions).
 	OpenPositions(ctx context.Context) ([]TradePosition, error)
+	// OpenPositionsFor is OpenPositions with an optional account filter
+	// (accountID "" = all accounts).
+	OpenPositionsFor(ctx context.Context, accountID string) ([]TradePosition, error)
 	// SessionRealizedPnL returns Σ realized PnL over the FULL position book
 	// (open AND closed). Day P/L must include realized gains/losses from
 	// positions closed intraday (e.g. a rebalance dropping a sector), which
@@ -104,11 +113,12 @@ func (s *Server) handleTradeOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	symbol := queryStr(r, "symbol")
+	accountID := queryStr(r, "account_id")
 	limit, ok := parseLimit(w, r, 100, 1000)
 	if !ok {
 		return
 	}
-	out, err := reader.RecentOrders(r.Context(), symbol, limit)
+	out, err := reader.RecentOrdersFor(r.Context(), symbol, accountID, limit)
 	if err != nil {
 		internalError(w, s.log, "trade orders", err)
 		return
@@ -127,11 +137,12 @@ func (s *Server) handleTradeFills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	symbol := queryStr(r, "symbol")
+	accountID := queryStr(r, "account_id")
 	limit, ok := parseLimit(w, r, 100, 1000)
 	if !ok {
 		return
 	}
-	out, err := reader.RecentFills(r.Context(), symbol, limit)
+	out, err := reader.RecentFillsFor(r.Context(), symbol, accountID, limit)
 	if err != nil {
 		internalError(w, s.log, "trade fills", err)
 		return
@@ -149,7 +160,8 @@ func (s *Server) handleTradePositions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "unavailable", "trade trading reader not configured")
 		return
 	}
-	out, err := reader.OpenPositions(r.Context())
+	accountID := queryStr(r, "account_id")
+	out, err := reader.OpenPositionsFor(r.Context(), accountID)
 	if err != nil {
 		internalError(w, s.log, "trade positions", err)
 		return

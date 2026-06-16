@@ -4,7 +4,7 @@ import { Suspense, useState } from "react";
 import { Banknote, FlaskConical, Radio } from "lucide-react";
 import { useLiveSession } from "@/lib/api/hooks";
 import { hasSession } from "@/lib/api/types";
-import { FillsList } from "@/components/live/fills-list";
+import { FillsList } from "@/components/trade/fills-list";
 import { TradeDeskProvider } from "./trade-desk-context";
 import { OrderTicket } from "./order-ticket";
 import { TradePositionsPanel } from "./trade-positions-panel";
@@ -25,7 +25,7 @@ import { SyncFromBroker } from "./sync-from-broker";
  * call routes through the /api/proxy). The server is the authoritative gate on
  * every mutation; arming live in the UI never bypasses it.
  */
-export function ManualDesk() {
+export function ManualDesk({ accountId }: { accountId?: string } = {}) {
   const sessionQ = useLiveSession();
   const session = hasSession(sessionQ.data) ? sessionQ.data : null;
   const sessionMode = String(session?.mode ?? "signal");
@@ -114,9 +114,9 @@ export function ManualDesk() {
 
           {/* Book: positions + blotter + fills. */}
           <div className="space-y-4 lg:col-span-2">
-            <TradePositionsPanel liveArmed={liveArmed} />
-            <TradeBlotter />
-            <FillsList />
+            <TradePositionsPanel liveArmed={liveArmed} accountId={accountId} />
+            <TradeBlotter accountId={accountId} />
+            <FillsList accountId={accountId} />
           </div>
         </div>
       </main>

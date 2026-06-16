@@ -101,8 +101,8 @@ function isWorking(status: LiveOrderStatus): boolean {
  * (`manual-cancel-unsupported`) and NEVER imply the working real order was
  * cancelled.
  */
-export function TradeBlotter() {
-  const q = useLiveOrders();
+export function TradeBlotter({ accountId }: { accountId?: string } = {}) {
+  const q = useLiveOrders(undefined, accountId);
   const cancel = useCancelManualOrder();
   const [pushed, setPushed] = useState<Map<string, Row>>(new Map());
   const [now, setNow] = useState(() => Date.now());

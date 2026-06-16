@@ -90,8 +90,8 @@ function fromPush(p: WsOrderUpdate): Row {
  * `order_update` WS frames advance each order's status in place — keyed by
  * client_order_id so a state transition replaces, never appends.
  */
-export function OrderBlotter() {
-  const q = useLiveOrders();
+export function OrderBlotter({ accountId }: { accountId?: string } = {}) {
+  const q = useLiveOrders(undefined, accountId);
   const [pushed, setPushed] = useState<Map<string, Row>>(new Map());
   const [now, setNow] = useState(() => Date.now());
 

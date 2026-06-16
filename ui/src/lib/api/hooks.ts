@@ -42,6 +42,7 @@ import type {
   LiveFillsResponse,
   LivePositionsResponse,
   LiveAccount,
+  TradeAccountsResponse,
   LiveReconciliationResponse,
   SystemResponse,
   PreflightReport,
@@ -539,13 +540,24 @@ export function useWatchlist(): UseQueryResult<WatchlistResponse, Error> {
 // API has no trading reader (signal-only deployment) — an expected degraded
 // state, surfaced rather than retried (liveRetry).
 
+// The cockpit read surface now hits the renamed `/trade/*` endpoints directly
+// (NOT the 301 `/live/*` alias). Each accepts an optional `account_id` filter:
+// the empty string / undefined means "all accounts" (unattributed rows surface
+// only in that mode), a concrete id (e.g. "moomoo:real:123") narrows the book to
+// one broker account. The `account` query in the cockpit URL threads through here.
+
 export function useLiveOrders(
   symbol?: string,
+  accountId?: string,
 ): UseQueryResult<LiveOrdersResponse, Error> {
   return useQuery({
-    queryKey: ["live", "orders", symbol ?? "all"],
+    queryKey: ["trade", "orders", symbol ?? "all", accountId ?? "all"],
     queryFn: () =>
-      apiGet<LiveOrdersResponse>("live/orders", { symbol, limit: 200 }),
+      apiGet<LiveOrdersResponse>("trade/orders", {
+        symbol,
+        account_id: accountId,
+        limit: 200,
+      }),
     // WS pushes order-state transitions live; this poll is the reconnect-
     // reconciliation backstop and the initial hydrate.
     refetchInterval: 15000,
@@ -555,33 +567,45 @@ export function useLiveOrders(
 
 export function useLiveFills(
   symbol?: string,
+  accountId?: string,
 ): UseQueryResult<LiveFillsResponse, Error> {
   return useQuery({
-    queryKey: ["live", "fills", symbol ?? "all"],
+    queryKey: ["trade", "fills", symbol ?? "all", accountId ?? "all"],
     queryFn: () =>
-      apiGet<LiveFillsResponse>("live/fills", { symbol, limit: 200 }),
+      apiGet<LiveFillsResponse>("trade/fills", {
+        symbol,
+        account_id: accountId,
+        limit: 200,
+      }),
     refetchInterval: 15000,
     retry: liveRetry,
   });
 }
 
-export function useLivePositions(): UseQueryResult<
-  LivePositionsResponse,
-  Error
-> {
+export function useLivePositions(
+  accountId?: string,
+): UseQueryResult<LivePositionsResponse, Error> {
   return useQuery({
-    queryKey: ["live", "positions"],
-    queryFn: () => apiGet<LivePositionsResponse>("live/positions"),
+    queryKey: ["trade", "positions", accountId ?? "all"],
+    queryFn: () =>
+      apiGet<LivePositionsResponse>("trade/positions", {
+        account_id: accountId,
+      }),
     // The live_position WS frame replaces the book; poll backstops reconnect.
     refetchInterval: 15000,
     retry: liveRetry,
   });
 }
 
-export function useLiveAccount(): UseQueryResult<LiveAccount, Error> {
+export function useLiveAccount(
+  accountId?: string,
+): UseQueryResult<LiveAccount, Error> {
   return useQuery({
-    queryKey: ["live", "account"],
-    queryFn: () => apiGet<LiveAccount>("live/account"),
+    queryKey: ["live", "account", accountId ?? "all"],
+    // account_id is threaded through for forward-compat; the strategy-session
+    // account read ignores unknown query params today.
+    queryFn: () =>
+      apiGet<LiveAccount>("live/account", { account_id: accountId }),
     // account_update rides the Redis stream; poll keeps day-PnL fresh.
     refetchInterval: 15000,
     retry: liveRetry,
@@ -624,6 +648,23 @@ export function useManualTradeAccount(): UseQueryResult<LiveAccount, Error> {
       return acct;
     },
     refetchInterval: 15000,
+    retry: liveRetry,
+  });
+}
+
+// ---- Account registry (P5 selector) ----
+//
+// GET /api/v1/trade/accounts lists the tms.accounts registry that backs the
+// cockpit/desk account selector. A 503 means the trade reader is unconfigured
+// (signal-only deployment) — an expected degraded state, surfaced rather than
+// retried, so the selector simply collapses to "all".
+export function useAccounts(): UseQueryResult<TradeAccountsResponse, Error> {
+  return useQuery({
+    queryKey: ["trade", "accounts"],
+    queryFn: () => apiGet<TradeAccountsResponse>("trade/accounts"),
+    // The registry rarely changes; refresh occasionally so a freshly-attached
+    // account appears without a reload.
+    refetchInterval: 60000,
     retry: liveRetry,
   });
 }

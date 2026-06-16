@@ -57,8 +57,8 @@ function Metric({
  * portfolio-health snapshot (the canonical −10% computation), so the two panels
  * never disagree.
  */
-export function AccountPanel() {
-  const acctQ = useLiveAccount();
+export function AccountPanel({ accountId }: { accountId?: string } = {}) {
+  const acctQ = useLiveAccount(accountId);
   const healthQ = useLiveHealth();
   const [pushed, setPushed] = useState<LiveAccount | null>(null);
 

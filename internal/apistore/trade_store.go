@@ -11,6 +11,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -209,13 +211,49 @@ func (s *TradeStore) LatestIntentsBySymbol(ctx context.Context, limit int) ([]ap
 	return out, rows.Err()
 }
 
+// --- accounts (P5 step A) ---
+
+// ListAccounts returns the registered trading accounts (the tms.accounts
+// registry), ordered by env then id, for the UI account selector / per-account
+// filter. One account per node; the UI aggregates a multi-account view.
+func (s *TradeStore) ListAccounts(ctx context.Context) ([]api.TradeAccountInfo, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, venue, env, broker_acc_id, label
+		  FROM tms.accounts
+		 ORDER BY env, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []api.TradeAccountInfo
+	for rows.Next() {
+		var a api.TradeAccountInfo
+		if err := rows.Scan(&a.ID, &a.Venue, &a.Env, &a.BrokerAccID, &a.Label); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 // --- paper/live trading reads (P6 task 6) ---
 
 // fixed4 converts a 1e-4 fixed-point BIGINT to a float64 USD value.
 func fixed4(v int64) float64 { return float64(v) / 10000.0 }
 
+// itoa renders a positional-parameter index ($N) for dynamically built WHERE
+// clauses.
+func itoa(n int) string { return strconv.Itoa(n) }
+
 // RecentOrders returns up to limit newest orders, optionally filtered by symbol.
 func (s *TradeStore) RecentOrders(ctx context.Context, symbol string, limit int) ([]api.TradeOrder, error) {
+	return s.RecentOrdersFor(ctx, symbol, "", limit)
+}
+
+// RecentOrdersFor is RecentOrders with an optional account filter. accountID ""
+// means no filter (all accounts); account_id is nullable so unattributed rows
+// only show when no account is selected.
+func (s *TradeStore) RecentOrdersFor(ctx context.Context, symbol, accountID string, limit int) ([]api.TradeOrder, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -223,13 +261,24 @@ func (s *TradeStore) RecentOrders(ctx context.Context, symbol string, limit int)
 	             qty, filled_qty, COALESCE(avg_fill_px,0), status, COALESCE(reason,''),
 	             COALESCE(ts_last_event, created_at)
 	        FROM tms.orders`
-	var rows pgx.Rows
-	var err error
-	if symbol == "" {
-		rows, err = s.pool.Query(ctx, q+` ORDER BY created_at DESC, id DESC LIMIT $1`, limit)
-	} else {
-		rows, err = s.pool.Query(ctx, q+` WHERE symbol=$1 ORDER BY created_at DESC, id DESC LIMIT $2`, symbol, limit)
+	var (
+		conds []string
+		args  []any
+	)
+	if symbol != "" {
+		args = append(args, symbol)
+		conds = append(conds, "symbol=$"+itoa(len(args)))
 	}
+	if accountID != "" {
+		args = append(args, accountID)
+		conds = append(conds, "account_id=$"+itoa(len(args)))
+	}
+	if len(conds) > 0 {
+		q += " WHERE " + strings.Join(conds, " AND ")
+	}
+	args = append(args, limit)
+	q += " ORDER BY created_at DESC, id DESC LIMIT $" + itoa(len(args))
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -250,18 +299,35 @@ func (s *TradeStore) RecentOrders(ctx context.Context, symbol string, limit int)
 
 // RecentFills returns up to limit newest fills, optionally filtered by symbol.
 func (s *TradeStore) RecentFills(ctx context.Context, symbol string, limit int) ([]api.TradeFill, error) {
+	return s.RecentFillsFor(ctx, symbol, "", limit)
+}
+
+// RecentFillsFor is RecentFills with an optional account filter (see
+// RecentOrdersFor). It filters on the fill's own account_id.
+func (s *TradeStore) RecentFillsFor(ctx context.Context, symbol, accountID string, limit int) ([]api.TradeFill, error) {
 	if limit <= 0 {
 		limit = 100
 	}
 	q := `SELECT f.venue_trade_id, o.symbol, f.qty, f.px, f.fee_usd, f.ts
 	        FROM tms.fills f JOIN tms.orders o ON o.id = f.order_id`
-	var rows pgx.Rows
-	var err error
-	if symbol == "" {
-		rows, err = s.pool.Query(ctx, q+` ORDER BY f.ts DESC, f.id DESC LIMIT $1`, limit)
-	} else {
-		rows, err = s.pool.Query(ctx, q+` WHERE o.symbol=$1 ORDER BY f.ts DESC, f.id DESC LIMIT $2`, symbol, limit)
+	var (
+		conds []string
+		args  []any
+	)
+	if symbol != "" {
+		args = append(args, symbol)
+		conds = append(conds, "o.symbol=$"+itoa(len(args)))
 	}
+	if accountID != "" {
+		args = append(args, accountID)
+		conds = append(conds, "f.account_id=$"+itoa(len(args)))
+	}
+	if len(conds) > 0 {
+		q += " WHERE " + strings.Join(conds, " AND ")
+	}
+	args = append(args, limit)
+	q += " ORDER BY f.ts DESC, f.id DESC LIMIT $" + itoa(len(args))
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -281,11 +347,23 @@ func (s *TradeStore) RecentFills(ctx context.Context, symbol string, limit int) 
 
 // OpenPositions returns the live position book (non-flat positions).
 func (s *TradeStore) OpenPositions(ctx context.Context) ([]api.TradePosition, error) {
-	rows, err := s.pool.Query(ctx, `
+	return s.OpenPositionsFor(ctx, "")
+}
+
+// OpenPositionsFor is OpenPositions with an optional account filter (see
+// RecentOrdersFor).
+func (s *TradeStore) OpenPositionsFor(ctx context.Context, accountID string) ([]api.TradePosition, error) {
+	q := `
 		SELECT strategy_id, symbol, signed_qty, COALESCE(avg_entry_px,0), realized_pnl_usd, status
 		  FROM tms.positions
-		 WHERE status = 'OPEN' AND signed_qty <> 0
-		 ORDER BY strategy_id, symbol`)
+		 WHERE status = 'OPEN' AND signed_qty <> 0`
+	var args []any
+	if accountID != "" {
+		args = append(args, accountID)
+		q += " AND account_id=$" + itoa(len(args))
+	}
+	q += " ORDER BY strategy_id, symbol"
+	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

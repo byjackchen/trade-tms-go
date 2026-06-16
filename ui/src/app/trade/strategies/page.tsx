@@ -1,13 +1,13 @@
 "use client";
 
 import { PageHeader } from "@/components/shell/page-header";
-import { LiveIndicator } from "@/components/live/live-indicator";
-import { LiveTabs, LIVE_STRATEGIES } from "@/components/live/live-tabs";
-import { SessionBar } from "@/components/live/session-bar";
-import { StrategyLiveCard } from "@/components/live/strategy-live-card";
-import { IntentsStream } from "@/components/live/intents-stream";
+import { LiveIndicator } from "@/components/trade/live-indicator";
+import { TradeTabs, TRADE_STRATEGIES } from "@/components/trade/trade-tabs";
+import { SessionBar } from "@/components/trade/session-bar";
+import { StrategyLiveCard } from "@/components/trade/strategy-live-card";
+import { IntentsStream } from "@/components/trade/intents-stream";
 
-export default function LiveStrategiesPage() {
+export default function TradeStrategiesPage() {
   return (
     <>
       <PageHeader
@@ -16,7 +16,7 @@ export default function LiveStrategiesPage() {
         data-testid="live-strategies-header"
         actions={<LiveIndicator />}
       />
-      <LiveTabs />
+      <TradeTabs />
 
       <main
         className="mx-auto w-full max-w-7xl flex-1 space-y-4 p-6"
@@ -28,7 +28,7 @@ export default function LiveStrategiesPage() {
           className="grid grid-cols-1 gap-4 md:grid-cols-2"
           data-testid="strategy-live-grid"
         >
-          {LIVE_STRATEGIES.map((s) => (
+          {TRADE_STRATEGIES.map((s) => (
             <StrategyLiveCard key={s.id} strategyId={s.id} label={s.label} />
           ))}
         </div>

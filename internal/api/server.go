@@ -238,6 +238,10 @@ func (s *Server) Routes() *chi.Mux {
 			r.Get("/trade/fills", s.handleTradeFills)
 			r.Get("/trade/positions", s.handleTradePositions)
 			r.Get("/trade/reconciliation", s.handleTradeReconciliation)
+			// Account registry (P5 step A): list accounts for the UI selector /
+			// per-account filter. NOTE: distinct from /trade/account (the funds
+			// snapshot served by the mutation block below).
+			r.Get("/trade/accounts", s.handleTradeAccounts)
 			r.Post("/trade/commands", s.handleTradeCommand)
 
 			// Back-compat: the old /live/* read/control paths 301-redirect to
@@ -247,7 +251,7 @@ func (s *Server) Routes() *chi.Mux {
 			// /live prefix swapped for /trade.
 			for _, suffix := range []string{
 				"session", "intents", "health", "preflight",
-				"orders", "fills", "positions", "account", "reconciliation",
+				"orders", "fills", "positions", "account", "accounts", "reconciliation",
 				"commands",
 			} {
 				old := "/live/" + suffix

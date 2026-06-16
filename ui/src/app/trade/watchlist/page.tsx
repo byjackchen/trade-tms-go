@@ -1,10 +1,10 @@
 import { PageHeader } from "@/components/shell/page-header";
-import { LiveIndicator } from "@/components/live/live-indicator";
-import { LiveTabs } from "@/components/live/live-tabs";
-import { SessionBar } from "@/components/live/session-bar";
-import { WatchlistTable } from "@/components/live/watchlist-table";
+import { LiveIndicator } from "@/components/trade/live-indicator";
+import { TradeTabs } from "@/components/trade/trade-tabs";
+import { SessionBar } from "@/components/trade/session-bar";
+import { WatchlistTable } from "@/components/trade/watchlist-table";
 
-export default function LiveWatchlistPage() {
+export default function TradeWatchlistPage() {
   return (
     <>
       <PageHeader
@@ -13,7 +13,7 @@ export default function LiveWatchlistPage() {
         data-testid="live-watchlist-header"
         actions={<LiveIndicator />}
       />
-      <LiveTabs />
+      <TradeTabs />
 
       <main
         className="mx-auto w-full max-w-5xl flex-1 space-y-4 p-6"

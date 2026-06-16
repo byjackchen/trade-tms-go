@@ -86,8 +86,8 @@ function pnlTone(v: number): string {
  * mode there are never positions — the empty state is the correct, expected
  * reading, not an error.
  */
-export function PositionsPanel() {
-  const q = useLivePositions();
+export function PositionsPanel({ accountId }: { accountId?: string } = {}) {
+  const q = useLivePositions(accountId);
   // The latest full book pushed over WS (replace semantics), or null until one
   // arrives — then it supersedes the poll snapshot.
   const [pushed, setPushed] = useState<{ rows: Row[]; tsMs: number } | null>(

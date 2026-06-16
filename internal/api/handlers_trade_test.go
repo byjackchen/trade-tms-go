@@ -18,13 +18,16 @@ import (
 
 // stubTradeReader is an in-memory TradeReader.
 type stubTradeReader struct {
-	session *TradeSession
-	intents []TradeIntent
-	health  *TradeHealth
-	watch   []string
+	session  *TradeSession
+	intents  []TradeIntent
+	health   *TradeHealth
+	watch    []string
+	accounts []TradeAccountInfo
 }
 
-func (s *stubTradeReader) LatestSession(context.Context) (*TradeSession, error) { return s.session, nil }
+func (s *stubTradeReader) LatestSession(context.Context) (*TradeSession, error) {
+	return s.session, nil
+}
 func (s *stubTradeReader) RecentIntents(_ context.Context, strategyID string, limit int) ([]TradeIntent, error) {
 	var out []TradeIntent
 	for _, it := range s.intents {
@@ -41,6 +44,49 @@ func (s *stubTradeReader) LatestHealth(context.Context) (*TradeHealth, error) { 
 func (s *stubTradeReader) Watchlist(context.Context) ([]string, error)        { return s.watch, nil }
 func (s *stubTradeReader) LatestIntentsBySymbol(_ context.Context, _ int) ([]TradeIntent, error) {
 	return s.intents, nil
+}
+func (s *stubTradeReader) ListAccounts(context.Context) ([]TradeAccountInfo, error) {
+	return s.accounts, nil
+}
+
+// stubTradeTradingReader is an in-memory TradeReader + TradeTradingReader that
+// records the account filter the handlers pass through, so the account_id query
+// param can be asserted end-to-end.
+type stubTradeTradingReader struct {
+	stubTradeReader
+	orders    []TradeOrder
+	fills     []TradeFill
+	positions []TradePosition
+
+	lastOrdersAcct    string
+	lastFillsAcct     string
+	lastPositionsAcct string
+}
+
+func (s *stubTradeTradingReader) RecentOrders(ctx context.Context, symbol string, limit int) ([]TradeOrder, error) {
+	return s.RecentOrdersFor(ctx, symbol, "", limit)
+}
+func (s *stubTradeTradingReader) RecentOrdersFor(_ context.Context, _, accountID string, _ int) ([]TradeOrder, error) {
+	s.lastOrdersAcct = accountID
+	return s.orders, nil
+}
+func (s *stubTradeTradingReader) RecentFills(ctx context.Context, symbol string, limit int) ([]TradeFill, error) {
+	return s.RecentFillsFor(ctx, symbol, "", limit)
+}
+func (s *stubTradeTradingReader) RecentFillsFor(_ context.Context, _, accountID string, _ int) ([]TradeFill, error) {
+	s.lastFillsAcct = accountID
+	return s.fills, nil
+}
+func (s *stubTradeTradingReader) OpenPositions(ctx context.Context) ([]TradePosition, error) {
+	return s.OpenPositionsFor(ctx, "")
+}
+func (s *stubTradeTradingReader) OpenPositionsFor(_ context.Context, accountID string) ([]TradePosition, error) {
+	s.lastPositionsAcct = accountID
+	return s.positions, nil
+}
+func (s *stubTradeTradingReader) SessionRealizedPnL(context.Context) (float64, error) { return 0, nil }
+func (s *stubTradeTradingReader) LatestReconciliation(context.Context) (*TradeReconciliation, error) {
+	return nil, nil
 }
 
 // stubEnqueuer records enqueued commands and can gate on confirmation.
@@ -142,6 +188,53 @@ func TestWatchlistEndpoint(t *testing.T) {
 	assert.Equal(t, []string{"AAPL", "MSFT"}, body.Symbols)
 }
 
+func TestTradeAccountsEndpoint(t *testing.T) {
+	trade := &stubTradeReader{accounts: []TradeAccountInfo{
+		{ID: "moomoo:real:123", Venue: "moomoo", Env: "real", BrokerAccID: 123, Label: "live"},
+		{ID: "sim:signal", Venue: "sim", Env: "sim", BrokerAccID: 0, Label: ""},
+	}}
+	ts := newTradeTestServer(t, trade, &stubEnqueuer{})
+
+	rec := ts.do(t, http.MethodGet, "/api/v1/trade/accounts", nil, true)
+	require.Equal(t, http.StatusOK, rec.Code)
+	var body struct {
+		Accounts []TradeAccountInfo `json:"accounts"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body.Accounts, 2)
+	assert.Equal(t, "moomoo:real:123", body.Accounts[0].ID)
+	assert.Equal(t, int64(123), body.Accounts[0].BrokerAccID)
+	assert.Equal(t, "real", body.Accounts[0].Env)
+
+	// nil reader -> 503.
+	ts2 := newTradeTestServer(t, nil, nil)
+	rec2 := ts2.do(t, http.MethodGet, "/api/v1/trade/accounts", nil, true)
+	assert.Equal(t, http.StatusServiceUnavailable, rec2.Code)
+}
+
+func TestTradeAccountFilter(t *testing.T) {
+	tr := &stubTradeTradingReader{}
+	ts := newTradeTestServer(t, tr, &stubEnqueuer{})
+
+	// account_id present -> threaded into the reads.
+	rec := ts.do(t, http.MethodGet, "/api/v1/trade/orders?account_id=moomoo:real:123", nil, true)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "moomoo:real:123", tr.lastOrdersAcct)
+
+	rec = ts.do(t, http.MethodGet, "/api/v1/trade/fills?account_id=sim:signal", nil, true)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "sim:signal", tr.lastFillsAcct)
+
+	rec = ts.do(t, http.MethodGet, "/api/v1/trade/positions?account_id=moomoo:real:123", nil, true)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "moomoo:real:123", tr.lastPositionsAcct)
+
+	// absent -> empty filter (unchanged behavior / all accounts).
+	rec = ts.do(t, http.MethodGet, "/api/v1/trade/positions", nil, true)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "", tr.lastPositionsAcct)
+}
+
 func TestLiveCommandEnqueue(t *testing.T) {
 	enq := &stubEnqueuer{}
 	ts := newTradeTestServer(t, &stubTradeReader{}, enq)
@@ -172,7 +265,7 @@ func TestLiveCommandEnqueue(t *testing.T) {
 func TestLiveEndpointsUnconfigured(t *testing.T) {
 	// nil trade reader + nil enqueuer -> 503 on every trade route.
 	ts := newTradeTestServer(t, nil, nil)
-	for _, path := range []string{"/api/v1/trade/session", "/api/v1/trade/intents", "/api/v1/trade/health", "/api/v1/watchlist"} {
+	for _, path := range []string{"/api/v1/trade/session", "/api/v1/trade/intents", "/api/v1/trade/health", "/api/v1/watchlist", "/api/v1/trade/accounts"} {
 		rec := ts.do(t, http.MethodGet, path, nil, true)
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code, path)
 	}
@@ -196,6 +289,7 @@ func TestLiveRedirects(t *testing.T) {
 		{http.MethodGet, "/api/v1/live/fills", "/api/v1/trade/fills"},
 		{http.MethodGet, "/api/v1/live/positions", "/api/v1/trade/positions"},
 		{http.MethodGet, "/api/v1/live/account", "/api/v1/trade/account"},
+		{http.MethodGet, "/api/v1/live/accounts", "/api/v1/trade/accounts"},
 		{http.MethodGet, "/api/v1/live/reconciliation", "/api/v1/trade/reconciliation"},
 		{http.MethodPost, "/api/v1/live/commands", "/api/v1/trade/commands"},
 	}

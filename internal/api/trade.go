@@ -41,6 +41,20 @@ type TradeReader interface {
 	// watchlist's per-symbol state so the whole universe shows its signal in one
 	// read and actionable names rank to the top.
 	LatestIntentsBySymbol(ctx context.Context, limit int) ([]TradeIntent, error)
+	// ListAccounts returns the registered trading accounts (the tms.accounts
+	// registry) for the UI account selector / per-account filter.
+	ListAccounts(ctx context.Context) ([]TradeAccountInfo, error)
+}
+
+// TradeAccountInfo is the wire shape of one registered trading account (the
+// tms.accounts registry row). It is DISTINCT from TradeAccount, which is the
+// account's funds/buying-power snapshot.
+type TradeAccountInfo struct {
+	ID          string `json:"id"`
+	Venue       string `json:"venue"`
+	Env         string `json:"env"`
+	BrokerAccID int64  `json:"broker_acc_id"`
+	Label       string `json:"label"`
 }
 
 // CommandEnqueuer enqueues an audited control command (satisfied by
@@ -177,6 +191,25 @@ func (s *Server) handleWatchlist(w http.ResponseWriter, r *http.Request) {
 		intents = []TradeIntent{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"symbols": syms, "intents": intents})
+}
+
+// handleTradeAccounts serves GET /api/v1/trade/accounts: the registered trading
+// accounts (tms.accounts registry) for the UI account selector / per-account
+// filter.
+func (s *Server) handleTradeAccounts(w http.ResponseWriter, r *http.Request) {
+	if s.trade == nil {
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "trade reader not configured")
+		return
+	}
+	accounts, err := s.trade.ListAccounts(r.Context())
+	if err != nil {
+		internalError(w, s.log, "trade accounts", err)
+		return
+	}
+	if accounts == nil {
+		accounts = []TradeAccountInfo{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"accounts": accounts})
 }
 
 // tradeCommandBody is the POST /api/v1/trade/commands request shape.

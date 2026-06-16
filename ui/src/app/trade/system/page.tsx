@@ -1,11 +1,11 @@
 import { PageHeader } from "@/components/shell/page-header";
-import { LiveIndicator } from "@/components/live/live-indicator";
-import { LiveTabs } from "@/components/live/live-tabs";
-import { SystemPanel } from "@/components/live/system-panel";
-import { SessionControls } from "@/components/live/session-controls";
-import { PreflightPanel } from "@/components/live/preflight-panel";
+import { LiveIndicator } from "@/components/trade/live-indicator";
+import { TradeTabs } from "@/components/trade/trade-tabs";
+import { SystemPanel } from "@/components/trade/system-panel";
+import { SessionControls } from "@/components/trade/session-controls";
+import { PreflightPanel } from "@/components/trade/preflight-panel";
 
-export default function LiveSystemPage() {
+export default function TradeSystemPage() {
   return (
     <>
       <PageHeader
@@ -14,7 +14,7 @@ export default function LiveSystemPage() {
         data-testid="live-system-header"
         actions={<LiveIndicator />}
       />
-      <LiveTabs />
+      <TradeTabs />
 
       <main
         className="mx-auto w-full max-w-5xl flex-1 space-y-4 p-6"
