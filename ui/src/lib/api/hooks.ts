@@ -588,6 +588,46 @@ export function useLiveAccount(): UseQueryResult<LiveAccount, Error> {
   });
 }
 
+// Raw GET /api/v1/trade/account shape (the MANUAL desk's own account, served by
+// the live node's manual listener — distinct from /live/account, which is the
+// strategy session's book and reads flat $0 in signal mode).
+type TradeAccountRaw = {
+  connected: boolean;
+  mode: string;
+  live: boolean;
+  cash?: number;
+  equity?: number;
+  day_pnl_usd?: number;
+  open_positions?: number;
+};
+
+// useManualTradeAccount reads the MANUAL desk account (GET /api/v1/trade/account)
+// and maps it onto the LiveAccount shape the account panel renders. This is the
+// account the desk actually trades against (e.g. the $100k paper book), NOT the
+// strategy session's /live/account (flat $0 in signal mode). For a cash account,
+// buying power == cash and market value == equity − cash.
+export function useManualTradeAccount(): UseQueryResult<LiveAccount, Error> {
+  return useQuery({
+    queryKey: ["trade", "account"],
+    queryFn: async () => {
+      const a = await apiGet<TradeAccountRaw>("trade/account");
+      const cash = a.cash ?? 0;
+      const equity = a.equity ?? cash;
+      const acct: LiveAccount = {
+        total_assets: equity,
+        cash,
+        available_funds: cash,
+        market_value: Math.max(0, equity - cash),
+        day_pnl: a.day_pnl_usd ?? 0,
+        ts: new Date().toISOString(),
+      };
+      return acct;
+    },
+    refetchInterval: 15000,
+    retry: liveRetry,
+  });
+}
+
 export function useLiveReconciliation(): UseQueryResult<
   LiveReconciliationResponse,
   Error

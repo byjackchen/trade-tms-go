@@ -1,13 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { useLiveAccount } from "@/lib/api/hooks";
+import { useManualTradeAccount } from "@/lib/api/hooks";
 import { useLiveStream } from "@/lib/api/use-live-stream";
 import { ApiError } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shell/states";
-import type { LiveAccount, WsAccountUpdate } from "@/lib/api/types";
 import { formatMoney } from "@/lib/format";
 
 function Metric({
@@ -50,35 +48,20 @@ function Metric({
 
 /**
  * Manual-desk ACCOUNT panel: buying power (available funds) + day P&L for the
- * account the desk trades against (GET /api/v1/trade/account, an alias of the
- * live account view), overlaid live by the `account_update` WS frame. The
- * day-P&L card exposes the raw USD as `data-day-pnl-usd` for an exact,
- * locale-independent comparison against Σ realized in the DB.
+ * account the desk trades against (GET /api/v1/trade/account — the MANUAL desk's
+ * own account, e.g. the $100k paper book). This is deliberately NOT the strategy
+ * session's /live/account, which reads flat $0 in signal mode, nor its
+ * `account_update` WS frame (same flat session book) — the desk account is the
+ * manual book, kept fresh by the 15s poll. The day-P&L card exposes the raw USD
+ * as `data-day-pnl-usd` for an exact, locale-independent comparison.
  */
 export function ManualAccountPanel() {
-  const acctQ = useLiveAccount();
-  const [pushed, setPushed] = useState<LiveAccount | null>(null);
+  const acctQ = useManualTradeAccount();
+  // The connection indicator still rides the live stream; the account VALUE is
+  // the desk's own (polled), not the session's account_update frame.
+  const { state } = useLiveStream({});
 
-  const { state } = useLiveStream({
-    onAccountUpdate: (p: WsAccountUpdate) => {
-      setPushed({
-        total_assets: p.total_assets,
-        cash: p.cash,
-        available_funds: p.available_funds,
-        market_value: p.market_value,
-        day_pnl: p.day_pnl,
-        ts: new Date(Math.floor(p.ts_event / 1e6)).toISOString(),
-      });
-    },
-  });
-
-  const polled = acctQ.data ?? null;
-  const account =
-    pushed && polled
-      ? new Date(pushed.ts).getTime() >= new Date(polled.ts).getTime()
-        ? pushed
-        : polled
-      : (pushed ?? polled);
+  const account = acctQ.data ?? null;
 
   const noReader =
     acctQ.error instanceof ApiError && acctQ.error.status === 503;
