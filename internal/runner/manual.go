@@ -8,8 +8,9 @@ package runner
 // paper/live mode the desk is a manual override alongside the strategy's auto book.
 //
 // SAFETY: connecting a LIVE manual desk re-runs the FULL 4-factor activation via
-// moexec.New(ModeLive) — real acc id + TMS_LIVE_CONFIRM phrase + UnlockTrade + the
-// TMS-LIVE-REAL-001 trader id — exactly as the strategy live path; there is no
+// moexec.New with a real-env Account (Account.IsReal()) — real acc id +
+// TMS_LIVE_CONFIRM phrase + UnlockTrade + the TMS-LIVE-REAL-001 trader id —
+// exactly as the strategy live path; there is no
 // manual path to a real account without it. The connect is audited (an
 // ops.audit_log row). The desk's own per-order confirm + risk gate run on every
 // order (see internal/livetrade/manual.go).

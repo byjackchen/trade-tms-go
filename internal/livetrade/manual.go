@@ -17,8 +17,9 @@ package livetrade
 //   - A live (real-money) manual order requires the FULL 4-factor live activation
 //     (real acc id + TMS_LIVE_CONFIRM phrase + UnlockTrade + the TMS-LIVE-REAL-001
 //     trader id) — which is ALREADY proven by the fact the executor is live-bound
-//     (MoomooExecutor only binds TrdEnvReal via New(ModeLive), which enforced all
-//     four) — PLUS a per-order typed confirmation phrase supplied on the request.
+//     (MoomooExecutor only binds TrdEnvReal for a real-env Account (Account.IsReal()),
+//     whose construction enforced all four) — PLUS a per-order typed confirmation
+//     phrase supplied on the request.
 //     A paper manual order requires the trade password. There is NO code path that
 //     reaches a real order without the full gate: the controller refuses a live
 //     order missing the per-order confirm, and the executor's assertEnvInvariants

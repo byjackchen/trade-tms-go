@@ -29,7 +29,9 @@ func TestLivePersistRoundTrip(t *testing.T) {
 	ctx := testCtx(t)
 	sessionID := openTestSession(t, pool, "PAPER-PERSIST-001")
 
-	p := runner.NewLivePersist(pool, nil, sessionID, "PAPER-PERSIST-001", "MOOMOO", zerolog.Nop())
+	// accountID="" -> accountIDParam() yields SQL NULL (the column is nullable), so
+	// orders/positions/fills/recon writes don't need a pre-existing tms.accounts row.
+	p := runner.NewLivePersist(pool, nil, sessionID, "", "PAPER-PERSIST-001", "MOOMOO", zerolog.Nop())
 
 	// Order -> fill -> position round-trip.
 	o := domain.NewMarketOrder("PAPER-O-1", "TEST-001", "AAPL", domain.OrderSideBuy, 100, "open", time.Now().UTC())
@@ -115,7 +117,7 @@ func TestUpsertOrderFilledCarriesFilledQty(t *testing.T) {
 	pool := requirePG(t)
 	ctx := testCtx(t)
 	sessionID := openTestSession(t, pool, "PAPER-FILLED-001")
-	p := runner.NewLivePersist(pool, nil, sessionID, "PAPER-FILLED-001", "MOOMOO", zerolog.Nop())
+	p := runner.NewLivePersist(pool, nil, sessionID, "", "PAPER-FILLED-001", "MOOMOO", zerolog.Nop())
 
 	// Mirror the executor's orderSnapshot on an EffectStatus(FILLED): the order is
 	// FILLED with the cumulative fill carried on the snapshot itself.
@@ -162,7 +164,7 @@ func TestUpsertOrderPersistsTypeAndLimitPx(t *testing.T) {
 	pool := requirePG(t)
 	ctx := testCtx(t)
 	sessionID := openTestSession(t, pool, "PAPER-LIMIT-001")
-	p := runner.NewLivePersist(pool, nil, sessionID, "PAPER-LIMIT-001", "MOOMOO", zerolog.Nop())
+	p := runner.NewLivePersist(pool, nil, sessionID, "", "PAPER-LIMIT-001", "MOOMOO", zerolog.Nop())
 
 	// A LIMIT BUY (MSFT @ 100.00). Build the order exactly as the executor's
 	// SubmitManual does for a LIMIT spec: Type=LIMIT with a positive LimitPrice.
@@ -221,7 +223,7 @@ func TestFlattenLeavesPositionBookFlatInPG(t *testing.T) {
 	pool := requirePG(t)
 	ctx := testCtx(t)
 	sessionID := openTestSession(t, pool, "PAPER-FLATTEN-001")
-	p := runner.NewLivePersist(pool, nil, sessionID, "PAPER-FLATTEN-001", "MOOMOO", zerolog.Nop())
+	p := runner.NewLivePersist(pool, nil, sessionID, "", "PAPER-FLATTEN-001", "MOOMOO", zerolog.Nop())
 
 	// Two strategies, one sharing a symbol — the multi-strategy-same-symbol case
 	// from the diagnosis (SectorRotation-001/XLK + Hedge-002/XLK), plus a distinct

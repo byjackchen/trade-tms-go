@@ -12,8 +12,9 @@ package moomoo
 // executor can never reach TrdEnvReal and a live order must carry the live env +
 // live trader id — exactly as the strategy path. There is no manual path to a
 // real order that bypasses the live-activation gate (the executor is only ever
-// live-bound through New(ModeLive), which already enforced phrase + real acc id +
-// UnlockTrade + live trader id). The upstream risk gate + per-order confirmation
+// live-bound through New() with a real-env Account (Account.IsReal()), which
+// already enforced phrase + real acc id + UnlockTrade + live trader id). The
+// upstream risk gate + per-order confirmation
 // live in the manualtrade controller, not here.
 
 import (

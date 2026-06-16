@@ -146,9 +146,10 @@ func (e *MoomooExecutor) assertEnvInvariants(req mo.PlaceOrderRequest) error {
 		return fmt.Errorf("%w: order acc_id %d != bound acc_id %d", domain.ErrInvalidArgument, req.AccID, e.accID)
 	}
 	if e.env == mo.TrdEnvReal {
-		// A live order is only reachable through New(ModeLive), which already
-		// verified phrase + real acc id + live trader id + UnlockTrade. Re-assert
-		// the trader-id binding as a tripwire.
+		// A live order is only reachable when the bound Account.Env==Real (the
+		// constructor's 4-factor gate ran via New() with a real-env Account):
+		// phrase + real acc id + live trader id + UnlockTrade were all verified.
+		// Re-assert the trader-id binding as a tripwire.
 		if e.cfg.TraderID != LiveTraderID {
 			return fmt.Errorf("%w: live submission without the %s trader-id", domain.ErrInvalidArgument, LiveTraderID)
 		}

@@ -22,7 +22,7 @@ package moomoo
 // unless ALL of: a typed confirmation phrase matches, a real acc id is
 // explicitly configured, UnlockTrade succeeds, and the trader id is the
 // distinct live namespace (TMS-LIVE-REAL-001). A paper executor can NEVER hold
-// a real acc id or TrdEnvReal — assertLiveInvariants enforces this on every
+// a real acc id or TrdEnvReal — assertEnvInvariants enforces this on every
 // PlaceOrder. There is NO code path that submits a non-paper order without the
 // full gate.
 
