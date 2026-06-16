@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useLiveAccount, useLiveHealth } from "@/lib/api/hooks";
+import {
+  useLiveAccount,
+  useLiveHealth,
+  useManualTradeAccount,
+} from "@/lib/api/hooks";
 import { useLiveStream } from "@/lib/api/use-live-stream";
 import { ApiError } from "@/lib/api/client";
 import {
@@ -22,12 +26,14 @@ function Metric({
   tone,
   testid,
   hint,
+  dayPnlUsd,
 }: {
   label: string;
   value: string;
   tone?: "pos" | "neg" | "neutral";
   testid: string;
   hint?: string;
+  dayPnlUsd?: number;
 }) {
   const cls =
     tone === "pos"
@@ -36,7 +42,11 @@ function Metric({
         ? "text-red-600 dark:text-red-400"
         : "text-foreground";
   return (
-    <div className="flex min-w-[8rem] flex-col gap-0.5" data-testid={testid}>
+    <div
+      className="flex min-w-[8rem] flex-col gap-0.5"
+      data-testid={testid}
+      data-day-pnl-usd={dayPnlUsd}
+    >
       <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
@@ -49,15 +59,34 @@ function Metric({
 }
 
 /**
- * Account panel: funds / buying power, market value, day P&L, and the
- * daily-loss-halt headroom (the distance to the −10% NAV halt threshold,
- * portfolio-risk.md). The account snapshot hydrates from PG
- * (GET /api/v1/live/account) and is overlaid live by the `account_update` WS
- * frame (broker funds / buying power). The halt headroom comes from the
- * portfolio-health snapshot (the canonical −10% computation), so the two panels
- * never disagree.
+ * THE shared account panel — funds / buying power, market value, day P&L.
+ *
+ * `variant="cockpit"` (default): reads the strategy session's account
+ * (GET /api/v1/live/account, filtered by the selected `accountId`) overlaid by
+ * the `account_update` WS frame, plus the daily-loss-halt headroom from the
+ * portfolio-health snapshot (the canonical −10% computation, so the two never
+ * disagree). Emits the `live-account` / `live-account-day-pnl` contract.
+ *
+ * `variant="desk"`: reads the MANUAL desk's OWN account (GET /api/v1/trade/account
+ * — e.g. the $100k paper book), kept fresh by the 15s poll. This is deliberately
+ * NOT the strategy session's /live/account (flat $0 in signal mode). Emits the
+ * `manual-account` / `manual-account-day-pnl` contract. No halt headroom (the
+ * desk account is the manual book, not the portfolio-health subject).
  */
-export function AccountPanel({ accountId }: { accountId?: string } = {}) {
+export function AccountPanel({
+  accountId,
+  variant = "cockpit",
+}: {
+  accountId?: string;
+  variant?: "cockpit" | "desk";
+} = {}) {
+  if (variant === "desk") {
+    return <DeskAccountPanel />;
+  }
+  return <CockpitAccountPanel accountId={accountId} />;
+}
+
+function CockpitAccountPanel({ accountId }: { accountId?: string }) {
   const acctQ = useLiveAccount(accountId);
   const healthQ = useLiveHealth();
   const [pushed, setPushed] = useState<LiveAccount | null>(null);
@@ -85,9 +114,7 @@ export function AccountPanel({ accountId }: { accountId?: string } = {}) {
       : (pushed ?? polled);
 
   const health = healthQ.data ?? null;
-
-  const noReader =
-    acctQ.error instanceof ApiError && acctQ.error.status === 503;
+  const noReader = acctQ.error instanceof ApiError && acctQ.error.status === 503;
 
   if (acctQ.isLoading && !account) {
     return (
@@ -104,11 +131,7 @@ export function AccountPanel({ accountId }: { accountId?: string } = {}) {
 
   if (!account && noReader) {
     return (
-      <Card
-        data-testid="live-account"
-        data-panel="account-panel"
-        data-state="no-reader"
-      >
+      <Card data-testid="live-account" data-panel="account-panel" data-state="no-reader">
         <CardHeader>
           <CardTitle className="text-sm">Account</CardTitle>
         </CardHeader>
@@ -125,11 +148,7 @@ export function AccountPanel({ accountId }: { accountId?: string } = {}) {
 
   if (!account) {
     return (
-      <Card
-        data-testid="live-account"
-        data-panel="account-panel"
-        data-state="error"
-      >
+      <Card data-testid="live-account" data-panel="account-panel" data-state="error">
         <CardHeader>
           <CardTitle className="text-sm">Account</CardTitle>
         </CardHeader>
@@ -146,7 +165,6 @@ export function AccountPanel({ accountId }: { accountId?: string } = {}) {
   const dayPnlTone =
     account.day_pnl > 0 ? "pos" : account.day_pnl < 0 ? "neg" : "neutral";
   const halted = health?.daily_loss_halt ?? false;
-  // Lower headroom is worse; flag red under 2 points of room to the −10% halt.
   const headroom = health?.halt_headroom_pct ?? null;
   const headroomLow = headroom != null && headroom < 0.02;
   const dot = halted ? "red" : headroomLow ? "yellow" : "green";
@@ -163,9 +181,7 @@ export function AccountPanel({ accountId }: { accountId?: string } = {}) {
         <CardTitle className="text-sm">Account</CardTitle>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <StatusDot color={dot} />
-          <span>
-            {halted ? "daily-loss halt ACTIVE" : "within risk budget"}
-          </span>
+          <span>{halted ? "daily-loss halt ACTIVE" : "within risk budget"}</span>
         </div>
       </CardHeader>
       <CardContent>
@@ -181,11 +197,7 @@ export function AccountPanel({ accountId }: { accountId?: string } = {}) {
             testid="account-buying-power"
             hint="available funds"
           />
-          <Metric
-            label="Cash"
-            value={formatMoney(account.cash)}
-            testid="account-cash"
-          />
+          <Metric label="Cash" value={formatMoney(account.cash)} testid="account-cash" />
           <Metric
             label="Market value"
             value={formatMoney(account.market_value)}
@@ -236,6 +248,103 @@ export function AccountPanel({ accountId }: { accountId?: string } = {}) {
               to −10% NAV halt
             </span>
           </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DeskAccountPanel() {
+  const acctQ = useManualTradeAccount();
+  // The connection indicator still rides the live stream; the account VALUE is
+  // the desk's own (polled), not the session's account_update frame.
+  const { state } = useLiveStream({});
+  const account = acctQ.data ?? null;
+  const noReader = acctQ.error instanceof ApiError && acctQ.error.status === 503;
+
+  if (acctQ.isLoading && !account) {
+    return (
+      <Card data-testid="manual-account" data-panel="manual-account">
+        <CardHeader>
+          <CardTitle className="text-sm">Account</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-16 w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!account) {
+    return (
+      <Card
+        data-testid="manual-account"
+        data-panel="manual-account"
+        data-state={noReader ? "no-reader" : "error"}
+      >
+        <CardHeader>
+          <CardTitle className="text-sm">Account</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {noReader ? (
+            <EmptyState
+              title="No manual trade desk connected"
+              hint="Account / buying-power appears once a paper/live manual desk is attached."
+              data-testid="manual-account-no-reader"
+            />
+          ) : (
+            <p className="py-2 text-xs text-destructive">
+              Failed to load account
+              {acctQ.error ? `: ${acctQ.error.message}` : ""}.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const dayPnlTone =
+    account.day_pnl > 0 ? "pos" : account.day_pnl < 0 ? "neg" : "neutral";
+
+  return (
+    <Card
+      data-testid="manual-account"
+      data-panel="manual-account"
+      data-connected={state === "open" ? "true" : "false"}
+    >
+      <CardHeader>
+        <CardTitle className="text-sm">Account</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap items-end gap-x-8 gap-y-4">
+          <Metric
+            label="Buying power"
+            value={formatMoney(account.available_funds)}
+            testid="manual-account-buying-power"
+            hint="available funds"
+          />
+          <Metric
+            label="Total assets"
+            value={formatMoney(account.total_assets)}
+            testid="manual-account-total-assets"
+          />
+          <Metric
+            label="Cash"
+            value={formatMoney(account.cash)}
+            testid="manual-account-cash"
+          />
+          <Metric
+            label="Market value"
+            value={formatMoney(account.market_value)}
+            testid="manual-account-market-value"
+          />
+          <Metric
+            label="Day P/L"
+            value={formatMoney(account.day_pnl)}
+            tone={dayPnlTone}
+            testid="manual-account-day-pnl"
+            dayPnlUsd={account.day_pnl}
+          />
         </div>
       </CardContent>
     </Card>

@@ -13,12 +13,11 @@ import { ModeBanner } from "@/components/trade/mode-banner";
 import { HealthStrip } from "@/components/trade/health-strip";
 import { AccountPanel } from "@/components/trade/account-panel";
 import { IntentsStream } from "@/components/trade/intents-stream";
-import { PositionsPanel } from "@/components/trade/positions-panel";
-import { OrderBlotter } from "@/components/trade/order-blotter";
+import { PositionsTable } from "@/components/trade/positions-table";
+import { Blotter } from "@/components/trade/blotter";
 import { FillsList } from "@/components/trade/fills-list";
 import { ReconciliationPanel } from "@/components/trade/reconciliation-panel";
 import { SessionControls } from "@/components/trade/session-controls";
-import { WatchlistTable } from "@/components/trade/watchlist-table";
 
 export default function TradeCockpitPage() {
   // The account selector + every account-filtered read live behind a Suspense
@@ -49,7 +48,7 @@ function CockpitBody({
     <>
       <PageHeader
         title="Trade cockpit"
-        subtitle="Positions, orders, fills, account & reconciliation — paper / live, live over WS."
+        subtitle="Portfolio overview — account, health, open positions & recent activity (read-only). Act on the desk."
         data-testid="live-header"
         actions={
           <div className="flex items-center gap-3">
@@ -73,24 +72,25 @@ function CockpitBody({
         <ModeBanner />
         <SessionBar />
 
-        {/* Account + portfolio health row. */}
+        {/* Account summary + portfolio health row (read-only overview). */}
         <div className="grid grid-cols-1 gap-4">
-          <AccountPanel accountId={accountId} />
+          <AccountPanel accountId={accountId} variant="cockpit" />
           <HealthStrip />
         </div>
 
-        {/* Trading book: positions + order blotter + fills, with controls. */}
+        {/* Read-only book: open positions + recent orders/fills + reconciliation,
+            with mode/session controls. NO order ENTRY here — acting happens on the
+            desk (/trade/desk). */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div className="space-y-4 lg:col-span-2">
-            <PositionsPanel accountId={accountId} />
-            <OrderBlotter accountId={accountId} />
+            <PositionsTable accountId={accountId} />
+            <Blotter accountId={accountId} />
             <FillsList accountId={accountId} />
             <ReconciliationPanel />
             <IntentsStream />
           </div>
           <div className="space-y-4">
             <SessionControls />
-            <WatchlistTable />
           </div>
         </div>
       </main>

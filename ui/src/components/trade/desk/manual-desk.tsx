@@ -5,11 +5,11 @@ import { Banknote, FlaskConical, Radio } from "lucide-react";
 import { useLiveSession } from "@/lib/api/hooks";
 import { hasSession } from "@/lib/api/types";
 import { FillsList } from "@/components/trade/fills-list";
+import { PositionsTable } from "@/components/trade/positions-table";
+import { Blotter } from "@/components/trade/blotter";
+import { AccountPanel } from "@/components/trade/account-panel";
 import { TradeDeskProvider } from "./trade-desk-context";
 import { OrderTicket } from "./order-ticket";
-import { TradePositionsPanel } from "./trade-positions-panel";
-import { TradeBlotter } from "./trade-blotter";
-import { ManualAccountPanel } from "./manual-account-panel";
 import { LiveArmSwitch } from "./live-arm-switch";
 import { SyncFromBroker } from "./sync-from-broker";
 
@@ -100,8 +100,8 @@ export function ManualDesk({ accountId }: { accountId?: string } = {}) {
             up here. Read-only; safe in every mode. Prominent, above the book. */}
         <SyncFromBroker />
 
-        {/* Account (buying power + day P&L). */}
-        <ManualAccountPanel />
+        {/* Account (buying power + day P&L) — the MANUAL desk's own account. */}
+        <AccountPanel variant="desk" />
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           {/* Order ticket — the single client of POST /trade/order. */}
@@ -112,10 +112,10 @@ export function ManualDesk({ accountId }: { accountId?: string } = {}) {
             </Suspense>
           </div>
 
-          {/* Book: positions + blotter + fills. */}
+          {/* Book: positions (with Close) + blotter (with Cancel) + fills. */}
           <div className="space-y-4 lg:col-span-2">
-            <TradePositionsPanel liveArmed={liveArmed} accountId={accountId} />
-            <TradeBlotter accountId={accountId} />
+            <PositionsTable withActions liveArmed={liveArmed} accountId={accountId} />
+            <Blotter withActions accountId={accountId} />
             <FillsList accountId={accountId} />
           </div>
         </div>

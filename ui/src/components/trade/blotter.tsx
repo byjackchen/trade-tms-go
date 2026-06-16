@@ -18,8 +18,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EmptyState, ErrorState } from "@/components/shell/states";
-import { DisconnectedBanner } from "../disconnected-banner";
-import { OrderStatusBadge, SideBadge } from "../live-badges";
+import { DisconnectedBanner } from "./disconnected-banner";
+import { OrderStatusBadge, SideBadge } from "./live-badges";
 import {
   MANUAL_STRATEGY_ID,
   type LiveOrder,
@@ -28,6 +28,10 @@ import {
 } from "@/lib/api/types";
 import { formatInt, formatMoney, formatRelative } from "@/lib/format";
 
+/**
+ * A normalized order row keyed by client_order_id (the idempotency key — one row
+ * per logical order, its latest state machine status wins).
+ */
 type Row = {
   client_order_id: string;
   venue_order_id?: string;
@@ -91,17 +95,28 @@ function isWorking(status: LiveOrderStatus): boolean {
 }
 
 /**
- * Manual-desk ORDER BLOTTER: manual + auto orders with their state-machine status,
- * live over WS. Hydrates from PG (GET /api/v1/live/orders), then `order_update`
- * frames advance each order in place (keyed by client_order_id — idempotent).
+ * THE shared order blotter — one component for both the cockpit (read-only) and
+ * the manual desk (acting).
  *
- * Per-row CANCEL on WORKING manual orders (POST /api/v1/trade/order/{coid}/cancel).
- * Only MANUAL-attributed orders are cancellable from here. A wire build without the
- * modify-order proto returns 501 `cancel_unsupported`; we surface that truthfully
- * (`manual-cancel-unsupported`) and NEVER imply the working real order was
- * cancelled.
+ * `withActions=false` (cockpit): a read-only blotter — the recent-activity
+ * OVERVIEW. Emits the `live-blotter` / `live-blotter-order-row` contract.
+ *
+ * `withActions=true` (desk): a MANUAL/auto book column + per-row CANCEL on
+ * WORKING manual orders (POST /api/v1/trade/order/{coid}/cancel). A wire build
+ * without the modify-order proto returns 501; we surface that truthfully and
+ * NEVER imply the working order was cancelled. Emits the `manual-blotter` /
+ * `manual-blotter-order-row` contract.
+ *
+ * Hydrates from PG (GET /api/v1/trade/orders, newest-first), then `order_update`
+ * frames advance each order in place — keyed by client_order_id (idempotent).
  */
-export function TradeBlotter({ accountId }: { accountId?: string } = {}) {
+export function Blotter({
+  withActions = false,
+  accountId,
+}: {
+  withActions?: boolean;
+  accountId?: string;
+} = {}) {
   const q = useLiveOrders(undefined, accountId);
   const cancel = useCancelManualOrder();
   const [pushed, setPushed] = useState<Map<string, Row>>(new Map());
@@ -121,6 +136,7 @@ export function TradeBlotter({ accountId }: { accountId?: string } = {}) {
       setPushed((prev) => {
         const next = new Map(prev);
         const existing = next.get(row.client_order_id);
+        // Newest event-time wins so out-of-order frames don't regress status.
         if (!existing || row.tsMs >= existing.tsMs)
           next.set(row.client_order_id, row);
         return next;
@@ -133,7 +149,8 @@ export function TradeBlotter({ accountId }: { accountId?: string } = {}) {
     for (const o of q.data?.orders ?? []) {
       const r = fromOrder(o);
       const existing = merged.get(r.client_order_id);
-      if (!existing || r.tsMs >= existing.tsMs) merged.set(r.client_order_id, r);
+      if (!existing || r.tsMs >= existing.tsMs)
+        merged.set(r.client_order_id, r);
     }
     for (const [k, r] of pushed) {
       const existing = merged.get(k);
@@ -165,23 +182,31 @@ export function TradeBlotter({ accountId }: { accountId?: string } = {}) {
     });
   }
 
+  // Testid prefix keeps the e2e contract: cockpit `live-blotter`, desk
+  // `manual-blotter`.
+  const rootId = withActions ? "manual-blotter" : "live-blotter";
+  const rowId = withActions ? "manual-blotter-order-row" : "live-blotter-order-row";
+  const countId = withActions ? "manual-orders-count" : "orders-count";
+
   return (
     <Card
-      data-testid="manual-blotter"
-      data-panel="manual-blotter"
+      data-testid={rootId}
+      data-orders={withActions ? undefined : "live-orders"}
+      data-panel={withActions ? "manual-blotter" : "order-blotter"}
       data-order-count={rows.length}
       data-connected={state === "open" ? "true" : "false"}
     >
       <CardHeader>
         <CardTitle className="text-sm">Order blotter</CardTitle>
-        <span className="text-xs text-muted-foreground" data-testid="manual-orders-count">
-          {rows.length} {rows.length === 1 ? "order" : "orders"} (manual + auto)
+        <span className="text-xs text-muted-foreground" data-testid={countId}>
+          {rows.length} {rows.length === 1 ? "order" : "orders"}
+          {withActions ? " (manual + auto)" : ""}
         </span>
       </CardHeader>
       <CardContent className="space-y-3">
         <DisconnectedBanner state={state} />
 
-        {unsupported ? (
+        {withActions && unsupported ? (
           <Alert variant="warning" data-testid="manual-cancel-unsupported">
             <AlertDescription>
               Cancel is not supported on this broker build — the working order was
@@ -190,48 +215,58 @@ export function TradeBlotter({ accountId }: { accountId?: string } = {}) {
           </Alert>
         ) : null}
 
-        {cancelError ? (
+        {withActions && cancelError ? (
           <Alert variant="destructive" data-testid="manual-cancel-error">
             <AlertDescription>{cancelError}</AlertDescription>
           </Alert>
         ) : null}
 
         {q.isLoading ? (
-          <div className="space-y-2" data-testid="manual-orders-loading">
+          <div
+            className="space-y-2"
+            data-testid={withActions ? "manual-orders-loading" : "orders-loading"}
+          >
+            <Skeleton className="h-8 w-full" />
             <Skeleton className="h-8 w-full" />
             <Skeleton className="h-8 w-full" />
           </div>
         ) : noReader ? (
           <EmptyState
             title="Live trading reader not configured"
-            hint="Orders appear once a paper/live (or manual) session submits them."
-            data-testid="manual-orders-no-reader"
+            hint="Orders appear once a paper/live session submits them. In signal mode no orders are ever sent."
+            data-testid={withActions ? "manual-orders-no-reader" : "orders-no-reader"}
           />
         ) : q.error ? (
           <ErrorState
             error={q.error}
             onRetry={() => q.refetch()}
-            data-testid="manual-orders-error"
+            data-testid={withActions ? "manual-orders-error" : "orders-error"}
           />
         ) : rows.length === 0 ? (
           <EmptyState
             title="No orders yet"
-            hint="Submitted manual + auto orders appear here with their live status."
-            data-testid="manual-orders-empty"
+            hint={
+              withActions
+                ? "Submitted manual + auto orders appear here with their live status."
+                : "Submitted orders appear here with their live state-machine status."
+            }
+            data-testid={withActions ? "manual-orders-empty" : "orders-empty"}
           />
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Symbol</TableHead>
-                <TableHead>Book</TableHead>
+                <TableHead>{withActions ? "Book" : "Strategy"}</TableHead>
                 <TableHead>Side</TableHead>
                 <TableHead className="text-right">Qty</TableHead>
                 <TableHead className="text-right">Filled</TableHead>
                 <TableHead className="text-right">Avg px</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">As of</TableHead>
-                <TableHead className="text-right">Action</TableHead>
+                {withActions ? (
+                  <TableHead className="text-right">Action</TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -242,18 +277,18 @@ export function TradeBlotter({ accountId }: { accountId?: string } = {}) {
                 return (
                   <TableRow
                     key={r.client_order_id}
-                    data-testid="manual-blotter-order-row"
+                    data-testid={rowId}
                     data-client-order-id={r.client_order_id}
                     data-symbol={r.symbol}
                     data-status={String(r.status).toUpperCase()}
                     data-filled-qty={r.filled_qty}
-                    data-manual={manual ? "true" : "false"}
+                    data-manual={withActions ? (manual ? "true" : "false") : undefined}
                   >
                     <TableCell className="font-mono font-medium">
                       {r.symbol}
                     </TableCell>
                     <TableCell>
-                      {manual ? (
+                      {withActions && manual ? (
                         <Badge variant="secondary" data-testid="order-manual-badge">
                           MANUAL
                         </Badge>
@@ -294,22 +329,24 @@ export function TradeBlotter({ accountId }: { accountId?: string } = {}) {
                     >
                       {formatRelative(r.ts, now)}
                     </TableCell>
-                    <TableCell className="text-right">
-                      {manual && working ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={pending}
-                          onClick={() => onCancel(r.client_order_id)}
-                          data-testid="manual-order-cancel"
-                          data-client-order-id={r.client_order_id}
-                        >
-                          {pending ? "Cancelling…" : "Cancel"}
-                        </Button>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
+                    {withActions ? (
+                      <TableCell className="text-right">
+                        {manual && working ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={pending}
+                            onClick={() => onCancel(r.client_order_id)}
+                            data-testid="manual-order-cancel"
+                            data-client-order-id={r.client_order_id}
+                          >
+                            {pending ? "Cancelling…" : "Cancel"}
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                    ) : null}
                   </TableRow>
                 );
               })}

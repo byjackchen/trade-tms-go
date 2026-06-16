@@ -662,6 +662,76 @@ export type LiveIntent = {
 
 export type LiveIntentsResponse = { intents: LiveIntent[] };
 
+// ---- Per-strategy intent shapes (the unwrapped `intent` JSONB) ----
+//
+// Each `LiveIntent.intent` is the open SignalIntentUnion variant for that
+// symbol's `strategy_id`. The watchlist tabs read these per-strategy fields
+// (every field optional — a forming setup may not have computed all of them, and
+// older producers omit the ones added later, so the UI shows "—" for any miss).
+// All numbers are plain JS numbers; price-like fields arrive as strings on the
+// wire (the engine serializes decimals as strings) so we accept `string | number`.
+
+/** Common fields present on every strategy's intent. */
+export type BaseIntentFields = {
+  strategy_id?: string;
+  symbol?: string;
+  state?: string;
+  strength?: number;
+  grade?: number;
+  generation?: number;
+  updated_at?: string;
+  /** Signed % distance from the trigger (negative = below pivot/entry). */
+  proximity_to_trigger_pct?: number | null;
+};
+
+/**
+ * SEPA (trend-template breakout) intent. The ACTIONABLE trade-plan fields:
+ * pivot/stop prices, signed proximity to the pivot, risk %, RS rank, distance
+ * off the 52-week high, base structure (depth/age), volume confirmation, and a
+ * 0..100 buy-readiness score. `strength`/`grade` saturate at 100 for any forming
+ * setup (the 8/8 trend-template pass) — DE-EMPHASIZE, render "8/8" not "100.0".
+ */
+export type SepaIntent = BaseIntentFields & {
+  pivot_price?: string | number | null;
+  stop_price?: string | number | null;
+  risk_pct?: number | null;
+  pct_off_52wk_high?: number | null;
+  vol_ratio?: number | null;
+  rs_rank?: number | null; // 1..99
+  buy_readiness?: number | null; // 0..100
+  base_depth_pct?: number | null;
+  base_age_days?: number | null;
+  volume_dryup?: number | boolean | null;
+  trend_template_pass?: boolean | null;
+};
+
+/**
+ * PAIRS (cointegration mean-reversion) intent. One row per leg; `pair_id`
+ * groups the two legs. `z_score` vs the entry/exit thresholds shows how
+ * stretched the spread is; `leg_role` is this symbol's side of the pair.
+ */
+export type PairsIntent = BaseIntentFields & {
+  pair_id?: string;
+  z_score?: number | null;
+  hedge_ratio?: number | null;
+  half_life_days?: number | null;
+  z_entry_threshold?: number | null;
+  z_exit_threshold?: number | null;
+  leg_role?: string | null; // "long" | "short"
+};
+
+/**
+ * SECTOR_ROTATION intent. The 11 sector ETFs ranked by momentum; `state` is the
+ * rotation decision (hold/buy/exit/forming). `target_weight` vs `current_weight`
+ * is the allocation drift.
+ */
+export type SectorIntent = BaseIntentFields & {
+  rank?: number | null;
+  momentum_score?: number | null;
+  target_weight?: number | null;
+  current_weight?: number | null;
+};
+
 /**
  * Latest portfolio-health snapshot. In signal mode this is the flat-book
  * informational NAV (day P&L 0, no halt — decision 6). Values are percent units

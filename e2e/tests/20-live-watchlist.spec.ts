@@ -126,18 +126,22 @@ test.describe("live cockpit — watchlist", () => {
     }
 
     // Clicking triggers a real file download; capture it and check the CSV.
+    // The watchlist is now a per-strategy tab switcher; the default tab is SEPA,
+    // whose exporter emits a purpose-built trade-plan header (and filename stem).
     const [dl] = await Promise.all([
       page.waitForEvent("download"),
       download.click(),
     ]);
-    expect(dl.suggestedFilename()).toMatch(/^watchlist-.*\.csv$/);
+    expect(dl.suggestedFilename()).toMatch(/^sepa-watchlist-.*\.csv$/);
     const stream = await dl.createReadStream();
     const chunks: Buffer[] = [];
     for await (const c of stream) chunks.push(c as Buffer);
     const csv = Buffer.concat(chunks).toString("utf-8").trim().split("\n");
 
-    expect(csv[0]).toBe("symbol,latest_state,strategy,strength,as_of");
-    // One header + one row per rendered symbol; every rendered symbol appears.
+    expect(csv[0]).toBe(
+      "symbol,pct_to_pivot,pivot,stop,risk_pct,rs_rank,pct_off_52wk_high,base_depth_pct,base_age_days,vol_ratio,buy_readiness,trend_template_pass",
+    );
+    // One header + one row per rendered (SEPA) symbol; every rendered symbol appears.
     expect(csv.length - 1).toBe(await rows.count());
     const renderedSyms = new Set<string>();
     const rn = await rows.count();
