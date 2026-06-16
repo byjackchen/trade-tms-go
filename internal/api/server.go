@@ -57,6 +57,19 @@ type Deps struct {
 	// Preflight runs the go-live preflight for GET /api/v1/live/preflight.
 	// Optional: when nil that endpoint returns 503 (preflight not wired).
 	Preflight PreflightRunner
+	// Manual is the operator-driven manual trade desk (the ONLY broker-mutation
+	// surface) when the API process ITSELF holds a desk (an in-process deployment;
+	// today only the unit tests). Optional: when nil AND no ManualProxy is wired the
+	// /api/v1/trade/* endpoints return 503 (no manual session connected). SAFETY: a
+	// non-nil desk has ALREADY satisfied the 4-factor live activation for a live
+	// account; the per-order confirm + risk gate run inside the desk.
+	Manual ManualTrader
+	// ManualProxy reverse-proxies /api/v1/trade/* onto the live node's manual
+	// listener (the broker-connected process). This is the SHIPPED compose topology:
+	// the desk runs in the live node and the API fronts it on one host. Optional:
+	// when nil the API falls back to an in-process Manual desk, else 503. When BOTH
+	// are set the proxy wins (the live node is the real broker-connected surface).
+	ManualProxy *ManualTradeProxy
 	// Now overrides the clock (tests); nil = time.Now.
 	Now func() time.Time
 }
@@ -82,6 +95,8 @@ type Server struct {
 	audit       AuditReader
 	sync        SyncForcer
 	preflight   PreflightRunner
+	manual      ManualTrader
+	manualProxy *ManualTradeProxy
 	hub         *Hub
 	now         func() time.Time
 }
@@ -129,6 +144,8 @@ func NewServer(d Deps) (*Server, error) {
 		audit:       d.Audit,
 		sync:        d.Sync,
 		preflight:   d.Preflight,
+		manual:      d.Manual,
+		manualProxy: d.ManualProxy,
 		hub:         NewHub(log, d.CORSOrigins),
 		now:         now,
 	}, nil
@@ -220,6 +237,36 @@ func (s *Server) Routes() *chi.Mux {
 			r.Get("/live/account", s.handleLiveAccount)
 			r.Get("/live/reconciliation", s.handleLiveReconciliation)
 			r.Post("/live/commands", s.handleLiveCommand)
+
+			// MANUAL trade-mutation surface (operator-driven discretionary desk):
+			// the ONLY broker-write path in the API. Each endpoint is gated inside
+			// the desk (4-factor live activation + per-order confirm + risk gate +
+			// audit). 412 confirmation_required / 422 risk_violation / 503 when no
+			// manual desk is connected.
+			//
+			// TOPOLOGY: the desk lives in the broker-connected LIVE NODE, not this
+			// API process, so when a ManualProxy upstream is wired (the shipped
+			// compose stack) EVERY /trade/* route — incl GET account/status — is
+			// reverse-proxied onto the live node's manual listener, giving the UI +
+			// e2e suite one host. When no proxy is wired the API falls back to an
+			// in-process desk (today only the unit tests) via the chi handlers.
+			if s.manualProxy != nil {
+				r.Handle("/trade/*", http.HandlerFunc(s.handleTradeProxy))
+			} else {
+				r.Post("/trade/order", s.handleTradeOrder)
+				r.Post("/trade/order/{coid}/cancel", s.handleTradeCancel)
+				r.Post("/trade/position/{symbol}/close", s.handleTradeClose)
+				// DIRECTION 2 (broker -> TMS): pull the account's ACTUAL state +
+				// reflect it into TMS + reconcile. READ-ONLY at the broker (places NO
+				// orders), audited, safe in ALL modes incl signal.
+				r.Post("/trade/sync", s.handleTradeSync)
+				// Desk status: a dedicated availability probe on the actual mutation
+				// surface (the e2e skip-guard reads this, NOT the always-present
+				// account reader). 503 when no desk is connected.
+				r.Get("/trade/status", s.handleTradeStatus)
+				// Account view reuses the live account read surface.
+				r.Get("/trade/account", s.handleLiveAccount)
+			}
 		})
 	})
 	return r

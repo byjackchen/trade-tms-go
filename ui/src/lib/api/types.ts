@@ -993,3 +993,103 @@ export type JobRetryResponse = {
   job: Job;
   source_job_id: number;
 };
+
+// ---- Manual trading desk (operator-driven, P6) ----
+//
+// The ONLY broker-mutation surface in the HTTP API (docs/api.md §"Manual trading
+// desk"). An operator places / cancels / closes orders BY HAND against a paper or
+// live account. Manual orders are attributed to the MANUAL pseudo-strategy
+// (`MANUAL_STRATEGY_ID`), distinct from the auto strategies' books, so
+// reconciliation + per-strategy accounting stay clean. SAFETY (paramount): a LIVE
+// (real-money) order requires the full 4-factor live activation (server-side) PLUS
+// the per-order typed confirm phrase below; a PAPER order requires the trade
+// password. The server is the final, authoritative gate — there is NO path to a
+// real order without it. The UI surfaces the server's 412 / 422 verbatim.
+
+/** The pseudo-strategy id every manual order is attributed to (livetrade.ManualStrategyID). */
+export const MANUAL_STRATEGY_ID = "MANUAL";
+
+/**
+ * The exact per-order confirmation phrase a LIVE (real-money) manual order
+ * requires in `confirm_token` (livetrade.ManualLiveConfirmationPhrase). The UI
+ * makes the operator type this verbatim; the live desk re-checks it at the
+ * boundary and rejects (412) on any mismatch.
+ */
+export const MANUAL_LIVE_CONFIRM_PHRASE = "I CONFIRM THIS REAL MONEY MANUAL ORDER";
+
+/** Manual order side / type vocabularies (server-validated). */
+export type ManualSide = "BUY" | "SELL";
+export type ManualOrderType = "MARKET" | "LIMIT";
+
+/** POST /api/v1/trade/order body. `confirm_token` is consumed, never persisted. */
+export type ManualOrderRequest = {
+  /** Idempotency key — makes the client-order-id deterministic (no double-submit). */
+  idempotency_key: string;
+  symbol: string;
+  side: ManualSide;
+  qty: number;
+  type?: ManualOrderType; // default MARKET
+  limit_price?: number; // required (> 0) for LIMIT
+  /** Explicit, audited operator override of a risk-gate rejection. */
+  override?: boolean;
+  /** Live confirm phrase (LIVE) or trade password (PAPER). */
+  confirm_token?: string;
+  reason?: string;
+};
+
+/** 200 response of POST /api/v1/trade/order. */
+export type ManualOrderResponse = {
+  client_order_id: string;
+  submitted: boolean;
+  status: "submitted";
+};
+
+/** 200 response of POST /api/v1/trade/order/{coid}/cancel. */
+export type ManualCancelResponse = {
+  client_order_id: string;
+  status: "cancel_requested";
+};
+
+/** POST /api/v1/trade/position/{symbol}/close body. qty 0/omitted ⇒ full close. */
+export type ManualCloseRequest = {
+  qty?: number;
+  confirm_token?: string;
+};
+
+/** 200 response of POST /api/v1/trade/position/{symbol}/close. */
+export type ManualCloseResponse = {
+  client_order_id: string;
+  submitted: boolean;
+  symbol: string;
+  status: "close_submitted";
+};
+
+/**
+ * The reconciliation summary embedded in a sync response (broker vs strategy
+ * books). A lighter shape than the full `LiveReconciliation` read — the sync
+ * endpoint returns just the go/no-go bits + the drift list.
+ */
+export type ManualSyncReconciliation = {
+  has_issues: boolean;
+  summary?: string;
+  matched: number;
+  mismatches: ReconMismatch[];
+};
+
+/**
+ * 200 response of POST /api/v1/trade/sync — DIRECTION 2 (broker → TMS). The
+ * operator traded DIRECTLY in moomoo; this pull is READ-ONLY at the broker
+ * (`read_only: true`, places NO orders) and reflects the broker's actual
+ * positions/orders/fills/account into the MANUAL/EXTERNAL book, then reconciles
+ * vs the strategy books. Idempotent: re-syncing the same broker state reflects
+ * nothing.
+ */
+export type ManualSyncResponse = {
+  status: "synced";
+  positions_observed: number;
+  orders_observed: number;
+  fills_observed: number;
+  reflected: number;
+  read_only: boolean;
+  reconciliation: ManualSyncReconciliation;
+};

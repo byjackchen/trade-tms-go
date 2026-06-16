@@ -234,6 +234,85 @@ paper-trading panels are not built, the API has no trading reader (503), or no
 paper session has run / no order filled this run, the specs **self-skip** cleanly
 so the gate stays green; once wired the assertions bind and never weaken.
 
+### Manual trading desk specs and build order (P6)
+
+Specs 32-38 cover the **operator-driven MANUAL trading desk** — the ONLY
+broker-mutation surface in the HTTP API (`docs/api.md` "Manual trading desk"). The
+desk lets the operator place / cancel / close orders **by hand** against a paper
+or live account, in ANY strategy mode (signal: the operator IS the executor;
+paper/live: an override alongside the auto book), attributed to the `MANUAL`
+pseudo-strategy so reconciliation + per-strategy accounting stay clean. It reuses
+the `MoomooExecutor` + `Trd_*` client + the order-state machine +
+`tms.orders`/`fills`/`positions`/`risk_events` + the **mock trading venue**, run
+in **PAPER** in the gate (`--manual-mode paper`). The endpoints live on the live
+node's bearer-guarded manual listener (`/api/v1/trade/*`, reached via
+`MANUAL_BASE_URL`, default the API host); when no desk is connected every endpoint
+returns **503** and the specs self-skip.
+
+The specs (and what each asserts):
+- **32 order ticket** — place a paper BUY (`POST /trade/order`, idempotent
+  client-order-id); blotter shows submitted -> FILLED; the MANUAL positions panel
+  gains the symbol; account/day-P&L renders; every rendered row MATCHES
+  `tms.orders`/`positions` (DB truth, money decoded 1e-4); the placement is
+  audited (`tms.audit_log`).
+- **33 close position** — click Close on a MANUAL position ->
+  confirmation -> `POST /trade/position/{symbol}/close`; the symbol's signed qty
+  -> 0; a closing order appears in the blotter (a close BYPASSES the budget; paper
+  close still types the trade password).
+- **34 trade-from-signal** — click Trade on a watchlist signal; the ticket
+  PRE-FILLS the symbol (+ side from the intent); submit places the MANUAL order.
+- **35 risk override** — an over-limit opening order ⇒ **422 `risk_violation`**
+  (durable `MANUAL` `approved=false` `risk_events` row, gate held — no fill);
+  `override: true` resubmit is accepted and writes an **approved** `risk_events`
+  row (the audited operator decision). Asserted at BOTH the API boundary and the
+  inline-violation UI; skips if the stack's budget did not gate this run.
+- **36 LIVE SAFETY** (the TOP criterion) — a live manual order WITHOUT the
+  per-order confirm phrase (`I CONFIRM THIS REAL MONEY MANUAL ORDER`) ⇒ **412
+  `confirmation_required`**; a WRONG/near-miss phrase is ALSO 412; a **paper/signal
+  desk targeting live is refused** (never a 200 real order); the UI switch-to-live
+  opens a guarded phrase dialog (disabled until the EXACT phrase) and is only ever
+  CANCELLED; no direct-to-live affordance exists. **Never** places a real order.
+- **37 cancel + console** — rest a BUY LIMIT far from the market, click Cancel on
+  its row; the order reaches a terminal `CANCELLED_*` state OR truthfully reports
+  **501 `cancel_unsupported`** (never falsely "cancelled"); and the manual trade
+  surface renders with ZERO severe console / page errors.
+- **38 sync from broker** (DIRECTION 2, broker -> TMS — the operator's PRIMARY
+  case) — `POST /trade/sync` pulls the account's ACTUAL state and REFLECTS it under
+  the `MANUAL`/EXTERNAL book; **READ-ONLY** at the broker (`read_only:true`, places
+  NO order, so it gates ONLY on a connected desk — **not** `manualDeskIsPaper()`,
+  safe in every mode incl signal); **audited** (`trade.manual.sync` row);
+  **idempotent** — re-syncing the same broker state reflects nothing
+  (`reflected:0`, the MANUAL book's distinct-symbol count does not grow, no
+  duplicate rows). Proven at BOTH the API boundary (200 shape + audit + idempotency)
+  and the desk UI (`manual-sync-button` -> read-only `manual-sync-result` toast;
+  reflected positions in `manual-positions` match the DB; re-sync adds no symbol).
+  `reconciliation` in the 200 body is OPTIONAL (present only when a reconciler is
+  wired). Self-skips until the sync panel ships / no desk is connected.
+
+Conventional `data-testid`s the manual desk must expose (the specs self-skip on
+the root testid until the desk ships, then bind hard): desk root `manual-desk`
+(coming-soon `manual-desk-placeholder`); ticket `manual-ticket` with
+`manual-ticket-{symbol,side,qty,type,limit-price,confirm,submit}` +
+`manual-ticket-{violation,override,override-confirm}`; blotter `manual-blotter`
+with `manual-blotter-order-row` [`data-client-order-id`/`data-symbol`/`data-status`
+/`data-filled-qty`] + per-row `manual-order-cancel`; positions `manual-positions`
+with `manual-position-row` [`data-symbol`/`data-signed-qty`] + per-row
+`manual-position-close`; close confirm `manual-close-confirm` with
+`manual-close-confirm-{input,submit,cancel}`; account `manual-account` with
+`manual-account-day-pnl` [`data-day-pnl-usd`]; trade-from-signal
+`manual-trade-from-signal` [`data-symbol`/`data-side`]; live arming
+`manual-mode-live` -> `manual-live-confirm` with
+`manual-live-confirm-{phrase,submit,cancel}`; sync-from-broker `manual-sync`
+[`data-last-synced`] with `manual-sync-button`, `manual-sync-last`,
+`manual-sync-result` [`data-read-only`/`data-has-drift`/`data-reflected`],
+`manual-sync-read-only`, `manual-sync-counts`
+[`data-positions`/`data-orders`/`data-fills`], `manual-sync-error`. **SAFETY is paramount** — the desk
+specs NEVER place against a live account (every order-placing case gates on
+`manualDeskIsPaper()`), and the live guards are proven at the API boundary
+(412/422 refusals) + the disabled-until-exact-phrase dialog without ever arming a
+real order. All ground truth is queried independently from postgres (`lib/db`,
+MANUAL-scoped `strategy_id = 'MANUAL'`) — no fabricated values.
+
 ### Backtests specs and build order
 
 The Backtests workspace ships after the P1 Data workspace. Specs 07-09 (and the

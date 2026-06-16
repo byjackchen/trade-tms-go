@@ -237,8 +237,11 @@ from our Postgres `bars_daily`/`bars_intraday` over the EXACT moomoo wire
 framing, so the whole live path is exercised end-to-end without real OpenD:
 
 ```sh
-# start the mock OpenD bound to a port, pointed at the dev Postgres, then:
-export TMS_MOOMOO_ADDR=127.0.0.1:<mock-port>
+# start the standalone mock OpenD venue, bound to a port, pointed at the dev
+# Postgres (it serves market-data AND the Trd_* trading venue):
+tms mock-opend --listen 127.0.0.1:11111 --paper-acc-id 700001
+# then point the live node at it and run a session:
+export TMS_MOOMOO_ADDR=127.0.0.1:11111
 tms live --mode signal --trader-id SIGNAL-GATE-001 --strategy sector_rotation
 # observe tms.signal_intents rows appended + Redis streams populated +
 # /api/v1/live/intents returning them + the cockpit WS bridging them.
@@ -246,6 +249,29 @@ tms live --mode signal --trader-id SIGNAL-GATE-001 --strategy sector_rotation
 
 The real-vs-mock switch is config-only (`TMS_MOOMOO_ADDR`): the same node code
 runs against the mock in the gate and real OpenD at market hours.
+
+### Manual trading desk over the mock venue (DIRECTION 1 + 2)
+
+The standalone mock venue above is also the runnable backend for the operator
+**MANUAL** trade desk. Attach a paper desk to the live node and the
+place/cancel/close + sync lifecycle runs end-to-end with no OpenD and no real money:
+
+```sh
+export TMS_MOOMOO_ADDR=127.0.0.1:11111
+export TMS_MOOMOO_PAPER_ACC_ID=700001
+export TMS_MOOMOO_TRADE_PASSWORD=paper-trade-password
+tms live --mode signal --trader-id MANUAL-DESK-001 \
+  --manual-mode paper --manual-api-addr 127.0.0.1:18091 --skip-preflight
+# place a manual BUY (paper password in confirm_token), then sync:
+tms trade place --addr http://127.0.0.1:18091 --symbol AAPL --side buy --qty 10 \
+  --confirm paper-trade-password --key op-1
+tms trade sync  --addr http://127.0.0.1:18091
+```
+
+In compose this is the `manual` profile (`tmsgo-mock-opend` + `tmsgo-live-manual`),
+brought up alongside `app`; the API reverse-proxies `/api/v1/trade/*` onto the live
+node's manual listener so the UI + e2e hit one host. The manual-desk e2e specs
+(32–38) exercise this whole path.
 
 ## Go-live preflight (REQUIRED — all-pass before paper/live)
 

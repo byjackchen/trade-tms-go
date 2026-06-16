@@ -181,3 +181,48 @@ func (a *AccountAdapter) BookPositions() map[portfolio.PositionKey]int64 {
 
 // compile-time check: *AccountAdapter is a StrategyBooks source.
 var _ StrategyBooks = (*AccountAdapter)(nil)
+
+// CombinedBooks aggregates several StrategyBooks sources into one — the WHOLE-system
+// view the MANUAL desk's reconciler needs (finding 6). The broker's
+// Trd_GetPositionList returns the ENTIRE account (every strategy book + the manual
+// book), so reconciling it against the manual-only book alone mis-classifies every
+// strategy-held symbol as drift (SymbolsOnlyAtBroker -> HasIssues -> a false halt in
+// paper/live with active auto-strategies). CombinedBooks sums the manual book AND
+// the live strategy session's book so the reconcile compares like-for-like: the
+// broker net per symbol vs the system's TOTAL net per symbol (strategy + manual).
+//
+// Distinct (strategy, symbol) keys are kept separate so per-strategy attribution
+// stays clean; the reconcile algorithm aggregates per SYMBOL across strategies, so a
+// strategy-held symbol now appears on BOTH sides and no longer reads as drift.
+type CombinedBooks struct {
+	sources []func() map[portfolio.PositionKey]int64
+}
+
+// CombineBooks builds a CombinedBooks over the given live sources. Each source is a
+// thunk so a nil/absent source (e.g. signal mode has no strategy session) is simply
+// skipped at read time without capturing a stale snapshot. The manual book source is
+// required (the desk always has one); the strategy source is optional.
+func CombineBooks(sources ...func() map[portfolio.PositionKey]int64) *CombinedBooks {
+	return &CombinedBooks{sources: sources}
+}
+
+// BookPositions returns the merged per-(strategy, symbol) signed book across every
+// non-nil source. Keys collide only if two sources share a (strategy, symbol) pair —
+// which never happens here (the MANUAL pseudo-strategy is disjoint from the auto
+// strategy ids) — but if it did, the counts SUM (the correct whole-system net).
+func (c *CombinedBooks) BookPositions() map[portfolio.PositionKey]int64 {
+	out := make(map[portfolio.PositionKey]int64)
+	for _, src := range c.sources {
+		if src == nil {
+			continue
+		}
+		books := src()
+		for k, v := range books {
+			out[k] += v
+		}
+	}
+	return out
+}
+
+// compile-time check: *CombinedBooks is a StrategyBooks source.
+var _ StrategyBooks = (*CombinedBooks)(nil)

@@ -17,6 +17,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/pb/trdcommon"
 	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/pb/trdgetacclist"
 	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/pb/trdgetfunds"
+	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/pb/trdgetorderfilllist"
 	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/pb/trdgetorderlist"
 	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/pb/trdgetpositionlist"
 	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/pb/trdplaceorder"
@@ -43,6 +44,8 @@ func (c *conn) handleTrd(ctx context.Context, f mo.Frame) (bool, error) {
 		return true, c.onTrdGetPositionList(sn, f.Body)
 	case mo.ProtoTrdGetOrderList:
 		return true, c.onTrdGetOrderList(sn, f.Body)
+	case mo.ProtoTrdGetOrderFillList:
+		return true, c.onTrdGetOrderFillList(sn, f.Body)
 	case mo.ProtoTrdPlaceOrder:
 		return true, c.onTrdPlaceOrder(ctx, sn, f.Body)
 	default:
@@ -195,9 +198,46 @@ func (c *conn) onTrdGetOrderList(sn uint32, body []byte) error {
 					orderToTrd(o, o.createTS, trdcommon.OrderStatus_OrderStatus_Submitted, 0, 0, ""))
 			}
 		}
+		// Filled orders too (a real venue's order list includes terminal orders for
+		// the trading day) — so the DIRECTION-2 sync's Trd_GetOrderList reflects what
+		// the operator did, not only still-working orders.
+		for _, f := range v.filledOrders {
+			if f.o.accID != accID {
+				continue
+			}
+			resp.S2C.OrderList = append(resp.S2C.OrderList,
+				orderToTrd(f.o, f.fillTS, trdcommon.OrderStatus_OrderStatus_Filled_All, f.fillQty, f.fillAvg, ""))
+		}
 		v.mu.Unlock()
 	}
 	return c.reply(mo.ProtoTrdGetOrderList, sn, resp)
+}
+
+// onTrdGetOrderFillList serves Trd_GetOrderFillList (the per-execution fill history)
+// — the DIRECTION-2 sync read that lets the operator reflect into TMS the fills they
+// made directly in moomoo. Returns every retained fill for the account.
+func (c *conn) onTrdGetOrderFillList(sn uint32, body []byte) error {
+	var req trdgetorderfilllist.Request
+	if err := proto.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("mock: decode Trd_GetOrderFillList: %w", err)
+	}
+	accID := req.GetC2S().GetHeader().GetAccID()
+	v := c.venue()
+	resp := &trdgetorderfilllist.Response{RetType: retOK(), S2C: &trdgetorderfilllist.S2C{
+		Header: req.GetC2S().GetHeader(),
+	}}
+	if v != nil {
+		v.mu.Lock()
+		for _, f := range v.filledFills {
+			if f.o.accID != accID {
+				continue
+			}
+			resp.S2C.OrderFillList = append(resp.S2C.OrderFillList,
+				fillToTrd(f.o, f.fillID, f.price, f.ts))
+		}
+		v.mu.Unlock()
+	}
+	return c.reply(mo.ProtoTrdGetOrderFillList, sn, resp)
 }
 
 // onTrdPlaceOrder accepts or rejects an order per the documented model. On

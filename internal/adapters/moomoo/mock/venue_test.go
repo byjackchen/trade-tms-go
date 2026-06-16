@@ -196,6 +196,132 @@ func TestVenuePlaceOrderFillsAtNextBar(t *testing.T) {
 	vp := srv.VenuePositions(paperAccID)
 	require.Len(t, vp, 1)
 	require.EqualValues(t, 100, vp[0].Qty)
+
+	// DIRECTION-2 sync reads: after the fill the order list reports the order as
+	// FILLED (history retained) and the FILL list returns the execution — the reads
+	// the manual desk's SyncFromBroker depends on. (Previously the mock did not
+	// implement Trd_GetOrderFillList, so a sync timed out.)
+	ol, err := c.GetOrderList(ctx, paperAccID, mo.TrdEnvSimulate)
+	require.NoError(t, err)
+	var sawFilled bool
+	for _, o := range ol {
+		if o.ClientOrderID == "O-1" && o.IsFullFill() {
+			sawFilled = true
+		}
+	}
+	require.True(t, sawFilled, "the filled order is retained in Trd_GetOrderList history")
+
+	fl, err := c.GetOrderFillList(ctx, paperAccID, mo.TrdEnvSimulate)
+	require.NoError(t, err)
+	require.Len(t, fl, 1, "Trd_GetOrderFillList returns the one execution")
+	require.Equal(t, "AAPL", fl[0].Symbol)
+	require.EqualValues(t, 100, fl[0].Qty)
+	require.Equal(t, fillBar.Close.String(), fl[0].Price.String())
+	require.Equal(t, res.VenueOrderID, fl[0].VenueOrderID)
+}
+
+// TestVenueAutoFillNoPushKLine proves the AUTONOMOUS fill driver fills a working
+// order WITHOUT any PushKLine tick — the exact gap that made the STANDALONE
+// mock-opend leave every manual order stuck ACCEPTED (findings 1 & 2). It places a
+// BUY and asserts it reaches FILLED, opens a broker position, and surfaces in the
+// DIRECTION-2 sync reads (order list FILLED + fill list) — all on the wall-clock
+// driver alone, with NO controllable-clock K-line push.
+func TestVenueAutoFillNoPushKLine(t *testing.T) {
+	start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	bars := fixtureBars(t, "AAPL", start, 5)
+	src := mock.NewMemBarSource()
+	src.Add("AAPL", qotcommon.KLType_KLType_Day, bars)
+
+	srv, err := mock.New(mock.Options{
+		Listen:            "127.0.0.1:0",
+		Source:            src,
+		KeepAliveInterval: 1,
+		Now:               func() time.Time { return time.Date(2024, 6, 13, 14, 0, 0, 0, time.UTC) },
+	})
+	require.NoError(t, err)
+	srv.EnableTrading(mock.VenueConfig{PaperAccID: paperAccID, StartingPower: 1_000_000})
+	ctx, cancel := context.WithCancel(context.Background())
+	// The autonomous driver: a fast tick so the test converges quickly. This is the
+	// driver wired into cmd/tms mock-opend (with the default 500ms tick).
+	srv.StartAutoFill(ctx, 20*time.Millisecond)
+	go func() { _ = srv.Serve(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		_ = srv.Close()
+	})
+
+	pc := &pushCollector{}
+	c := connectTradingClient(t, srv.Addr(), pc)
+
+	// CRUCIAL: NO Subscribe + NO PushKLine. The only thing that can fill this order
+	// is the autonomous driver. (A real live node WOULD subscribe for quotes, but the
+	// fill must not DEPEND on a K-line push reaching the venue.)
+	res, err := c.PlaceOrder(ctx, mo.PlaceOrderRequest{
+		AccID:         paperAccID,
+		TrdEnv:        mo.TrdEnvSimulate,
+		ClientOrderID: "AUTO-1",
+		Symbol:        "AAPL",
+		Side:          domain.OrderSideBuy,
+		Type:          domain.OrderTypeMarket,
+		TIF:           domain.TIFGTC,
+		Qty:           10,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, res.VenueOrderID)
+
+	requireEventually(t, func() bool {
+		orders, fills := pc.snapshot()
+		var filled, gotFill bool
+		for _, o := range orders {
+			if o.ClientOrderID == "AUTO-1" && o.IsFullFill() {
+				filled = true
+			}
+		}
+		for _, f := range fills {
+			if f.VenueOrderID == res.VenueOrderID && f.Qty == 10 {
+				gotFill = true
+			}
+		}
+		return filled && gotFill
+	}, "auto-fill driver must FILL the order with no PushKLine")
+
+	// The fill price is the bar source's latest daily close.
+	wantPx := bars[len(bars)-1].Close.String()
+	_, fills := pc.snapshot()
+	var found bool
+	for _, f := range fills {
+		if f.VenueOrderID == res.VenueOrderID {
+			require.Equal(t, wantPx, f.Price.String())
+			found = true
+		}
+	}
+	require.True(t, found)
+
+	// Broker position reflects the fill (long 10 AAPL).
+	pos, err := c.GetPositionList(ctx, paperAccID, mo.TrdEnvSimulate)
+	require.NoError(t, err)
+	require.Len(t, pos, 1)
+	require.Equal(t, "AAPL", pos[0].Symbol)
+	require.EqualValues(t, 10, pos[0].Qty)
+
+	// DIRECTION-2 sync reads (the operator-traded-in-moomoo case): the order list
+	// reports FILLED and the fill list returns the execution — all created by the
+	// autonomous driver, so a sync against the standalone venue reflects a real fill.
+	ol, err := c.GetOrderList(ctx, paperAccID, mo.TrdEnvSimulate)
+	require.NoError(t, err)
+	var sawFilled bool
+	for _, o := range ol {
+		if o.ClientOrderID == "AUTO-1" && o.IsFullFill() {
+			sawFilled = true
+		}
+	}
+	require.True(t, sawFilled, "auto-filled order is retained in Trd_GetOrderList history")
+
+	fl, err := c.GetOrderFillList(ctx, paperAccID, mo.TrdEnvSimulate)
+	require.NoError(t, err)
+	require.Len(t, fl, 1)
+	require.EqualValues(t, 10, fl[0].Qty)
+	require.Equal(t, res.VenueOrderID, fl[0].VenueOrderID)
 }
 
 func TestVenuePlaceOrderIdempotent(t *testing.T) {

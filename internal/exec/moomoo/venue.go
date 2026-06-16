@@ -206,6 +206,35 @@ func (v *MockVenue) PlaceOrder(_ context.Context, req mo.PlaceOrderRequest) (mo.
 	return mo.PlaceOrderResult{VenueOrderID: vid}, nil
 }
 
+// CancelOrder cancels a working order by client-order-id (mo.TradeClient). It
+// pushes a terminal CANCELLED_ALL via the order handler (the same path the real
+// venue uses to confirm a cancel), so the executor's state machine marks the
+// order CANCELED. Idempotent + a no-op for an unknown or already-terminal order:
+// a double-cancel never errors, matching the manual desk's idempotency contract.
+func (v *MockVenue) CancelOrder(_ context.Context, _ uint64, _ mo.TrdEnv, clientOrderID string) error {
+	v.mu.Lock()
+	o, ok := v.orderByCOID(clientOrderID)
+	if !ok {
+		v.mu.Unlock()
+		return nil // unknown order: no-op (idempotent)
+	}
+	switch o.status {
+	case trdcommon.OrderStatus_OrderStatus_Filled_All,
+		trdcommon.OrderStatus_OrderStatus_Cancelled_All,
+		trdcommon.OrderStatus_OrderStatus_Failed:
+		v.mu.Unlock()
+		return nil // already terminal: no-op (idempotent)
+	}
+	o.status = trdcommon.OrderStatus_OrderStatus_Cancelled_All
+	upd := v.updateOf(o)
+	oh := v.orderH
+	v.mu.Unlock()
+	if oh != nil {
+		oh(upd)
+	}
+	return nil
+}
+
 func (v *MockVenue) GetOrderList(_ context.Context, _ uint64, _ mo.TrdEnv) ([]mo.OrderUpdate, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()

@@ -8,6 +8,7 @@ type Tab = { href: string; label: string; testid: string; exact?: boolean };
 
 const TABS: Tab[] = [
   { href: "/live", label: "Cockpit", testid: "live-tab-cockpit", exact: true },
+  { href: "/live/desk", label: "Trade desk", testid: "live-tab-desk" },
   { href: "/live/watchlist", label: "Watchlist", testid: "live-tab-watchlist" },
   { href: "/live/strategies", label: "Strategies", testid: "live-tab-strategies" },
   { href: "/live/system", label: "System", testid: "live-tab-system" },

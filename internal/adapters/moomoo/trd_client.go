@@ -337,13 +337,34 @@ func (c *Client) PlaceOrder(ctx context.Context, req PlaceOrderRequest) (PlaceOr
 		return PlaceOrderResult{}, fmt.Errorf("%w: decode Trd_PlaceOrder: %v", ErrProtocol, uerr)
 	}
 	if cerr := checkRet("Trd_PlaceOrder", rsp.RetType, rsp.RetMsg); cerr != nil {
-		return PlaceOrderResult{}, cerr
+		// A retType!=0 on a PLACE is a venue BUSINESS rejection (the order was not
+		// accepted: insufficient buying power, market closed, unknown symbol, ...).
+		// Tag it with ErrOrderRejected so the manual-desk API surfaces it as a clean
+		// 4xx (an expected operator outcome), not a 500 with a leaked protocol string
+		// (finding 4). The reason text is preserved from the venue's retMsg.
+		return PlaceOrderResult{}, fmt.Errorf("%w: %v", ErrOrderRejected, cerr)
 	}
 	vid := venueID(rsp.GetS2C().GetOrderID(), rsp.GetS2C().GetOrderIDEx())
 	st.mu.Lock()
 	st.submittedCO[req.ClientOrderID] = vid
 	st.mu.Unlock()
 	return PlaceOrderResult{VenueOrderID: vid}, nil
+}
+
+// CancelOrder requests a working order be cancelled at the broker (TradeClient).
+//
+// The cancel is a Trd_ModifyOrder(op=Cancel) round-trip; its compiled protobuf is
+// NOT yet wired into this build, so the wire client returns ErrUnsupported rather
+// than silently pretending to cancel. The manual desk surfaces this honestly (a
+// 503/501 to the operator) instead of leaving a working real order the operator
+// believes is cancelled. The in-memory MockVenue implements the full cancel path,
+// so the manual-desk cancel lifecycle is proven against the deterministic gate.
+//
+// SAFETY: a no-op-but-success here would be a latent foot-gun on a real account
+// (an operator told "cancelled" while the order keeps working); failing loud is
+// the safe default until the modify-order proto is generated + conformance-tested.
+func (c *Client) CancelOrder(_ context.Context, _ uint64, _ TrdEnv, _ string) error {
+	return fmt.Errorf("%w: Trd_ModifyOrder (cancel) is not wired in this build", ErrUnsupported)
 }
 
 // GetOrderList returns current orders for (acc, env) (TradeClient).

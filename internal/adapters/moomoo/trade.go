@@ -35,6 +35,16 @@ import (
 // not implement (e.g. the market-data-only P5 surface, when trading is off).
 var ErrUnsupported = errors.New("moomoo: trade operation not supported by this client")
 
+// ErrOrderRejected is returned by PlaceOrder when the BROKER/VENUE rejects the
+// order for a business reason (insufficient buying power, market closed, unknown
+// symbol, bad lot size, ...): the venue replies retType!=0 with a reason message
+// and NO order is placed. This is an EXPECTED, operator-facing outcome — NOT an
+// internal/transport error — so the manual-desk API maps it to a clean 4xx (422)
+// rather than a 500 with a leaked protocol string (finding 4). It is distinct from
+// a transport/protocol failure (a dropped connection, a malformed frame), which
+// stays an internal error. The wrapped error carries the venue's reason text.
+var ErrOrderRejected = errors.New("moomoo: order rejected by the broker")
+
 // PlaceOrderRequest is the executor-facing order submission. trd_client.go
 // translates it to a Trd_PlaceOrder C2S (header acc/env, security, qty, price,
 // side, market order type, GTC). ClientOrderID is carried through (as the
@@ -195,6 +205,18 @@ type TradeClient interface {
 	// PlaceOrder submits one order and returns the venue order id. Idempotent on
 	// req.ClientOrderID (see PlaceOrderRequest doc).
 	PlaceOrder(ctx context.Context, req PlaceOrderRequest) (PlaceOrderResult, error)
+
+	// CancelOrder requests the venue cancel a working order identified by its
+	// client-order-id (the order remark / idempotency key). It is used by the
+	// manual trading desk to cancel a resting order before it fills. A successful
+	// cancel is reported asynchronously via the normal Trd_UpdateOrder push
+	// (CANCELLED_ALL), which the executor's state machine applies — this method
+	// only issues the request. Cancelling an unknown, already-terminal, or
+	// already-cancelled order is a no-op (nil error): cancel is idempotent so a
+	// double-submit never errors. A client that cannot cancel (the market-data-
+	// only surface, or a wire build without the Trd_ModifyOrder proto) returns
+	// ErrUnsupported, which callers surface rather than silently dropping.
+	CancelOrder(ctx context.Context, accID uint64, env TrdEnv, clientOrderID string) error
 
 	// SubscribeOrderUpdates registers the handler for Trd_UpdateOrder pushes. The
 	// executor subscribes BEFORE placing any order so it never misses the

@@ -67,11 +67,19 @@ func (p *LivePersist) UpsertOrder(ctx context.Context, o domain.Order) error {
 	// filled_qty=qty in the SAME write — satisfying CHECK (status<>'FILLED' OR
 	// filled_qty=qty). Never regress filled_qty on update (GREATEST): a late
 	// duplicate or out-of-order push must not walk a FILLED row backwards.
+	//
+	// order_type + limit_px are written from the order (NOT hardcoded 'MARKET'): the
+	// manual desk fully supports LIMIT orders (validated, sent to the venue with the
+	// limit price), and the durable record + blotter MUST faithfully reflect the
+	// operator's order type + limit price on this audited, real-money-capable surface
+	// (finding 2). The schema CHECK ('LIMIT' requires limit_px NOT NULL) is satisfied
+	// because the executor only sets Type=LIMIT alongside a positive LimitPrice; a
+	// MARKET order carries no limit_px (NULL via nullPx on a nil/zero LimitPrice).
 	_, err := p.pool.Exec(ctx, `
 		INSERT INTO tms.orders
 		    (session_id, client_order_id, venue_order_id, strategy_id, symbol, instrument_id,
-		     side, order_type, qty, tif, status, filled_qty, avg_fill_px, reason, ts_submitted, ts_last_event)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,'MARKET',$8,'GTC',$9,$10,$11,$12,$13,$13)
+		     side, order_type, qty, limit_px, tif, status, filled_qty, avg_fill_px, reason, ts_submitted, ts_last_event)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'GTC',$11,$12,$13,$14,$15,$15)
 		ON CONFLICT (client_order_id) DO UPDATE SET
 		    venue_order_id = COALESCE(EXCLUDED.venue_order_id, tms.orders.venue_order_id),
 		    status         = EXCLUDED.status,
@@ -80,7 +88,8 @@ func (p *LivePersist) UpsertOrder(ctx context.Context, o domain.Order) error {
 		    reason         = COALESCE(NULLIF(EXCLUDED.reason, ''), tms.orders.reason),
 		    ts_last_event  = EXCLUDED.ts_last_event`,
 		p.sessionID, o.ClientOrderID, nullStr(o.VenueOrderID), o.StrategyID, o.Symbol,
-		p.instrumentID(o.Symbol), string(o.Side), int64(o.Qty), string(o.Status),
+		p.instrumentID(o.Symbol), string(o.Side), orderTypeOr(o.Type), int64(o.Qty),
+		limitPxParam(o.Type, o.LimitPrice), string(o.Status),
 		int64(o.FilledQty), nullPx(o.AvgFillPx), nullStr(o.Reason), o.TS.UTC())
 	if err != nil {
 		return fmt.Errorf("upsert order %s: %w", o.ClientOrderID, err)
@@ -165,6 +174,51 @@ func (p *LivePersist) UpsertPosition(ctx context.Context, pos domain.Position) e
 // RecordRiskEvent records an executor-level safety event (-> tms.risk_events).
 func (p *LivePersist) RecordRiskEvent(ctx context.Context, strategyID, symbol, rule, detail string) error {
 	return p.insertRiskEvent(ctx, false, rule, strategyID, symbol, domain.SideFlat, 0, 0, detail)
+}
+
+// RecordManualAction appends a manual-desk action to tms.audit_log (the
+// livetrade.AuditSink seam): operator, action (place/cancel/close), symbol, side,
+// qty, override?, live?, ts. Append-only (never updated/deleted). EVERY manual
+// action audits — this is a hard safety requirement (the desk can place real
+// orders), so an audit-write failure is returned to the caller (the desk logs it)
+// rather than silently dropped.
+func (p *LivePersist) RecordManualAction(ctx context.Context, a livetrade.ManualAuditRecord) error {
+	if p.pool == nil {
+		return nil
+	}
+	details := map[string]any{
+		"action":          a.Action,
+		"symbol":          a.Symbol,
+		"side":            a.Side,
+		"qty":             a.Qty,
+		"order_type":      a.OrderType,
+		"client_order_id": a.ClientOrderID,
+		"override":        a.Override,
+		"live":            a.Live,
+		"session_id":      p.sessionID,
+		"trader_id":       p.traderID,
+	}
+	if a.RiskRule != "" {
+		details["risk_rule_overridden"] = a.RiskRule
+	}
+	detBytes, _ := json.Marshal(details)
+	if _, err := p.pool.Exec(ctx,
+		`INSERT INTO tms.audit_log (actor, action, entity, entity_id, details, ts)
+		 VALUES ($1, $2, 'manual_trade', $3, $4::jsonb, $5)`,
+		actorOr(a.Operator), "trade.manual."+a.Action, nullStr(a.ClientOrderID),
+		string(detBytes), a.TS.UTC()); err != nil {
+		return fmt.Errorf("record manual action %s: %w", a.Action, err)
+	}
+	return nil
+}
+
+// actorOr defaults an empty operator to a non-empty sentinel (the audit_log actor
+// column CHECKs actor <> ”).
+func actorOr(operator string) string {
+	if operator == "" {
+		return "manual-desk:unknown"
+	}
+	return operator
 }
 
 // StrategyForOrder re-keys a restored broker order to its originating strategy
@@ -345,6 +399,32 @@ func nullPx(px domain.Price) any {
 	return int64(px)
 }
 
+// orderTypeOr maps the order's type to the schema enum, defaulting an empty type
+// to 'MARKET' (a defensive default for a snapshot that omitted it). The schema
+// CHECK restricts order_type to MARKET/LIMIT/STOP_MARKET/STOP_LIMIT.
+func orderTypeOr(t domain.OrderType) string {
+	if t == "" {
+		return string(domain.OrderTypeMarket)
+	}
+	return string(t)
+}
+
+// limitPxParam returns the limit_px column value (USD fixed-point 1e-4) for an
+// order: the positive limit price for a LIMIT/STOP_LIMIT order, else SQL NULL. The
+// schema CHECK requires limit_px NOT NULL for LIMIT/STOP_LIMIT and (limit_px > 0),
+// so a LIMIT order with a missing/non-positive price would (correctly) fail the
+// write rather than persist a malformed record — but the executor never produces
+// one (it sets Type=LIMIT only alongside a positive LimitPrice).
+func limitPxParam(t domain.OrderType, px *domain.Price) any {
+	if t != domain.OrderTypeLimit && t != domain.OrderTypeStopLimit {
+		return nil
+	}
+	if px == nil || *px <= 0 {
+		return nil
+	}
+	return int64(*px)
+}
+
 func textArray(ss []string) []string {
 	if ss == nil {
 		return []string{}
@@ -358,6 +438,7 @@ var (
 	_ moexec.RiskEventSink    = (*LivePersist)(nil)
 	_ moexec.StrategyResolver = (*LivePersist)(nil)
 	_ livetrade.RiskRecorder  = (*LivePersist)(nil)
+	_ livetrade.AuditSink     = (*LivePersist)(nil)
 	_ livetrade.ReportSink    = (*LivePersist)(nil)
 	_ livetrade.StateStore    = (*LivePersist)(nil)
 	_ livetrade.HealthSink    = (*LivePersist)(nil)

@@ -33,6 +33,17 @@ export const UI_BASE_URL = fromEnv("TMS_E2E_UI_URL", "http://localhost:13000");
 export const API_BASE_URL = fromEnv("TMS_E2E_API_URL", "http://localhost:18080");
 
 /**
+ * Host base URL of the MANUAL trading desk's bearer-guarded listener (P6;
+ * docs/api.md "Manual trading desk" — `--manual-api-addr`, default
+ * 127.0.0.1:18091 inside the live node). In the compose gate the desk's
+ * `/api/v1/trade/*` surface is reachable at the same host as the API (a reverse
+ * proxy fronts both), so this defaults to API_BASE_URL; override via
+ * TMS_E2E_MANUAL_URL when the desk listens on its own host port. When no manual
+ * desk is connected every endpoint here returns 503 and the specs self-skip.
+ */
+export const MANUAL_BASE_URL = fromEnv("TMS_E2E_MANUAL_URL", API_BASE_URL);
+
+/**
  * Bearer token guarding every /api/* route. Must equal the API's TMS_API_TOKEN
  * and the UI proxy's TMS_API_TOKEN. The local-dev default mirrors what the gate
  * seeds into .env; override via TMS_API_TOKEN for any real deployment.

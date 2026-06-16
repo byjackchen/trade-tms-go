@@ -97,8 +97,31 @@ type tradeVenue struct {
 	// symbol for the push-driven fill.
 	workingBySymbol map[string][]*venueOrder
 
+	// filledOrders is the history of fully-filled orders (so Trd_GetOrderList
+	// reports them as Filled_All after the fill, like a real venue) + filledFills
+	// is the per-execution fill history (so Trd_GetOrderFillList — the DIRECTION-2
+	// sync read — returns them). Both are append-only and keyed by accID at query.
+	filledOrders []*filledOrder
+	filledFills  []*filledFill
+
 	// marketClosed, when true, rejects new orders with RejectMarketClosed.
 	marketClosed bool
+}
+
+// filledOrder is a fully-filled order retained for Trd_GetOrderList history.
+type filledOrder struct {
+	o       *venueOrder
+	fillTS  time.Time
+	fillAvg float64
+	fillQty float64
+}
+
+// filledFill is one execution retained for Trd_GetOrderFillList history.
+type filledFill struct {
+	o      *venueOrder
+	fillID uint64
+	price  float64
+	ts     time.Time
 }
 
 // VenueConfig configures the mock trading venue's accounts and starting funds.
@@ -199,6 +222,25 @@ func (s *Server) VenuePositions(accID uint64) []VenuePosition {
 	return out
 }
 
+// pendingSymbols returns the set of symbols that currently have at least one
+// working (un-filled) order, so the autonomous fill driver (the standalone
+// mock-opend) knows which symbols to price + fill without a PushKLine tick. The
+// returned slice is a snapshot under the venue lock.
+func (v *tradeVenue) pendingSymbols() []string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if len(v.workingBySymbol) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(v.workingBySymbol))
+	for sym, orders := range v.workingBySymbol {
+		if len(orders) > 0 {
+			out = append(out, sym)
+		}
+	}
+	return out
+}
+
 // fillWorkingOrders fills every working order for symbol against fillPrice (the
 // close of the just-pushed bar), updating positions/funds and returning the
 // (UpdateOrderFill, UpdateOrder) push payloads to deliver. Called from the
@@ -224,6 +266,12 @@ func (v *tradeVenue) fillWorkingOrders(symbol string, fillPrice float64, ts time
 			signed = -o.qty
 		}
 		applyFillToAccount(acc, v, o.symbol, signed, fillPrice)
+
+		// Retain the fill + the now-Filled order in history so the broker reads
+		// (Trd_GetOrderList / Trd_GetOrderFillList — the DIRECTION-2 sync) report
+		// them after the order leaves workingBySymbol, exactly as a real venue does.
+		v.filledFills = append(v.filledFills, &filledFill{o: o, fillID: fillID, price: fillPrice, ts: ts})
+		v.filledOrders = append(v.filledOrders, &filledOrder{o: o, fillTS: ts, fillAvg: fillPrice, fillQty: o.qty})
 
 		// Build the two pushes for this fill: per-execution OrderFill, then the
 		// cumulative Order at Filled_All.

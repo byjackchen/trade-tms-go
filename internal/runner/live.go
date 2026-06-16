@@ -151,6 +151,20 @@ type Live struct {
 	// halt for THIS trader can be rehydrated on restart, and a stale halt from a
 	// prior crashed session is never re-applied. Guarded by mu; 0 before openSession.
 	sessionID int64
+
+	// client is the shared moomoo trading/market client, set by Run once the OpenD
+	// connection is ready. The MANUAL desk borrows its TradeClient to bind its own
+	// executor (a manual session can be established while the strategy session stays
+	// in signal mode). nil before Run connects. Guarded by mu.
+	client MoomooClient
+
+	// manual is the operator-driven manual trade desk (the discretionary order
+	// surface), independent of the strategy execution mode. nil until
+	// ConnectManualSession binds it. Guarded by manualMu so a connect + an in-flight
+	// place never race. Its executor holds an INDEPENDENT accounting book attributed
+	// to the MANUAL pseudo-strategy so manual fills never mingle with the auto books.
+	manualMu sync.Mutex
+	manual   *livetrade.ManualController
 }
 
 // NewLive builds a live node. rdb may be nil (Redis-less: no streams, no command
@@ -448,6 +462,9 @@ func (l *Live) Run(ctx context.Context) error {
 		return fmt.Errorf("runner: moomoo not ready: %w", err)
 	}
 	cancelReady()
+	l.mu.Lock()
+	l.client = client
+	l.mu.Unlock()
 	l.log.Info().Str("addr", l.cfg.MoomooAddr).Msg("moomoo client connected")
 
 	// (2) Command consumer (ops.commands -> Controller). Runs for the node's life.

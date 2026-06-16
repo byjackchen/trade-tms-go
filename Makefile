@@ -121,21 +121,28 @@ e2e:
 	$(E2E_ENV) bash -c 'cd $(E2E_DIR) && npx playwright test'
 
 # Full integration loop: build + bring up the entire app stack (postgres,
-# redis, migrate, api, worker, ui) waiting on healthchecks, seed market data if
-# empty, run the e2e suite, then tear the stack down regardless of outcome.
+# redis, migrate, api, worker, ui) PLUS the MANUAL trading-desk stack (the mock
+# OpenD venue + a paper live node with the operator manual desk), waiting on
+# healthchecks, seed market data if empty, run the e2e suite, then tear the stack
+# down regardless of outcome.
+#
+# The `manual` profile brings up tmsgo-mock-opend + tmsgo-live-manual so the
+# manual-desk specs (32-38) exercise the DIRECTION-1 place/cancel/close + the
+# DIRECTION-2 sync lifecycle end-to-end against a real listener (reverse-proxied
+# by the API on 18080) — not in-process and not self-skipped.
 #
 # The app containers read TMS_API_TOKEN only from .env (compose env_file). To
 # stay self-contained without clobbering an operator-managed .env, we ensure a
 # token line exists: if .env has no TMS_API_TOKEN= with a value, append the
-# default. The api/worker/ui then all agree on the same bearer token as the
-# suite ($(TMS_API_TOKEN)).
+# default. The api/worker/ui/manual-desk then all agree on the same bearer token
+# as the suite ($(TMS_API_TOKEN)).
 itest-full:
 	@touch .env
 	@if ! grep -qE '^TMS_API_TOKEN=.+' .env; then \
 		echo "TMS_API_TOKEN=$(TMS_API_TOKEN)" >> .env; \
 		echo "[itest-full] appended TMS_API_TOKEN to .env"; \
 	fi
-	docker compose --profile app up -d --build --wait
+	docker compose --profile app --profile manual up -d --build --wait
 	@set -e; \
 	TOKEN="$$(grep -E '^TMS_API_TOKEN=.+' .env | head -1 | cut -d= -f2-)"; \
 	export TMS_API_TOKEN="$$TOKEN"; \
@@ -147,7 +154,7 @@ itest-full:
 		( $(ITEST_ENV) TMS_E2E_UI_URL=http://localhost:13000 TMS_E2E_API_URL=http://localhost:18080 \
 			bash -c 'cd $(E2E_DIR) && npx playwright test' ) || status=$$?; \
 	fi; \
-	docker compose --profile app down; \
+	docker compose --profile app --profile manual down; \
 	exit $$status
 
 compose-up:

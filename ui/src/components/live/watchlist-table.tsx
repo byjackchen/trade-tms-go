@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useWatchlist, useLiveIntents } from "@/lib/api/hooks";
 import { useLiveStream } from "@/lib/api/use-live-stream";
 import { ApiError } from "@/lib/api/client";
@@ -15,10 +16,24 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/shell/states";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { IntentStateBadge } from "./live-badges";
 import { DisconnectedBanner } from "./disconnected-banner";
+import { cn } from "@/lib/utils";
+import type { ManualSide } from "@/lib/api/types";
 import { formatNum, formatRelative } from "@/lib/format";
+
+/**
+ * Map a signal's decision state to the suggested MANUAL order side for the
+ * trade-from-signal flow: a bullish entry (buy / long / enter) suggests BUY; an
+ * exit / bearish state (exit / sell / short / flat) suggests SELL. The operator
+ * always reviews + can flip the side in the ticket before submitting.
+ */
+function suggestedSide(state: string | undefined): ManualSide {
+  const s = (state ?? "").toLowerCase();
+  if (s === "exit" || s === "sell" || s === "short" || s === "flat") return "SELL";
+  return "BUY";
+}
 
 // csvCell quotes a value per RFC 4180: wrap in double-quotes and double any
 // embedded quote when the value contains a quote, comma, or newline.
@@ -188,6 +203,7 @@ export function WatchlistTable() {
                 <TableHead>Strategy</TableHead>
                 <TableHead className="text-right">Strength</TableHead>
                 <TableHead className="text-right">As of</TableHead>
+                <TableHead className="text-right">Trade</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -216,6 +232,22 @@ export function WatchlistTable() {
                       title={info?.ts}
                     >
                       {info ? formatRelative(info.ts, now) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {/* Trade-from-signal: pre-fill the manual order ticket with
+                          the symbol + a side suggested by the signal state. The
+                          operator reviews + confirms on the trade desk. */}
+                      <Link
+                        href={`/live/desk?symbol=${encodeURIComponent(sym)}&side=${suggestedSide(info?.state)}`}
+                        data-testid="manual-trade-from-signal"
+                        data-symbol={sym}
+                        data-side={suggestedSide(info?.state)}
+                        className={cn(
+                          buttonVariants({ variant: "outline", size: "sm" }),
+                        )}
+                      >
+                        Trade
+                      </Link>
                     </TableCell>
                   </TableRow>
                 );

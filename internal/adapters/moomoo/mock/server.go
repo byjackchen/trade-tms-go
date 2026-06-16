@@ -549,6 +549,94 @@ func (s *Server) PushKLine(symbol string, kl qotcommon.KLType, bars []domain.Bar
 	return n, nil
 }
 
+// StartAutoFill launches a background goroutine that AUTONOMOUSLY fills working
+// trading orders on a wall-clock tick, WITHOUT a PushKLine call. The in-process
+// test driver fills via PushKLine -> driveVenueFills on a controllable clock; the
+// STANDALONE mock OpenD (cmd/tms mock-opend) has no such caller — the live node
+// dials it over the wire and places orders, but nothing replays K-lines into it —
+// so without this driver every working order would sit ACCEPTED forever and never
+// fill (the manual-desk place->fill->position lifecycle, and DIRECTION-2 sync of a
+// broker-side position created by a fill, would be impossible end to end).
+//
+// On each tick it snapshots the symbols with working orders, prices each from the
+// bar source's most-recent daily close (the SAME price the documented fill model
+// uses, and the same price venueRejectReason validated against), and fills them —
+// delivering the resulting Trd_UpdateOrderFill + Trd_UpdateOrder pushes to every
+// live connection, exactly as driveVenueFills does on the K-line path. A symbol
+// whose price cannot be resolved (0) is left working (it will retry next tick).
+//
+// It returns immediately; the goroutine stops on ctx cancellation. interval<=0
+// defaults to 500ms — fast enough that the e2e place->FILLED wait (tens of
+// seconds) converges quickly, slow enough not to busy-spin the bar source. Safe to
+// call once after EnableTrading; a market-data-only server (no venue) no-ops.
+func (s *Server) StartAutoFill(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 500 * time.Millisecond
+	}
+	s.mu.Lock()
+	enabled := s.venue != nil
+	s.mu.Unlock()
+	if !enabled {
+		return
+	}
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				s.autoFillTick(ctx)
+			}
+		}
+	}()
+}
+
+// autoFillTick fills every symbol that currently has a working order, pricing each
+// from the bar source's latest daily close. It mirrors driveVenueFills (the
+// K-line-driven path) but sources the fill price itself rather than from a pushed
+// bar, so the standalone venue fills with no external clock driver.
+func (s *Server) autoFillTick(ctx context.Context) {
+	s.mu.Lock()
+	v := s.venue
+	s.mu.Unlock()
+	if v == nil {
+		return
+	}
+	for _, sym := range v.pendingSymbols() {
+		bars, err := s.opts.Source.Bars(ctx, sym, qotcommon.KLType_KLType_Day,
+			time.Unix(0, 0).UTC(), s.now())
+		if err != nil || len(bars) == 0 {
+			continue // no price yet: leave working, retry next tick
+		}
+		last := bars[len(bars)-1]
+		price := last.Close.Float64()
+		if price <= 0 {
+			continue
+		}
+		pushes := v.fillWorkingOrders(sym, price, s.now())
+		if len(pushes) == 0 {
+			continue
+		}
+		s.mu.Lock()
+		conns := make([]*conn, 0, len(s.conns))
+		for c := range s.conns {
+			conns = append(conns, c)
+		}
+		s.mu.Unlock()
+		for _, push := range pushes {
+			for _, c := range conns {
+				if err := push(c); err != nil {
+					s.log.Debug().Err(err).Msg("mock: auto-fill push write failed")
+				}
+			}
+		}
+	}
+}
+
 // driveVenueFills fills working orders for symbol against the close of the last
 // bar in bars, then delivers the resulting trading pushes to all connections.
 func (s *Server) driveVenueFills(symbol string, bars []domain.Bar) error {

@@ -82,6 +82,52 @@ FROM unnest(ARRAY[
 ON CONFLICT (ticker, ts, source) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
+-- MANUAL trading-desk symbols (AAPL/TSLA/MSFT) — real-world-priced bars for the
+-- manual-desk specs (32-38) and the mock OpenD venue. The mock venue prices +
+-- fills manual orders off the LATEST bars_daily.close, and the manual desk's
+-- risk-gate brokerPriceSource reads the SAME latest close, so these prices flow
+-- into BOTH the fill economics AND the budget/concentration gate.
+--
+-- SAFETY (CRITICAL — finding 1, the risk-gate blocker): close is USD fixed-point
+-- 1e-4 (stored = dollars * 10000), IDENTICAL to the CLEAN/GAPPY blocks above and
+-- to the domain.Price.Raw() convention the mock venue (mock/source.go:
+-- `Close: domain.Price(c)`) + every price reader decode. The prior dev fixture
+-- seeded these as the BARE dollar value (190/250/420), i.e. 1e4 TOO SMALL, so the
+-- mock venue filled AAPL at $0.019 and the gate priced a 10,000-share order at
+-- ~$190 (< the $100k MANUAL budget) and SILENTLY APPROVED a 25x-NAV market order.
+-- Correctly scaled ($190 -> 1_900_000), a 10,000-share AAPL/TSLA/MSFT market order
+-- is $1.9M/$2.5M/$4.2M and the allocator budget gate REJECTS it (HTTP 422) exactly
+-- as the identical-notional LIMIT order does — the gate binds on MARKET orders.
+--
+-- AAPL $190, TSLA $250, MSFT $420 (whole-dollar OHLC; close is what the venue
+-- prices off). NVDA is deliberately LEFT UNPRICED so the "unpriced symbol fails
+-- the gate CLOSED" path (risk.unpriced_symbol -> 422) stays exercised.
+INSERT INTO tms.bars_daily (ticker, ts, source, open, high, low, close, volume)
+SELECT s.ticker, d::timestamptz, 'SEP',
+       s.px, s.px, s.px, s.px, 1000000
+FROM unnest(ARRAY[
+       TIMESTAMPTZ '2024-06-03 00:00:00+00',
+       TIMESTAMPTZ '2024-06-04 00:00:00+00',
+       TIMESTAMPTZ '2024-06-05 00:00:00+00',
+       TIMESTAMPTZ '2024-06-06 00:00:00+00',
+       TIMESTAMPTZ '2024-06-07 00:00:00+00',
+       TIMESTAMPTZ '2024-06-10 00:00:00+00',
+       TIMESTAMPTZ '2024-06-11 00:00:00+00',
+       TIMESTAMPTZ '2024-06-12 00:00:00+00'
+     ]) AS d
+CROSS JOIN (VALUES
+       ('AAPL', 1900000::bigint),  -- $190.00
+       ('TSLA', 2500000::bigint),  -- $250.00
+       ('MSFT', 4200000::bigint)   -- $420.00
+     ) AS s(ticker, px)
+ON CONFLICT (ticker, ts, source) DO UPDATE SET
+  open   = EXCLUDED.open,
+  high   = EXCLUDED.high,
+  low    = EXCLUDED.low,
+  close  = EXCLUDED.close,
+  volume = EXCLUDED.volume;
+
+-- ---------------------------------------------------------------------------
 -- fundamentals_sf1 — one quarterly row per ticker (just enough for a non-zero
 -- coverage count). All metric columns default NULL.
 -- ---------------------------------------------------------------------------

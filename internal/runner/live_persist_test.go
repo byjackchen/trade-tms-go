@@ -152,6 +152,51 @@ func TestUpsertOrderFilledCarriesFilledQty(t *testing.T) {
 	assert.Equal(t, int64(40), filledQty, "filled_qty never regresses on a stale duplicate")
 }
 
+// TestUpsertOrderPersistsTypeAndLimitPx is the regression for finding 2: a LIMIT
+// order must persist with order_type='LIMIT' AND limit_px (USD fixed-point 1e-4),
+// not the hardcoded 'MARKET' with a NULL limit_px the manual desk wrote before.
+// The manual desk fully supports LIMIT (validated + sent to the venue with the
+// limit price), so the durable record + blotter must faithfully reflect the
+// operator's order type + limit price on this audited, real-money-capable surface.
+func TestUpsertOrderPersistsTypeAndLimitPx(t *testing.T) {
+	pool := requirePG(t)
+	ctx := testCtx(t)
+	sessionID := openTestSession(t, pool, "PAPER-LIMIT-001")
+	p := runner.NewLivePersist(pool, nil, sessionID, "PAPER-LIMIT-001", "MOOMOO", zerolog.Nop())
+
+	// A LIMIT BUY (MSFT @ 100.00). Build the order exactly as the executor's
+	// SubmitManual does for a LIMIT spec: Type=LIMIT with a positive LimitPrice.
+	lp := domain.MustPrice("100.00")
+	o := domain.Order{
+		ClientOrderID: "MANUAL-PAPER-lim-1", StrategyID: livetrade.ManualStrategyID,
+		Symbol: "MSFT", Side: domain.OrderSideBuy, Type: domain.OrderTypeLimit,
+		TIF: domain.TIFGTC, Qty: 5, LimitPrice: &lp,
+		Status: domain.OrderStatusSubmitted, TS: time.Now().UTC(),
+	}
+	require.NoError(t, o.Validate(), "a LIMIT order with a positive limit price is valid in-domain")
+	require.NoError(t, p.UpsertOrder(ctx, o), "LIMIT order persists (order_type CHECK satisfied)")
+
+	var orderType string
+	var limitPx int64
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT order_type, limit_px FROM tms.orders WHERE client_order_id='MANUAL-PAPER-lim-1'`).
+		Scan(&orderType, &limitPx))
+	assert.Equal(t, "LIMIT", orderType, "the LIMIT order persists as LIMIT, not the old hardcoded MARKET")
+	assert.Equal(t, int64(1000000), limitPx, "limit_px persists on the 1e-4 grid ($100.00 -> 1_000_000)")
+
+	// A MARKET order persists order_type='MARKET' with a NULL limit_px (no ceiling).
+	m := domain.NewMarketOrder("MANUAL-PAPER-mkt-1", livetrade.ManualStrategyID, "AAPL", domain.OrderSideBuy, 10, "open", time.Now().UTC())
+	m.Status = domain.OrderStatusSubmitted
+	require.NoError(t, p.UpsertOrder(ctx, m))
+	var mType string
+	var mLimit *int64
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT order_type, limit_px FROM tms.orders WHERE client_order_id='MANUAL-PAPER-mkt-1'`).
+		Scan(&mType, &mLimit))
+	assert.Equal(t, "MARKET", mType)
+	assert.Nil(t, mLimit, "a MARKET order carries no limit_px (NULL)")
+}
+
 // openPositionCount returns the number of OPEN tms.positions rows for the
 // session — the cockpit's "open positions" gauge. After a flatten it MUST be 0.
 func openPositionCount(t *testing.T, pool *pgxpool.Pool, sessionID int64) int64 {

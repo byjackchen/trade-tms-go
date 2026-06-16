@@ -297,6 +297,16 @@ func (t *TradeSession) RestoreStrategyState(ctx context.Context) (map[string]boo
 	return restored, nil
 }
 
+// BookPositions exposes the strategy session's per-(strategy, symbol) signed book
+// so the MANUAL desk's reconciler can aggregate the WHOLE-SYSTEM books (strategy +
+// manual) against the broker truth — the broker's Trd_GetPositionList returns the
+// ENTIRE account (strategy + manual positions), so reconciling it against the
+// manual-only book alone would mis-classify every strategy-held symbol as drift
+// (finding 6). Satisfies the StrategyBooks interface.
+func (t *TradeSession) BookPositions() map[portfolio.PositionKey]int64 {
+	return t.account.BookPositions()
+}
+
 // openPositions returns the account's open (non-flat) positions.
 func (a *AccountAdapter) openPositions() []domain.Position {
 	a.mu.Lock()

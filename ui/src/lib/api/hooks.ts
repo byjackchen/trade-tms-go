@@ -47,6 +47,12 @@ import type {
   PreflightReport,
   AuditResponse,
   JobRetryResponse,
+  ManualOrderRequest,
+  ManualOrderResponse,
+  ManualCancelResponse,
+  ManualCloseRequest,
+  ManualCloseResponse,
+  ManualSyncResponse,
 } from "./types";
 import { ApiError } from "./client";
 
@@ -668,6 +674,96 @@ export function useLiveCommand() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["live", "session"] });
       void qc.invalidateQueries({ queryKey: ["live", "health"] });
+    },
+  });
+}
+
+// ---- Manual trading desk (P6, operator-driven mutations) ----
+//
+// The ONLY broker-mutation surface in the HTTP API. SAFETY is paramount: the
+// server is the authoritative gate (412 confirmation_required / 422 risk_violation
+// / 503 no-desk). These mutations are NEVER retried — a retry on a partial /
+// unknown outcome must never silently double-submit (idempotency_key already
+// prevents a true duplicate, but a retry here would also re-surface the safety
+// dialog, which must be an explicit operator action). On success we invalidate the
+// live orders / positions / account queries so the blotter + book reconcile to the
+// durable PG truth immediately (the WS push layers on top).
+
+/** Bust the live trading read snapshots after a successful manual mutation. */
+function invalidateTradingReads(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: ["live", "orders"] });
+  void qc.invalidateQueries({ queryKey: ["live", "fills"] });
+  void qc.invalidateQueries({ queryKey: ["live", "positions"] });
+  void qc.invalidateQueries({ queryKey: ["live", "account"] });
+}
+
+/**
+ * Place a manual order (POST /api/v1/trade/order). The caller inspects the
+ * thrown `ApiError` for the gate codes: 412 (`confirmation_required` — needs the
+ * per-order confirm phrase / trade password) and 422 (`risk_violation` — the gate
+ * rejected an opening order; the operator may re-submit with `override: true`).
+ */
+export function useManualOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ManualOrderRequest) =>
+      apiPost<ManualOrderResponse>("trade/order", body),
+    retry: false,
+    onSuccess: () => invalidateTradingReads(qc),
+  });
+}
+
+/** Cancel a working manual order by client-order-id (idempotent on the server). */
+export function useCancelManualOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (coid: string) =>
+      apiPost<ManualCancelResponse>(
+        `trade/order/${encodeURIComponent(coid)}/cancel`,
+        {},
+      ),
+    retry: false,
+    onSuccess: () => invalidateTradingReads(qc),
+  });
+}
+
+/**
+ * Close (flatten) the MANUAL position in one symbol. A LIVE close still requires a
+ * `confirm_token` (412 without it); a close bypasses the allocator budget. An
+ * already-flat symbol is an idempotent no-op (`submitted: false`).
+ */
+export function useCloseManualPosition() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { symbol: string; body: ManualCloseRequest }) =>
+      apiPost<ManualCloseResponse>(
+        `trade/position/${encodeURIComponent(args.symbol)}/close`,
+        args.body,
+      ),
+    retry: false,
+    onSuccess: () => invalidateTradingReads(qc),
+  });
+}
+
+/**
+ * Sync from broker (POST /api/v1/trade/sync) — DIRECTION 2 (broker → TMS, the
+ * operator's primary case). The operator traded DIRECTLY in moomoo; this pulls the
+ * account's ACTUAL positions/orders/fills/account and reflects them into the
+ * MANUAL/EXTERNAL book, then reconciles vs the strategy books. READ-ONLY at the
+ * broker (places NO orders) and therefore safe in ALL modes incl signal — no
+ * confirm token or risk gate applies. Idempotent: re-syncing the same broker state
+ * reflects nothing. On success we invalidate the trading reads so the
+ * positions/blotter/account panels reflect broker truth immediately. Also busts the
+ * reconciliation read so its panel converges.
+ */
+export function useManualSync() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiPost<ManualSyncResponse>("trade/sync", {}),
+    retry: false,
+    onSuccess: () => {
+      invalidateTradingReads(qc);
+      void qc.invalidateQueries({ queryKey: ["live", "reconciliation"] });
     },
   });
 }

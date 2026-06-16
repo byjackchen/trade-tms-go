@@ -880,3 +880,296 @@ export async function reconciliationReportCount(c: Client): Promise<number> {
   );
   return Number(rows[0].n);
 }
+
+// ---------------------------------------------------------------------------
+// MANUAL trading desk ground truth (P6, operator-driven — docs/api.md "Manual
+// trading desk"). Manual place / cancel / close orders are persisted to the SAME
+// durable tables as the auto book (tms.orders / fills / positions / risk_events)
+// but attributed to the `MANUAL` pseudo-strategy (strategy_id = 'MANUAL') so
+// reconciliation + per-strategy accounting stay clean. Every manual action also
+// writes a tms.audit_log row (operator, action, symbol, side, qty, override?,
+// live?, ts). These helpers read MANUAL-scoped truth so the desk specs compare
+// what the UI renders / the API returns against the DB — never a fabricated row.
+//
+// Money columns are BIGINT fixed-point 1e-4 USD; the *Usd helpers decode to USD.
+// ---------------------------------------------------------------------------
+
+/** The pseudo-strategy id every manual order/position is booked under. */
+export const MANUAL_STRATEGY_ID = "MANUAL";
+
+/** Up to `limit` newest MANUAL orders for a session, newest first — the manual
+ * blotter's rows (strategy_id = 'MANUAL'). Reuses OrderTruth (decoded). */
+export async function recentManualOrders(
+  c: Client,
+  sessionId: number,
+  limit = 200,
+): Promise<OrderTruth[]> {
+  const { rows } = await c.query<{
+    client_order_id: string;
+    venue_order_id: string | null;
+    strategy_id: string;
+    symbol: string;
+    side: string;
+    qty: string;
+    filled_qty: string;
+    avg_fill_px: string | null;
+    status: string;
+    reason: string | null;
+  }>(
+    `SELECT client_order_id, venue_order_id, strategy_id, symbol, side,
+            qty::text AS qty, filled_qty::text AS filled_qty,
+            avg_fill_px::text AS avg_fill_px, status, reason
+       FROM tms.orders
+      WHERE session_id = $1 AND strategy_id = $2
+      ORDER BY created_at DESC, id DESC
+      LIMIT $3`,
+    [sessionId, MANUAL_STRATEGY_ID, limit],
+  );
+  return rows.map((r) => ({
+    clientOrderId: r.client_order_id,
+    venueOrderId: r.venue_order_id,
+    strategyId: r.strategy_id,
+    symbol: r.symbol,
+    side: r.side as OrderTruth["side"],
+    qty: Number(r.qty),
+    filledQty: Number(r.filled_qty),
+    avgFillPxUsd: r.avg_fill_px != null ? Number(r.avg_fill_px) / 10000 : null,
+    status: r.status,
+    reason: r.reason,
+  }));
+}
+
+/** A single MANUAL order by its client-order-id (within a session), decoded.
+ * Used to follow a just-placed manual order to terminal state by its idempotent
+ * client-order-id. Null when not yet persisted. */
+export async function manualOrderByClientId(
+  c: Client,
+  sessionId: number,
+  clientOrderId: string,
+): Promise<OrderTruth | null> {
+  const { rows } = await c.query<{
+    client_order_id: string;
+    venue_order_id: string | null;
+    strategy_id: string;
+    symbol: string;
+    side: string;
+    qty: string;
+    filled_qty: string;
+    avg_fill_px: string | null;
+    status: string;
+    reason: string | null;
+  }>(
+    `SELECT client_order_id, venue_order_id, strategy_id, symbol, side,
+            qty::text AS qty, filled_qty::text AS filled_qty,
+            avg_fill_px::text AS avg_fill_px, status, reason
+       FROM tms.orders
+      WHERE session_id = $1 AND strategy_id = $2 AND client_order_id = $3
+      LIMIT 1`,
+    [sessionId, MANUAL_STRATEGY_ID, clientOrderId],
+  );
+  if (!rows.length) return null;
+  const r = rows[0];
+  return {
+    clientOrderId: r.client_order_id,
+    venueOrderId: r.venue_order_id,
+    strategyId: r.strategy_id,
+    symbol: r.symbol,
+    side: r.side as OrderTruth["side"],
+    qty: Number(r.qty),
+    filledQty: Number(r.filled_qty),
+    avgFillPxUsd: r.avg_fill_px != null ? Number(r.avg_fill_px) / 10000 : null,
+    status: r.status,
+    reason: r.reason,
+  };
+}
+
+/** The OPEN (non-flat) MANUAL position book for a session — the manual desk's
+ * positions rows (strategy_id = 'MANUAL'). */
+export async function openManualPositions(
+  c: Client,
+  sessionId: number,
+): Promise<PositionTruth[]> {
+  const { rows } = await c.query<{
+    strategy_id: string;
+    symbol: string;
+    signed_qty: string;
+    avg_entry_px: string | null;
+    realized_pnl_usd: string;
+    status: string;
+  }>(
+    `SELECT strategy_id, symbol,
+            signed_qty::text AS signed_qty,
+            avg_entry_px::text AS avg_entry_px,
+            realized_pnl_usd::text AS realized_pnl_usd,
+            status
+       FROM tms.positions
+      WHERE session_id = $1 AND strategy_id = $2
+        AND status = 'OPEN' AND signed_qty <> 0
+      ORDER BY symbol ASC`,
+    [sessionId, MANUAL_STRATEGY_ID],
+  );
+  return rows.map((r) => ({
+    strategyId: r.strategy_id,
+    symbol: r.symbol,
+    signedQty: Number(r.signed_qty),
+    avgEntryPxUsd:
+      r.avg_entry_px != null ? Number(r.avg_entry_px) / 10000 : null,
+    realizedPnlUsd: Number(r.realized_pnl_usd) / 10000,
+    status: r.status as PositionTruth["status"],
+  }));
+}
+
+/** Signed open qty of the MANUAL position in one symbol (0 when flat) — the
+ * "position qty -> 0" close assertion reads this. */
+export async function manualPositionSignedQty(
+  c: Client,
+  sessionId: number,
+  symbol: string,
+): Promise<number> {
+  const { rows } = await c.query<{ sq: string | null }>(
+    `SELECT signed_qty::text AS sq
+       FROM tms.positions
+      WHERE session_id = $1 AND strategy_id = $2 AND symbol = $3
+        AND status = 'OPEN'
+      ORDER BY id DESC
+      LIMIT 1`,
+    [sessionId, MANUAL_STRATEGY_ID, symbol],
+  );
+  if (!rows.length || rows[0].sq == null) return 0;
+  return Number(rows[0].sq);
+}
+
+/** Count of OPEN (non-flat) MANUAL positions for a session. */
+export async function openManualPositionCount(
+  c: Client,
+  sessionId: number,
+): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM tms.positions
+      WHERE session_id = $1 AND strategy_id = $2
+        AND status = 'OPEN' AND signed_qty <> 0`,
+    [sessionId, MANUAL_STRATEGY_ID],
+  );
+  return Number(rows[0].n);
+}
+
+/** Count of rejected (approved=false) MANUAL risk events for a session — the
+ * gate's denials of a manual opening order (strategy_id = 'MANUAL'). A manual
+ * order that violates a limit WITHOUT an override flag is rejected here. */
+export async function rejectedManualRiskEventCount(
+  c: Client,
+  sessionId: number,
+): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM tms.risk_events
+      WHERE session_id = $1 AND strategy_id = $2 AND approved = false`,
+    [sessionId, MANUAL_STRATEGY_ID],
+  );
+  return Number(rows[0].n);
+}
+
+/** Count of APPROVED MANUAL risk events for a session — an audited override of a
+ * limit violation is an approved=true MANUAL gate decision (the operator's
+ * recorded decision: risk_events + audit_log). The risk-override spec asserts
+ * one appears after the operator checks `override` and resubmits. */
+export async function approvedManualRiskEventCount(
+  c: Client,
+  sessionId: number,
+): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM tms.risk_events
+      WHERE session_id = $1 AND strategy_id = $2 AND approved = true`,
+    [sessionId, MANUAL_STRATEGY_ID],
+  );
+  return Number(rows[0].n);
+}
+
+/** Total MANUAL risk-event rows for a session (any decision). */
+export async function manualRiskEventCount(
+  c: Client,
+  sessionId: number,
+): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM tms.risk_events
+      WHERE session_id = $1 AND strategy_id = $2`,
+    [sessionId, MANUAL_STRATEGY_ID],
+  );
+  return Number(rows[0].n);
+}
+
+/** Count of audit_log rows whose actor/action concern a manual trade action.
+ * Every manual place/cancel/close writes an ops audit row; this gates the
+ * "every manual action is audited" assertion. We match the documented manual
+ * trade actions (trade.place / trade.cancel / trade.close) case-insensitively
+ * and also accept an entity of 'trade'/'MANUAL' so a slightly different action
+ * label still counts as a manual-desk audit entry. */
+export async function manualAuditCount(c: Client): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM tms.audit_log
+      WHERE lower(action) LIKE 'trade.%'
+         OR lower(action) LIKE '%manual%'
+         OR lower(COALESCE(entity,'')) IN ('trade','manual','manual_trade')`,
+  );
+  return Number(rows[0].n);
+}
+
+/** Count of audit_log rows that record a DIRECTION-2 broker -> TMS SYNC action.
+ * SyncFromBroker writes a `trade.manual.sync` audit row (entity `manual_trade`,
+ * action ending in `.sync` — internal/runner/live_persist.go RecordManualAction
+ * + internal/livetrade/manual_sync.go). The sync spec asserts this monotonically
+ * grows by exactly the number of syncs performed (the sync is always audited,
+ * even though it is READ-ONLY at the broker). We match the `.sync` suffix
+ * case-insensitively and also accept a plain `sync` action so a slightly
+ * different label still counts. */
+export async function syncAuditCount(c: Client): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM tms.audit_log
+      WHERE lower(action) LIKE '%.sync'
+         OR lower(action) = 'sync'`,
+  );
+  return Number(rows[0].n);
+}
+
+/** Total MANUAL-book position rows for a session, regardless of OPEN/CLOSED or
+ * flat/non-flat (strategy_id = 'MANUAL'). DIRECTION-2 sync drives a symbol the
+ * broker no longer reports back to flat (an external close), so the sync spec's
+ * idempotency / no-duplicate assertion counts *distinct symbols* in the MANUAL
+ * book, not just open rows — a re-sync of the same broker state must not add a
+ * new symbol row. */
+export async function manualPositionSymbolCount(
+  c: Client,
+  sessionId: number,
+): Promise<number> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT COUNT(DISTINCT symbol)::text AS n
+       FROM tms.positions
+      WHERE session_id = $1 AND strategy_id = $2`,
+    [sessionId, MANUAL_STRATEGY_ID],
+  );
+  return Number(rows[0].n);
+}
+
+/** Distinct symbols held in the OPEN (non-flat) MANUAL book for a session — the
+ * set of positions the sync reflected into TMS. Used to assert a synced broker
+ * position surfaces under the MANUAL/EXTERNAL book and to prove re-sync adds no
+ * new symbol. */
+export async function openManualPositionSymbols(
+  c: Client,
+  sessionId: number,
+): Promise<string[]> {
+  const { rows } = await c.query<{ symbol: string }>(
+    `SELECT DISTINCT symbol
+       FROM tms.positions
+      WHERE session_id = $1 AND strategy_id = $2
+        AND status = 'OPEN' AND signed_qty <> 0
+      ORDER BY symbol ASC`,
+    [sessionId, MANUAL_STRATEGY_ID],
+  );
+  return rows.map((r) => r.symbol);
+}

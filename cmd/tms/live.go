@@ -51,6 +51,8 @@ func newLiveCmd(env *runtimeEnv) *cobra.Command {
 		drainTimeout  time.Duration
 		skipPreflight bool
 		maxStaleDays  int
+		manualMode    string
+		manualAPIAddr string
 	)
 
 	cmd := &cobra.Command{
@@ -84,6 +86,8 @@ func newLiveCmd(env *runtimeEnv) *cobra.Command {
 				drainTimeout:  drainTimeout,
 				skipPreflight: skipPreflight,
 				maxStaleDays:  maxStaleDays,
+				manualMode:    strings.TrimSpace(manualMode),
+				manualAPIAddr: strings.TrimSpace(manualAPIAddr),
 			})
 		},
 	}
@@ -101,6 +105,8 @@ func newLiveCmd(env *runtimeEnv) *cobra.Command {
 	cmd.Flags().DurationVar(&drainTimeout, "drain-timeout", 10*time.Second, "max wait for in-flight work on shutdown")
 	cmd.Flags().BoolVar(&skipPreflight, "skip-preflight", false, "DANGER: start without the go-live preflight gate (paper/signal only; REFUSED for --mode live)")
 	cmd.Flags().IntVar(&maxStaleDays, "max-stale-days", 1, "DATA_CURRENT tolerance: max trading days the data frontier may lag T-1")
+	cmd.Flags().StringVar(&manualMode, "manual-mode", "", "connect an operator MANUAL trade desk: paper | live (independent of --mode; live requires the full 4-factor activation). Serves /api/v1/trade/* on --manual-api-addr")
+	cmd.Flags().StringVar(&manualAPIAddr, "manual-api-addr", "127.0.0.1:18091", "MANUAL trade desk HTTP listen address (bearer-guarded by TMS_API_TOKEN)")
 
 	cmd.AddCommand(newLivePreflightCmd(env))
 	return cmd
@@ -167,6 +173,8 @@ type liveArgs struct {
 	drainTimeout  time.Duration
 	skipPreflight bool
 	maxStaleDays  int
+	manualMode    string
+	manualAPIAddr string
 }
 
 // runLive assembles and runs the live signal-mode trading node (P5): the native
@@ -332,15 +340,34 @@ func runLive(parent context.Context, env *runtimeEnv, a liveArgs) error {
 		return err
 	}
 
+	// Optional MANUAL trade desk: connect an operator-driven desk (paper/live) and
+	// serve the /api/v1/trade/* mutation surface, independent of the strategy mode.
+	// It runs in this process because it holds the broker connection.
+	var manualSrv *manualTradeServer
+	if a.manualMode != "" {
+		manualSrv, err = startManualTradeServer(ctx, manualTradeServerArgs{
+			node:    node,
+			mode:    a.manualMode,
+			apiAddr: a.manualAPIAddr,
+			token:   env.cfg.APIToken,
+			log:     log,
+		})
+		if err != nil {
+			return err
+		}
+	}
+
 	log.Info().
 		Str("moomoo_addr", moomooAddr).
 		Str("mode", a.mode).
+		Str("manual_mode", a.manualMode).
 		Float64("health_nav", a.startBalance).
 		Msg("live node starting")
 
 	runErr := node.Run(ctx)
 
 	shutdownErr := app.GracefulShutdown(log, a.drainTimeout,
+		app.ShutdownFunc{Name: "manual-trade-api", Fn: manualShutdown(manualSrv)},
 		app.ShutdownFunc{Name: "live-health", Fn: healthSrv.Shutdown},
 		app.ShutdownFunc{Name: "live-node", Fn: func(context.Context) error {
 			log.Info().Msg("live node stopped")

@@ -27,7 +27,7 @@
  */
 
 import type { Page } from "@playwright/test";
-import { getAuthed } from "./api";
+import { getAuthed, getManual } from "./api";
 import { withDb, latestSession, type LiveSessionTruth } from "./db";
 
 /** Canonical strategy-id discriminators that appear on streaming intents
@@ -235,4 +235,111 @@ export function parseCount(raw: string | null): number | null {
   if (raw == null) return null;
   const n = Number(raw.trim());
   return Number.isFinite(n) ? n : null;
+}
+
+// ---------------------------------------------------------------------------
+// Manual trading desk (P6, operator-driven). The desk lets the operator place /
+// cancel / close BY HAND against a paper or live account, in ANY strategy mode
+// (signal: the operator IS the executor; paper/live: an override alongside the
+// auto book). It reuses the MoomooExecutor + Trd_* client + order-state machine
+// + tms.orders/fills/positions + the mock venue, attributing every manual order
+// to the `MANUAL` pseudo-strategy so reconciliation + per-strategy accounting
+// stay clean (docs/api.md "Manual trading desk").
+//
+// SAFETY (paramount — this can place REAL orders): a paper manual order needs the
+// trade password in confirm_token; a LIVE manual order needs the full 4-factor
+// activation PLUS a per-order typed confirmation phrase. The gate runs the desk
+// in PAPER over the mock venue; the safety specs prove the live guard EXISTS
+// without ever placing a real order.
+//
+// These helpers gate the manual-desk specs the same way the paper-trading specs
+// gate on a paper session: they self-skip cleanly until the desk + the cockpit's
+// manual panels land, so the gate stays green meanwhile (the established
+// specs-07-17 pattern).
+// ---------------------------------------------------------------------------
+
+/** The pseudo-strategy id every manual order/position is booked under (distinct
+ * from the auto strategies so reconciliation + per-strategy accounting stay
+ * clean — docs/api.md "Manual trading desk"). */
+export const MANUAL_STRATEGY_ID = "MANUAL";
+
+/** The exact per-order confirmation phrase a LIVE (real-money) manual order
+ * requires in `confirm_token` (docs/api.md). A near-miss must NEVER arm a real
+ * order — the safety specs assert the boundary holds with the wrong phrase. */
+export const MANUAL_LIVE_CONFIRM_PHRASE = "I CONFIRM THIS REAL MONEY MANUAL ORDER";
+
+/**
+ * Whether a MANUAL trading desk is connected. We probe GET /api/v1/trade/status
+ * — a DEDICATED desk-status endpoint on the ACTUAL mutation surface: 503 when no
+ * desk is attached (the live node was started without `--manual-mode`, or the
+ * desk has not finished connecting), 200 {connected,mode,live} once a desk is
+ * bound. We must NOT probe GET /api/v1/trade/account for this: that route reuses
+ * the always-present live-account reader and returns 200 EVEN WITH NO DESK
+ * connected, so the skip-guard would pass and the specs would then HARD-FAIL on
+ * the real /trade/* POSTs returning 503 (the original gate bug). /trade/status
+ * is gated on the desk itself, so a 200 here guarantees the mutation POSTs work.
+ */
+export async function manualDeskAvailable(): Promise<boolean> {
+  const res = await getManual("trade/status");
+  return res.status === 200;
+}
+
+/**
+ * Whether a connected manual desk is bound to a PAPER account (never live). The
+ * gate only ever runs the desk in paper over the mock venue; the order-placing
+ * specs gate on this so they NEVER place against a real/live account. The desk's
+ * account view exposes its mode; absent that, we fall back to the session mode
+ * (the desk attaches to the live node, whose session is signal/paper in the
+ * gate). Returns true only when we can positively confirm paper (or signal — the
+ * operator-as-executor case, still the mock venue), never live.
+ */
+export async function manualDeskIsPaper(): Promise<boolean> {
+  const res = await getManual("trade/status");
+  if (res.status !== 200) return false;
+  const body = res.body as { mode?: string; live?: boolean } | undefined;
+  // A live desk is NEVER paper — refuse outright (never place against live).
+  if (body?.live === true || body?.mode === "live") return false;
+  if (body?.mode) return body.mode === "paper" || body.mode === "signal";
+  // No explicit desk mode surfaced — defer to the session the desk attaches to.
+  const s = await currentSession();
+  return !!s && (s.mode === "paper" || s.mode === "signal");
+}
+
+/**
+ * Whether a manual desk can SYNC from the broker (DIRECTION 2, broker -> TMS).
+ * `POST /api/v1/trade/sync` is READ-ONLY at the broker (places NO orders) and is
+ * safe in ALL modes incl signal, so — unlike the order-placing helpers — it does
+ * NOT gate on `manualDeskIsPaper()`. It only needs a manual desk connected; the
+ * endpoint returns 503 when none is. We treat any non-503 as "sync available".
+ */
+export async function manualSyncAvailable(): Promise<boolean> {
+  // A connected desk is the only precondition; reuse the account probe (the
+  // cheapest non-mutating 503-vs-present signal) rather than POSTing a sync here.
+  return manualDeskAvailable();
+}
+
+/**
+ * True once the real MANUAL trading desk replaced the coming-soon placeholder.
+ * The desk is a cockpit surface (its own route/tab); like liveUiReady, the real
+ * root (`manual-desk`) only exists in the built workspace and the placeholder
+ * (`manual-desk-placeholder`) marks coming-soon. Navigates to the desk route and
+ * returns false when neither has appeared or the placeholder is still showing.
+ */
+export async function manualDeskUiReady(page: Page): Promise<boolean> {
+  await page.goto("/live/desk", { waitUntil: "domcontentloaded" });
+  const shell = page.getByTestId("app-shell");
+  try {
+    await shell.waitFor({ state: "visible", timeout: 15_000 });
+  } catch {
+    return false;
+  }
+  const real = page.getByTestId("manual-desk");
+  const placeholder = page.getByTestId("manual-desk-placeholder");
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    if (await real.count()) return true;
+    if (await placeholder.count()) return false;
+    await page.waitForTimeout(250);
+  }
+  return false;
 }
