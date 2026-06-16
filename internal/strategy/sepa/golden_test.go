@@ -225,7 +225,15 @@ func compareIntent(t *testing.T, scn string, i int, w refIntent, g SignalIntent)
 		t.Errorf("%s[%d] intent: tt_pass %v != %v", scn, i, g.TrendTemplatePass, w.TrendTemplatePass)
 		bad++
 	}
-	if !eqFloatPtr(w.ProximityToTrigP, g.ProximityToTriggerP) {
+	// TMS ENHANCEMENT divergence (intent.go attachTradePlan / attachHeldTradePlan):
+	// for trend-template-passing flat states (forming/buy) and held (hold) states
+	// the Go generator ALWAYS carries a non-null proximity/pivot/stop trade plan,
+	// where the Python oracle leaves them null (it only sets them when a VCP pivot
+	// is primed). We therefore hold strict Python parity ONLY when the reference
+	// expects a value (it must match); a Go-non-null-where-reference-null pair is
+	// the SANCTIONED divergence and is accepted for these actionable states.
+	diverges := g.State == StateForming || g.State == StateBuy || g.State == StateHold
+	if !tmsDivergeOK(w.ProximityToTrigP, g.ProximityToTriggerP, diverges, eqFloatPtr) {
 		t.Errorf("%s[%d] intent: proximity %v != %v", scn, i, g.ProximityToTriggerP, w.ProximityToTrigP)
 		bad++
 	}
@@ -241,11 +249,11 @@ func compareIntent(t *testing.T, scn string, i int, w refIntent, g SignalIntent)
 		t.Errorf("%s[%d] intent: vol_dryup %v != %v", scn, i, g.VolumeDryup, w.VolumeDryup)
 		bad++
 	}
-	if !eqDecStrPtr(w.PivotPrice, optStr(g.PivotPrice)) {
+	if !tmsDivergeOK(w.PivotPrice, optStr(g.PivotPrice), diverges, eqDecStrPtr) {
 		t.Errorf("%s[%d] intent: pivot %v != %v", scn, i, optStr(g.PivotPrice), w.PivotPrice)
 		bad++
 	}
-	if !eqDecStrPtr(w.StopPrice, optStr(g.StopPrice)) {
+	if !tmsDivergeOK(w.StopPrice, optStr(g.StopPrice), diverges, eqDecStrPtr) {
 		t.Errorf("%s[%d] intent: stop %v != %v", scn, i, optStr(g.StopPrice), w.StopPrice)
 		bad++
 	}
@@ -307,6 +315,22 @@ func compareSummary(t *testing.T, scn string, i int, w refSummary, g StateSummar
 }
 
 // ---- ptr/value equality (with price tolerance on decimal-string fields) ----
+
+// tmsDivergeOK enforces strict Python parity when the reference (ref) is non-nil
+// (the Go value MUST equal it via eq), while ACCEPTING the sanctioned TMS
+// divergence where the reference is nil but the Go value is non-nil — but only
+// when `diverges` is true (an actionable forming/buy/hold state, where the
+// trade-plan superset is intentional). A reference-nil / Go-non-null pair in any
+// other state is still a failure. ref-nil + Go-nil and ref==Go both pass.
+func tmsDivergeOK[T any](ref, got *T, diverges bool, eq func(*T, *T) bool) bool {
+	if ref != nil {
+		return eq(ref, got) // reference has a value: must still match it exactly.
+	}
+	if got == nil {
+		return true // both nil.
+	}
+	return diverges // ref-nil, Go-non-null: OK only for the diverged states.
+}
 
 func optStr(s string) *string {
 	if s == "" {

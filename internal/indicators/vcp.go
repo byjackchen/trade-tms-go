@@ -44,6 +44,12 @@ type VCPSnapshot struct {
 	QualityScore                 float64 // round(2)
 	VolDryupRatio                float64 // round(3)
 	FinalContractionDurationDays int
+
+	// BaseLowPrice is the lowest LOW across the detected base window (base start
+	// .. trailing low inclusive). TMS ENHANCEMENT (not in the Python SEPA
+	// reference's VCPSnapshot): the actionable trade-plan uses it as the VCP stop
+	// reference. Not rounded.
+	BaseLowPrice float64
 }
 
 // DetectVCPParams carries the tunable detector knobs (vcp.py:54-63 defaults).
@@ -163,6 +169,13 @@ func DetectVCP(high, low, volume []float64, p DetectVCPParams) (VCPSnapshot, boo
 		return VCPSnapshot{}, false
 	}
 
+	// baseLow is the lowest LOW across the base window [baseStartIdx, lastLowIdx].
+	// TMS ENHANCEMENT: the actionable trade-plan stop reference. Guarded indices.
+	baseLow := low[baseStartIdx]
+	if lastLowIdx+1 <= n && baseStartIdx <= lastLowIdx {
+		baseLow = Min(low[baseStartIdx : lastLowIdx+1])
+	}
+
 	finalDuration := lastLowIdx - lastHighIdxInTail
 	if finalDuration < 1 {
 		finalDuration = 1
@@ -235,5 +248,6 @@ func DetectVCP(high, low, volume []float64, p DetectVCPParams) (VCPSnapshot, boo
 		QualityScore:                 RoundHalfEven(score, 2),
 		VolDryupRatio:                RoundHalfEven(volDryupRatio, 3),
 		FinalContractionDurationDays: finalDuration,
+		BaseLowPrice:                 baseLow,
 	}, true
 }

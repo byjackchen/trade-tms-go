@@ -56,6 +56,14 @@ type SEPASignalIntent struct {
 	PivotPrice        *Price   `json:"pivot_price"`
 	StopPrice         *Price   `json:"stop_price"`
 	RSRank            *int     `json:"rs_rank"`
+
+	// --- TMS ENHANCEMENT (not in the Python SEPA reference) ------------------
+	// Actionable trade-plan fields, persisted in the signal_intents.intent JSONB.
+	// For state=forming these are always non-null (see strategy/sepa intent.go).
+	RiskPct        *float64 `json:"risk_pct"`
+	PctOff52wkHigh *float64 `json:"pct_off_52wk_high"`
+	VolRatio       *float64 `json:"vol_ratio"`
+	BuyReadiness   *float64 `json:"buy_readiness"`
 }
 
 // NewSEPASignalIntent returns a SEPASignalIntent with the Python defaults:

@@ -79,6 +79,9 @@ type RefreshReport struct {
 	WouldSubmitOrders int64 `json:"would_submit_orders"`
 	// PublishErrors is how many Redis publishes failed (best-effort transport).
 	PublishErrors int `json:"publish_errors"`
+	// RSRankStamped is how many SEPA intents were stamped with a cross-sectional
+	// RS rank (TMS enhancement; not in the Python SEPA reference).
+	RSRankStamped int `json:"rs_rank_stamped"`
 }
 
 // EOD runs idempotent EOD refreshes.
@@ -182,6 +185,22 @@ func (e *EOD) RunRefresh(ctx context.Context, cfg EODConfig, publisher *publish.
 		return nil, fmt.Errorf("eod: replay: %w", err)
 	}
 
+	// (4.5) TMS ENHANCEMENT (not in the Python SEPA reference): cross-sectional
+	// RS rank. After the as-of intents are persisted, compute the universe RS rank
+	// from tms.bars_daily as-of cfg.AsOf in ONE set-based query and stamp it (plus
+	// the RS-dependent buy_readiness) onto each SEPA intent's JSONB. This makes
+	// every forming signal rankable on the watchlist. Best-effort within the run:
+	// an RS-stamp failure is logged but does not fail the whole refresh (the
+	// intents are already durably persisted; RS is an enrichment).
+	rsStamped := 0
+	if e.pool != nil {
+		var rserr error
+		rsStamped, rserr = stampRSRank(ctx, e.pool, asOfTime, as.Tickers)
+		if rserr != nil {
+			log.Warn().Err(rserr).Msg("rs-rank stamping failed; intents persisted without rs_rank")
+		}
+	}
+
 	// (5) Publish the watchlist (the universe the refresh tracked) for cockpit
 	// continuity (best-effort).
 	if publisher != nil {
@@ -200,6 +219,7 @@ func (e *EOD) RunRefresh(ctx context.Context, cfg EODConfig, publisher *publish.
 		IntentsEmitted:    sess.EmittedIntents(),
 		WouldSubmitOrders: sess.Executor().WouldSubmitCount(),
 		PublishErrors:     sink.PublishErrors(),
+		RSRankStamped:     rsStamped,
 	}
 	log.Info().
 		Int("bars", report.BarsReplayed).

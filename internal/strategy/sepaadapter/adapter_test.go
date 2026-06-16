@@ -197,4 +197,47 @@ func TestNormalizeIntentWireShape(t *testing.T) {
 	}
 }
 
+// TestNormalizeIntentCarriesTradePlan proves the TMS-enhancement trade-plan
+// fields pass through the adapter into the domain wire shape (snake_case JSONB).
+func TestNormalizeIntentCarriesTradePlan(t *testing.T) {
+	risk, pctOff, vol, ready := 6.5, -3.2, 2.1, 73.4
+	in := sepa.SignalIntent{
+		Symbol:       "AAPL",
+		State:        sepa.StateForming,
+		StrategyID:   "sepa",
+		PivotPrice:   "120.00",
+		StopPrice:    "111.00",
+		RiskPct:      &risk,
+		PctOff52wkH:  &pctOff,
+		VolRatio:     &vol,
+		BuyReadiness: &ready,
+	}
+	d := NormalizeIntent(in)
+	if d.RiskPct == nil || *d.RiskPct != risk {
+		t.Fatalf("risk_pct not carried: %+v", d.RiskPct)
+	}
+	if d.PctOff52wkHigh == nil || *d.PctOff52wkHigh != pctOff {
+		t.Fatalf("pct_off_52wk_high not carried: %+v", d.PctOff52wkHigh)
+	}
+	if d.VolRatio == nil || *d.VolRatio != vol {
+		t.Fatalf("vol_ratio not carried: %+v", d.VolRatio)
+	}
+	if d.BuyReadiness == nil || *d.BuyReadiness != ready {
+		t.Fatalf("buy_readiness not carried: %+v", d.BuyReadiness)
+	}
+	body, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"risk_pct", "pct_off_52wk_high", "vol_ratio", "buy_readiness"} {
+		if _, ok := m[k]; !ok {
+			t.Fatalf("wire missing trade-plan key %q", k)
+		}
+	}
+}
+
 var _ = mkBar // reserved for future end-to-end engine wiring tests

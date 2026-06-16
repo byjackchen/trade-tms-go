@@ -33,6 +33,11 @@ func NormalizeIntent(s sepa.SignalIntent) domain.SEPASignalIntent {
 	d.PivotPrice = priceStrPtr(s.PivotPrice)
 	d.StopPrice = priceStrPtr(s.StopPrice)
 	d.RSRank = s.RSRank
+	// TMS ENHANCEMENT passthrough: the actionable trade-plan float fields.
+	d.RiskPct = s.RiskPct
+	d.PctOff52wkHigh = s.PctOff52wkH
+	d.VolRatio = s.VolRatio
+	d.BuyReadiness = s.BuyReadiness
 	return d
 }
 

@@ -107,5 +107,15 @@ type SignalIntent struct {
 	VolumeDryup         *bool
 	PivotPrice          string // str(Decimal); "" == nil
 	StopPrice           string // str(Decimal); "" == nil
-	RSRank              *int   // always nil
+	RSRank              *int   // cross-sectional RS rank [1,99]; stamped by the EOD refresh (TMS enhancement)
+
+	// --- TMS ENHANCEMENT (not in the Python SEPA reference) -------------------
+	// Actionable trade-plan fields. For state=forming these are ALWAYS non-nil
+	// (the swing-high/low fallback guarantees a pivot/stop when no VCP); they are
+	// computed analogously for buy/hold. RSRank above is filled cross-sectionally
+	// by the EOD refresh, not here. See indicators/tradeplan.go for the formulas.
+	RiskPct      *float64 // (pivot-stop)/pivot*100
+	PctOff52wkH  *float64 // (close-high52wk)/high52wk*100 (<=0)
+	VolRatio     *float64 // today volume / SMA(volume,50)
+	BuyReadiness *float64 // 0..100 composite (indicators.BuyReadiness)
 }

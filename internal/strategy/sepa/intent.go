@@ -70,6 +70,11 @@ func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
 		base.Strength = 50.0
 		base.TrendTemplatePass = true
 		base.Grade = 0
+		// TMS ENHANCEMENT: a held position has a real entry pivot + stop; attach
+		// the trade-plan metrics (signed proximity vs the entry pivot, risk vs the
+		// live stop, %off-52wk-high, vol_ratio) so the watchlist row stays
+		// actionable for the management decision too.
+		g.attachHeldTradePlan(&base, lastClose)
 		return base
 	}
 
@@ -117,21 +122,108 @@ func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
 	base.TrendTemplatePass = true
 	base.Grade = ttGrade
 
+	// --- TMS ENHANCEMENT: attach the actionable trade plan -------------------
+	// A professional SEPA trader must be able to ACT from the watchlist, so every
+	// flat trend-template-passing signal (forming AND buy) carries a reliable,
+	// NON-NULL trade plan: pivot, stop, signed proximity, risk, %off-52wk-high,
+	// vol_ratio, and the buy-readiness composite. This deliberately diverges from
+	// the Python oracle (which leaves forming signals with only strength=100).
+	g.attachTradePlan(&base, lastClose, vcp, haveVCP)
+
 	// 4b. pivot>0 AND last_close >= pivot -> BUY (signal.py:488-502).
 	if g.pivotPrice.val > 0 && lastClose >= g.pivotPrice.val {
-		prox := (lastClose - g.pivotPrice.val) / g.pivotPrice.val * 100
 		base.State = StateBuy
-		base.ProximityToTriggerP = &prox
 		return base
 	}
 
-	// 4c. Otherwise FORMING; proximity only when pivot>0 (signal.py:504-513).
-	if g.pivotPrice.val > 0 {
-		prox := (lastClose - g.pivotPrice.val) / g.pivotPrice.val * 100
-		base.ProximityToTriggerP = &prox
-	}
 	base.State = StateForming
 	return base
+}
+
+// attachHeldTradePlan attaches trade-plan metrics for a HELD position using the
+// persisted entry pivot + stop. TMS ENHANCEMENT (not in the Python reference).
+func (g *Generator) attachHeldTradePlan(base *SignalIntent, lastClose float64) {
+	pivot := g.pivotPrice.val
+	stop := g.stopPrice.val
+	if pivot > 0 {
+		prox := indicators.ProximityToTriggerPct(pivot, lastClose)
+		base.ProximityToTriggerP = &prox
+		if stop > 0 && stop < pivot {
+			risk := indicators.RiskPct(pivot, stop)
+			base.RiskPct = &risk
+		}
+	}
+	high52 := indicators.FiftyTwoWeekHigh(g.high, indicators.TTHighLowWindow)
+	pctOff := indicators.PctOff52wkHigh(lastClose, high52)
+	base.PctOff52wkH = &pctOff
+	volRatio := indicators.VolumeRatio(g.volume, indicators.VolumeSMALookback)
+	base.VolRatio = &volRatio
+}
+
+// attachTradePlan computes and attaches the TMS-enhancement actionable trade-plan
+// fields onto a flat-book (forming/buy) intent. NOT in the Python SEPA reference.
+//
+// pivot/stop = the VCP base pivot/low when a VCP is detected, ELSE the swing-high/
+// low over the last SwingPlanLookback (10) COMPLETED daily bars (the bar before
+// the current/forming bar is treated as the most recent completed bar — we scan
+// the full buffer tail as all stored bars are completed EOD bars). The fallback
+// guarantees a non-null pivot>0 and stop in (0,pivot) for EVERY forming signal.
+func (g *Generator) attachTradePlan(base *SignalIntent, lastClose float64, vcp indicators.VCPSnapshot, haveVCP bool) {
+	var pivot, stop float64
+	if haveVCP && vcp.PivotPrice > 0 {
+		pivot = vcp.PivotPrice
+		stop = vcp.BaseLowPrice
+	}
+	// Swing fallback (or VCP gave a non-positive low): highest high / lowest low
+	// of the last 10 completed bars. EvaluateIntent's stored bars are all
+	// completed EOD bars, so completedExclusive=false (include the latest).
+	if pivot <= 0 {
+		pivot = indicators.SwingHighPivot(g.high, indicators.SwingPlanLookback, false)
+	}
+	if stop <= 0 || stop >= pivot {
+		stop = indicators.SwingLowStop(g.low, indicators.SwingPlanLookback, false)
+	}
+	// Final guards: pivot must be > 0; stop must be > 0 and strictly < pivot.
+	if pivot <= 0 {
+		pivot = lastClose // degenerate (no history) — keep non-null, > 0.
+	}
+	if stop <= 0 || stop >= pivot {
+		// Last-resort stop a hair below the pivot so risk_pct stays finite/positive.
+		stop = pivot * 0.93
+	}
+
+	base.PivotPrice = pyFloatRepr(pivot)
+	base.StopPrice = pyFloatRepr(stop)
+
+	prox := indicators.ProximityToTriggerPct(pivot, lastClose)
+	base.ProximityToTriggerP = &prox
+
+	risk := indicators.RiskPct(pivot, stop)
+	base.RiskPct = &risk
+
+	high52 := indicators.FiftyTwoWeekHigh(g.high, indicators.TTHighLowWindow)
+	pctOff := indicators.PctOff52wkHigh(lastClose, high52)
+	base.PctOff52wkH = &pctOff
+
+	volRatio := indicators.VolumeRatio(g.volume, indicators.VolumeSMALookback)
+	base.VolRatio = &volRatio
+
+	depth := 0.0
+	if haveVCP {
+		depth = vcp.LastContractionPct
+	}
+	rsRank := 0
+	if base.RSRank != nil {
+		rsRank = *base.RSRank
+	}
+	readiness := indicators.BuyReadiness(indicators.BuyReadinessInputs{
+		ProximityPct: prox,
+		RSRank:       rsRank,
+		HasVCP:       haveVCP,
+		BaseDepthPct: depth,
+		RiskPct:      risk,
+	})
+	base.BuyReadiness = &readiness
 }
 
 // StateSummary returns the 11-key UI summary (signal.py:515-539). Flat-book
