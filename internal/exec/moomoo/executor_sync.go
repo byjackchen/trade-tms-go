@@ -67,9 +67,18 @@ func (e *MoomooExecutor) PullBroker(ctx context.Context) (BrokerSnapshot, error)
 	if err != nil {
 		return BrokerSnapshot{}, fmt.Errorf("sync: GetOrderList: %w", err)
 	}
-	fills, err := e.cfg.Client.GetOrderFillList(ctx, e.accID, e.env)
-	if err != nil {
-		return BrokerSnapshot{}, fmt.Errorf("sync: GetOrderFillList: %w", err)
+	// Fills: moomoo SIMULATE (paper) accounts do NOT expose deal data — OpenD
+	// rejects Trd_GetOrderFillList with "Paper trading does not support deal
+	// data." The fills are informational only (the reflection settles from
+	// POSITIONS, not fills — see SyncBrokerInto/reflectSymbol), so for a paper
+	// account we skip the fills pull and still sync positions + orders + funds.
+	// Real accounts pull fills as before.
+	var fills []mo.FillUpdate
+	if e.env == mo.TrdEnvReal {
+		fills, err = e.cfg.Client.GetOrderFillList(ctx, e.accID, e.env)
+		if err != nil {
+			return BrokerSnapshot{}, fmt.Errorf("sync: GetOrderFillList: %w", err)
+		}
 	}
 	funds, err := e.cfg.Client.GetFunds(ctx, e.accID, e.env)
 	if err != nil {
