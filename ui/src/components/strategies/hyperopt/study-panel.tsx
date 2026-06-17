@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { Rocket, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Card,
   CardContent,
@@ -45,6 +46,18 @@ export function StudyPanel({
   const [promoteTrial, setPromoteTrial] = useState<TrialRow | null>(null);
 
   const trialRows = useMemo(() => trials.data?.trials ?? [], [trials.data]);
+
+  // The most promotable trial: a COMPLETE trial, preferring the Pareto front,
+  // then the highest Sharpe. Surfaced in the "study complete" promote banner so
+  // promoting a tuned param set is obvious — not buried in the trials table.
+  const bestTrial = useMemo(() => {
+    const complete = trialRows.filter((r) => r.state === "COMPLETE");
+    if (complete.length === 0) return null;
+    return [...complete].sort((a, b) => {
+      if (a.pareto_front !== b.pareto_front) return a.pareto_front ? -1 : 1;
+      return (b.sharpe ?? -Infinity) - (a.sharpe ?? -Infinity);
+    })[0];
+  }, [trialRows]);
 
   // A representative fold breakdown for the walk-forward viz: the first
   // COMPLETE trial that carries fold date ranges.
@@ -182,6 +195,42 @@ export function StudyPanel({
               </span>
             ) : null}
           </div>
+
+          {/* Prominent promote CTA once the study is COMPLETE: promoting a
+              tuned trial's params is the whole point of a hyperopt study, so we
+              surface the best trial + a Promote button up top rather than only
+              in the trials table below. */}
+          {s.progress.status === "COMPLETE" && bestTrial ? (
+            <Alert
+              variant="success"
+              className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+              data-testid="study-promote-cta"
+            >
+              <div>
+                <AlertTitle>Hyperopt complete — ready to promote</AlertTitle>
+                <AlertDescription>
+                  Best trial #{bestTrial.number}
+                  {bestTrial.pareto_front ? " (Pareto front)" : ""} — sharpe{" "}
+                  <span className="font-mono tabular-nums">
+                    {formatNum(bestTrial.sharpe)}
+                  </span>{" "}
+                  · calmar{" "}
+                  <span className="font-mono tabular-nums">
+                    {formatNum(bestTrial.calmar)}
+                  </span>
+                  . Promote to set its params as the strategy&apos;s active set.
+                </AlertDescription>
+              </div>
+              <Button
+                onClick={() => setPromoteTrial(bestTrial)}
+                className="shrink-0"
+                data-testid="study-promote-best"
+              >
+                <Rocket />
+                Promote best trial
+              </Button>
+            </Alert>
+          ) : null}
 
           {/* charts: pareto + convergence */}
           <div className="grid gap-4 lg:grid-cols-2">

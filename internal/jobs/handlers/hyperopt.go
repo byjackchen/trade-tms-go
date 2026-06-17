@@ -99,12 +99,13 @@ type hyperoptUniverseJSON struct {
 
 type hyperoptParams struct {
 	Strategy string `json:"strategy"`
-	// ModelID records the Model the study targets (joint); ModelID/Model are set by
-	// the Models-module "Optimize" enqueue (POST /models/{id}/optimize). For a joint
-	// study Model carries the resolved blueprint whose ACTIVE members + weights +
-	// risk drive assembly and the universe (docs/concept-alignment.md §3.3). They
-	// are absent for a single-strategy tune and for older queued joint payloads
-	// (which fall back to the default-multi seed Model).
+	// ModelID/Model back the DORMANT joint (multi-strategy) study path: no API
+	// surface enqueues them anymore (Model-level optimize is dropped from the
+	// product), but the worker code stays intact for older queued joint payloads.
+	// For a joint study Model carries the resolved blueprint whose ACTIVE members +
+	// weights + risk drive assembly and the universe (docs/concept-alignment.md
+	// §3.3). They are absent for a single-strategy tune and for older queued joint
+	// payloads (which fall back to the default-multi seed Model).
 	ModelID         string                `json:"model_id"`
 	Model           *model.Model          `json:"model"`
 	Start           string                `json:"start"`

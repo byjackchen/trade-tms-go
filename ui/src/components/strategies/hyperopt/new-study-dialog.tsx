@@ -20,10 +20,9 @@ import type {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// LEGACY SHIM (concept-alignment §3.3, A2): POST /hyperopt is single-strategy
-// ONLY now — joint (multi-strategy) optimisation moved to the Models module's
-// "Optimize" (POST /models/{id}/optimize). The joint option is dropped from this
-// obsolete dialog so it keeps compiling until its section agent rewrites it.
+// POST /hyperopt is single-strategy ONLY (concept-alignment §3.3, A2): params are
+// tuned per-strategy here. Joint (multi-strategy) tuning is dropped from the
+// product — Models compose already-tuned strategies and are validated by Backtest.
 const STRATEGY_OPTIONS: { value: HyperoptStrategy; label: string }[] = [
   { value: "sepa", label: "SEPA" },
   { value: "sector_rotation", label: "Sector Rotation" },
@@ -238,8 +237,8 @@ export function NewStudyDialog({
     <Dialog
       open={open}
       onClose={close}
-      title="New hyperopt study"
-      description="Launch a seeded NSGA-II walk-forward optimization; progress streams live."
+      title="Run Hyperopt"
+      description="Launch a seeded NSGA-II walk-forward hyperopt study; progress streams live."
       data-testid="hyperopt-dialog"
       footer={
         tracked ? (

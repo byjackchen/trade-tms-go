@@ -1,8 +1,9 @@
 package api
 
-// handlers_models_test.go drives the /api/v1/models CRUD + the joint optimise
-// endpoint through httptest over the in-memory stubModelStore (seeded from
-// model.SeedModels) and stubAuditWriter, so the contract runs without a DB.
+// handlers_models_test.go drives the /api/v1/models CRUD through httptest over
+// the in-memory stubModelStore (seeded from model.SeedModels) and
+// stubAuditWriter, so the contract runs without a DB. There is no Model-level
+// optimize endpoint (model-level joint hyperopt is dropped from the product).
 
 import (
 	"net/http"
@@ -11,8 +12,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/byjackchen/trade-tms-go/internal/jobs/handlers"
 )
 
 func TestModelList(t *testing.T) {
@@ -116,33 +115,5 @@ func TestModelDelete(t *testing.T) {
 		ts := newTestServer(t)
 		rec := ts.do(t, http.MethodDelete, "/api/v1/models/no-such", nil, true)
 		assert.Equal(t, http.StatusNotFound, rec.Code)
-	})
-}
-
-func TestModelOptimize(t *testing.T) {
-	t.Run("enqueues a joint hyperopt against the model", func(t *testing.T) {
-		ts := newTestServer(t)
-		body := `{"start":"2024-01-02","end":"2024-12-31","tickers":["AAPL","KO"],"population":4,"generations":2,"actor":"dan"}`
-		rec := ts.do(t, http.MethodPost, "/api/v1/models/default-multi/optimize", strings.NewReader(body), true)
-		require.Equal(t, http.StatusAccepted, rec.Code)
-		require.Len(t, ts.jobs.enqueued, 1)
-		p := ts.jobs.enqueued[0]
-		assert.Equal(t, handlers.KindHyperoptRun, p.Kind)
-		assert.Equal(t, "api:dan", p.Actor)
-		payload := p.Payload.(map[string]any)
-		assert.Equal(t, "joint", payload["strategy"])
-		assert.Equal(t, "default-multi", payload["model_id"])
-	})
-	t.Run("unknown model is 404", func(t *testing.T) {
-		ts := newTestServer(t)
-		rec := ts.do(t, http.MethodPost, "/api/v1/models/no-such/optimize",
-			strings.NewReader(`{"start":"2024-01-02","end":"2024-12-31","tickers":["AAPL"]}`), true)
-		assert.Equal(t, http.StatusNotFound, rec.Code)
-	})
-	t.Run("SEPA member without a universe is 400", func(t *testing.T) {
-		ts := newTestServer(t)
-		rec := ts.do(t, http.MethodPost, "/api/v1/models/sepa-only/optimize",
-			strings.NewReader(`{"start":"2024-01-02","end":"2024-12-31"}`), true)
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 }

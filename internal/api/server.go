@@ -214,17 +214,20 @@ func (s *Server) Routes() *chi.Mux {
 			r.Get("/strategies", s.handleStrategyList)
 			r.Get("/strategies/{id}", s.handleStrategyGet)
 
-			// Models (named portfolio blueprints): CRUD + joint optimize. The
-			// mutating routes are audited (tms.audit_log). Backtest/optimize drop
-			// in the Model by id (docs/concept-alignment.md §3.3).
+			// Models (named portfolio blueprints): CRUD only. The mutating routes
+			// are audited (tms.audit_log). A Model COMPOSES already-tuned strategies
+			// + weights + risk and is VALIDATED by Backtest; it never re-tunes params
+			// (params are tuned per-strategy in the Strategies module's Hyperopt).
+			// Backtest drops in the Model by id (docs/concept-alignment.md §3.3).
 			r.Get("/models", s.handleModelList)
 			r.Get("/models/{id}", s.handleModelGet)
 			r.Post("/models", s.handleModelCreate)
 			r.Put("/models/{id}", s.handleModelUpdate)
 			r.Delete("/models/{id}", s.handleModelDelete)
-			// Joint (multi-strategy) optimisation of a Model — the Models-module
-			// "Optimize" (the old hyperopt joint path), enqueued against this Model.
-			r.Post("/models/{id}/optimize", s.handleModelOptimize)
+			// NOTE: there is intentionally NO Model-level optimize route. Model-level
+			// joint hyperopt is dropped from the product; the hyperopt engine's
+			// internal "joint" study code stays DORMANT (never exposed as a Model
+			// operation). Params are tuned ONLY by per-strategy Hyperopt below.
 
 			// Aggregated system status (P7 capstone): pg + redis + moomoo feed
 			// + active sessions + job-queue depth + data freshness in one call

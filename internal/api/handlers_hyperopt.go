@@ -71,13 +71,15 @@ func (s *Server) handleHyperoptEnqueue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
 		return
 	}
-	// SINGLE-strategy tuning only (docs/concept-alignment.md §3.3): joint
-	// (multi-strategy) optimisation moved to POST /api/v1/models/{id}/optimize.
+	// SINGLE-strategy tuning only (docs/concept-alignment.md §3.3): params are
+	// tuned per-strategy here. Joint (multi-strategy) tuning is dropped from the
+	// product — Models compose already-tuned strategies and are validated by
+	// Backtest; the engine's internal joint study code stays dormant, unexposed.
 	switch req.Strategy {
 	case "sepa", "sector_rotation", "pairs":
 	default:
 		writeError(w, http.StatusBadRequest, CodeValidation,
-			fmt.Sprintf("unsupported strategy %q (want sepa|sector_rotation|pairs — joint optimisation is POST /models/{id}/optimize)", req.Strategy))
+			fmt.Sprintf("unsupported strategy %q (want sepa|sector_rotation|pairs)", req.Strategy))
 		return
 	}
 	if strings.TrimSpace(req.Start) == "" || strings.TrimSpace(req.End) == "" {

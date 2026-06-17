@@ -9,22 +9,21 @@ import { cn } from "@/lib/utils";
 import { ModelsList } from "@/components/models/models-list";
 import { ModelComposer } from "@/components/models/model-composer";
 import { NewBacktestDialog } from "@/components/models/new-backtest-dialog";
-import { OptimizeDialog } from "@/components/models/optimize-dialog";
 import { RunsTable } from "@/components/models/runs-table";
 import { BacktestPanel } from "@/components/models/backtest-panel";
-import { StudyPanel } from "@/components/strategies/hyperopt/study-panel";
 import type { Model } from "@/lib/api/types";
 
 type Tab = "models" | "backtests";
 
 /**
  * The Models module (docs/concept-alignment.md §3.4 ③, the COMPOSE + VALIDATE
- * stage). A Model is a named portfolio blueprint; this page is its control plane:
+ * stage). A Model is a named portfolio blueprint that COMPOSES already-tuned
+ * strategies + weights + risk; this page is its control plane:
  *
- *  - Models tab: the list + Composer (create/edit), and the per-Model actions
- *    Backtest (POST /backtests model_id) and Optimize (POST /models/{id}/optimize,
- *    joint tuning). Results render INLINE — a backtest opens the BacktestPanel and
- *    a study opens the (reused) StudyPanel, driven by `?backtest=` / `?study=`.
+ *  - Models tab: the list + Composer (create/edit), and the per-Model action
+ *    Backtest (POST /backtests model_id). A Model never re-tunes params — that
+ *    lives in the Strategies module's per-strategy Hyperopt. Backtest results
+ *    render INLINE in the BacktestPanel, driven by `?backtest=`.
  *  - Backtests tab: the runs list; selecting a run opens the same inline panel.
  *
  * The retired `/backtests` + `/backtests/[id]` routes 301 here (next.config),
@@ -51,7 +50,6 @@ function ModelsBody() {
 
   // Action-dialog state (the Model the dialog targets).
   const [backtestModel, setBacktestModel] = useState<Model | null>(null);
-  const [optimizeModel, setOptimizeModel] = useState<Model | null>(null);
 
   // Inline panels are URL-driven so the redirects' deep-links survive.
   const backtestId = useMemo(() => {
@@ -59,7 +57,6 @@ function ModelsBody() {
     const n = Number(raw);
     return raw && Number.isInteger(n) && n > 0 ? n : null;
   }, [params]);
-  const studyTs = params?.get("study") || null;
 
   const setParam = useCallback(
     (key: string, value: string | null) => {
@@ -77,8 +74,6 @@ function ModelsBody() {
     [setParam],
   );
   const closeBacktest = useCallback(() => setParam("backtest", null), [setParam]);
-  const openStudy = useCallback((ts: string) => setParam("study", ts), [setParam]);
-  const closeStudy = useCallback(() => setParam("study", null), [setParam]);
 
   const newModel = useCallback(() => {
     setEditModel(null);
@@ -93,7 +88,7 @@ function ModelsBody() {
     <>
       <PageHeader
         title="Models"
-        subtitle="Compose named portfolio blueprints, then validate them — backtest and joint-optimize."
+        subtitle="Compose named portfolio blueprints from tuned strategies, then validate them by backtest."
         data-testid="models-header"
         actions={<StreamIndicator />}
       />
@@ -138,7 +133,6 @@ function ModelsBody() {
             onNew={newModel}
             onEdit={onEdit}
             onBacktest={(m) => setBacktestModel(m)}
-            onOptimize={(m) => setOptimizeModel(m)}
           />
         ) : (
           <RunsTable
@@ -159,16 +153,6 @@ function ModelsBody() {
             <BacktestPanel id={backtestId} onClose={closeBacktest} />
           </section>
         ) : null}
-
-        {/* Inline joint-optimize study (deep-linkable via ?study=). */}
-        {studyTs ? (
-          <section data-testid="models-study-panel">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Optimization study
-            </div>
-            <StudyPanel ts={studyTs} onClose={closeStudy} />
-          </section>
-        ) : null}
       </main>
 
       {/* Composer (create/edit). */}
@@ -187,16 +171,6 @@ function ModelsBody() {
           onClose={() => setBacktestModel(null)}
           prefillModelId={backtestModel.id}
           onView={openBacktest}
-        />
-      ) : null}
-
-      {/* Optimize (joint hyperopt) a Model. */}
-      {optimizeModel ? (
-        <OptimizeDialog
-          open
-          onClose={() => setOptimizeModel(null)}
-          model={optimizeModel}
-          onView={openStudy}
         />
       ) : null}
     </>

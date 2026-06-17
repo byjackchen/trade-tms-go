@@ -10,16 +10,14 @@ import { StudyPanel } from "./hyperopt/study-panel";
 import type { HyperoptStrategy } from "@/lib/api/types";
 
 /**
- * The TUNE (hyperopt) surface for ONE strategy tab (SEPA / Sector / Pairs). This
- * is where single-strategy tuning lives in the concept-aligned IA
- * (docs/concept-alignment.md §3.4 ②): the studies list is scoped to this
- * strategy, "New study" launches a study locked to it, and selecting a study row
- * opens its detail INLINE below — the old `/hyperopt/[id]` route is retired in
- * favour of this in-place panel ("inline results").
+ * The HYPEROPT surface for ONE strategy tab (SEPA / Sector / Pairs). This is the
+ * ONLY place params are tuned in the concept-aligned IA (docs/concept-alignment.md
+ * §3.4 ②): the studies list is scoped to this strategy, "Run Hyperopt" launches a
+ * study locked to it, and selecting a study row opens its detail INLINE below —
+ * promote a completed trial to write its params back as the strategy's active set.
  *
- * Joint (multi-strategy) optimisation is NOT here — it moved to the Models
- * module's "Optimize" (POST /models/{id}/optimize). ORB has no Tune panel (it is
- * intraday; §3.4 A4).
+ * Models do NOT tune params — they COMPOSE already-tuned strategies and are
+ * VALIDATED by Backtest. ORB has no Hyperopt panel (it is intraday; §3.4 A4).
  */
 export function TunePanel({ strategy }: { strategy: HyperoptStrategy }) {
   const [newOpen, setNewOpen] = useState(false);
@@ -29,7 +27,7 @@ export function TunePanel({ strategy }: { strategy: HyperoptStrategy }) {
     <div className="space-y-4" data-testid="tune-panel" data-strategy={strategy}>
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-medium">Tune (hyperopt)</h3>
+          <h3 className="text-sm font-medium">Hyperopt</h3>
           <p className="text-xs text-muted-foreground">
             Seeded NSGA-II walk-forward studies for this strategy. Promote a
             trial to write its params back as the strategy&apos;s active set.
@@ -43,7 +41,7 @@ export function TunePanel({ strategy }: { strategy: HyperoptStrategy }) {
             data-testid="open-hyperopt-dialog"
           >
             <Sparkles />
-            New study
+            Run Hyperopt
           </Button>
         </div>
       </div>

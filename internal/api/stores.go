@@ -103,8 +103,9 @@ type HyperoptPromoter interface {
 
 // ModelStore is the persistence seam for the Model CRUD (satisfied by
 // *model.Store). It backs the GET/POST/PUT/DELETE /api/v1/models endpoints and is
-// the resolver POST /api/v1/backtests + POST /api/v1/models/{id}/optimize reach
-// for to turn a model_id into the blueprint the engine drops in. Get returns
+// the resolver POST /api/v1/backtests reaches for to turn a model_id into the
+// blueprint the engine drops in (a Model composes already-tuned strategies; it is
+// never re-tuned). Get returns
 // model.ErrNotFound for an unknown id; Create/Update reject an invalid Model
 // (model.Model.Validate) before touching the DB.
 type ModelStore interface {

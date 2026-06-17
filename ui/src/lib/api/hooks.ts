@@ -11,7 +11,6 @@ import type {
   ModelsResponse,
   ModelResponse,
   ModelRequest,
-  OptimizeModelRequest,
   TradePortfolioResponse,
   CoverageResponse,
   TickerGapDetail,
@@ -230,11 +229,12 @@ export function useCreateBacktest() {
 
 // ---- Models (named portfolio blueprints; the Models module) ----
 //
-// A Model is the engine drop-in for backtest / optimize / paper / live: which
-// strategies, each weight + param ref + on/off, a cash reserve, composite risk
-// (docs/concept-alignment.md §0, §1.2). These hooks back the Models module's
-// Composer + the model_id selector the backtest dialog now uses. The CRUD routes
-// are /api/v1/models{,/{id}}; "Optimize" (joint tuning) is a separate POST.
+// A Model is the engine drop-in for backtest / paper / live: which strategies,
+// each weight + param ref + on/off, a cash reserve, composite risk
+// (docs/concept-alignment.md §0, §1.2). A Model COMPOSES already-tuned strategies
+// and is VALIDATED by Backtest; it never re-tunes params (per-strategy Hyperopt
+// owns that). These hooks back the Models module's Composer + the model_id
+// selector the backtest dialog uses. The CRUD routes are /api/v1/models{,/{id}}.
 
 /** List every Model (with members) — GET /api/v1/models. */
 export function useModels(): UseQueryResult<ModelsResponse, Error> {
@@ -302,24 +302,6 @@ export function useDeleteModel() {
     onSuccess: (_data, args) => {
       void qc.invalidateQueries({ queryKey: ["models"] });
       void qc.invalidateQueries({ queryKey: ["model", args.id] });
-    },
-  });
-}
-
-/**
- * Enqueue a JOINT (multi-strategy) optimisation for a Model — the Models-module
- * "Optimize" (POST /api/v1/models/{id}/optimize). The Model's members define the
- * joint search, so the body carries no strategy selector. On success busts the
- * study list + the job queue so the new study surfaces.
- */
-export function useOptimizeModel(id: string | null) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: OptimizeModelRequest) =>
-      apiPost<EnqueueResponse>(`models/${id}/optimize`, body),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["hyperopt", "studies"] });
-      void qc.invalidateQueries({ queryKey: ["jobs"] });
     },
   });
 }

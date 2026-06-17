@@ -351,7 +351,7 @@ export type CreateBacktestRequest = {
 // ---- Models (named, persistable portfolio blueprints) ----
 //
 // A Model is the single source of truth the engine drops in for backtest /
-// optimize / paper / live: which strategies, each weight + param ref + on/off, a
+// paper / live: which strategies, each weight + param ref + on/off, a
 // cash reserve, and composite portfolio-level risk (docs/concept-alignment.md §0,
 // §1.2). Mirrors the Go `model.Model` / `model.Member` / `model.Risk` JSON shapes
 // (internal/model/model.go) and the /api/v1/models CRUD handlers.
@@ -410,29 +410,10 @@ export type ModelRequest = {
   actor?: string;
 };
 
-/** POST /api/v1/models/{id}/optimize body — the Models-module "Optimize" (joint
- * tuning). The Model's members define the joint search, so there is NO strategy
- * selector here (mirrors `modelOptimizeRequest` in handlers_models.go). */
-export type OptimizeModelRequest = {
-  start: string;
-  end: string;
-  population?: number;
-  generations?: number;
-  seed?: number;
-  workers?: number;
-  walk_forward?: boolean;
-  folds?: number;
-  embargo_days?: number;
-  tickers?: string[];
-  universe?: BacktestUniverseSpec;
-  starting_balance?: number;
-  study_ts?: string;
-  trial_timeout_sec?: number;
-  resume?: boolean;
-  actor?: string;
-  max_attempts?: number;
-  dedupe_key?: string;
-};
+// NOTE: there is no OptimizeModelRequest / Model-level optimize body. Model-level
+// joint hyperopt is dropped from the product — a Model COMPOSES already-tuned
+// strategies and is VALIDATED by Backtest; params are tuned only by per-strategy
+// Hyperopt (CreateStudyRequest below).
 
 // ---- Strategies ----
 
@@ -537,9 +518,10 @@ export type Dataset = (typeof DATASETS)[number];
 
 /**
  * Strategies a NEW study can tune. POST /api/v1/hyperopt is single-strategy ONLY
- * now (docs/concept-alignment.md §3.3, A2): joint (multi-strategy) optimisation
- * moved to POST /api/v1/models/{id}/optimize. Mirrors the handlers_hyperopt.go
- * validation switch ({sepa, sector_rotation, pairs}).
+ * (docs/concept-alignment.md §3.3, A2): params are tuned per-strategy in the
+ * Strategies module's Hyperopt. Joint (multi-strategy) tuning is dropped from the
+ * product — Models compose already-tuned strategies. Mirrors the
+ * handlers_hyperopt.go validation switch ({sepa, sector_rotation, pairs}).
  */
 export const HYPEROPT_STRATEGIES = [
   "sepa",
@@ -550,8 +532,8 @@ export type HyperoptStrategy = (typeof HYPEROPT_STRATEGIES)[number];
 
 /**
  * The strategy label a study row may CARRY. A historical study may still read
- * "joint" (the legacy multi-strategy studies, now produced via /models/{id}/
- * optimize), so the display vocabulary is wider than what a new study can request.
+ * "joint" (legacy multi-strategy studies, no longer producible), so the display
+ * vocabulary is wider than what a new study can request.
  */
 export type StudyStrategyLabel = HyperoptStrategy | "joint" | string;
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { FlaskConical, Sparkles, Pencil, Trash2, Plus } from "lucide-react";
+import { FlaskConical, Pencil, Trash2, Plus } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -31,20 +31,20 @@ function activeWeight(model: Model): number {
 
 /**
  * The Models list (docs/concept-alignment.md §3.4 ③). Each Model is a card with
- * its members + weights + cash + risk caps and the four per-Model actions:
- * Backtest, Optimize, Edit, Delete. Backtest/Optimize/Edit are delegated to the
- * page (which owns the dialogs + inline panels); Delete is handled inline.
+ * its members + weights + cash + risk caps and the three per-Model actions:
+ * Backtest, Edit, Delete. A Model COMPOSES already-tuned strategies and is
+ * VALIDATED by Backtest — it never re-tunes params (per-strategy Hyperopt in the
+ * Strategies module owns that). Backtest/Edit are delegated to the page (which
+ * owns the dialogs + inline panels); Delete is handled inline.
  */
 export function ModelsList({
   onNew,
   onEdit,
   onBacktest,
-  onOptimize,
 }: {
   onNew: () => void;
   onEdit: (model: Model) => void;
   onBacktest: (model: Model) => void;
-  onOptimize: (model: Model) => void;
 }) {
   const { data, isLoading, error, refetch } = useModels();
   const del = useDeleteModel();
@@ -88,7 +88,7 @@ export function ModelsList({
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           {models.length} Model{models.length === 1 ? "" : "s"} — named portfolio
-          blueprints the engine drops in for backtest, optimize, paper and live.
+          blueprints the engine drops in for backtest, paper and live.
         </p>
         <Button size="sm" onClick={onNew} data-testid="models-new">
           <Plus />
@@ -193,15 +193,6 @@ export function ModelsList({
                     >
                       <FlaskConical />
                       Backtest
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => onOptimize(m)}
-                      data-testid={`model-optimize-${m.id}`}
-                    >
-                      <Sparkles />
-                      Optimize
                     </Button>
                     <Button
                       size="sm"

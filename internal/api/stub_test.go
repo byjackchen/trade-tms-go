@@ -361,7 +361,7 @@ func (s *stubSyncForcer) SyncNow(_ context.Context, actor string) (SyncNowResult
 
 // testServer bundles a wired Server with its stubs for assertion access.
 // stubModelStore is an in-memory ModelStore seeded from model.SeedModels, so the
-// backtest/optimize model_id resolution + the /models CRUD run without a DB.
+// backtest model_id resolution + the /models CRUD run without a DB.
 type stubModelStore struct {
 	models map[string]model.Model
 	err    error
