@@ -323,8 +323,10 @@ services:
     command:
       - "trade"
       - "run"
-      - "--mode"
-      - "${TMS_LIVE_MODE:-signal}"
+      - "--exec-policy"
+      - "${TMS_LIVE_EXEC_POLICY:-signal}"
+      - "--env"
+      - "${TMS_LIVE_ENV:-sim}"
       - "--strategy"
       - "${TMS_LIVE_STRATEGY:-sector_rotation}"
       - "--trader-id"
@@ -456,7 +458,7 @@ services:
     command:
       - "trade"
       - "run"
-      - "--mode"
+      - "--exec-policy"
       - "signal"
       - "--strategy"
       - "${TMS_LIVE_STRATEGY:-sector_rotation}"
