@@ -17,6 +17,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
+	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/publish"
 	"github.com/byjackchen/trade-tms-go/internal/runner"
 )
@@ -25,8 +26,10 @@ import (
 // sink, gated by emitGate (nil = always emit).
 func buildSectorSession(t *testing.T, sink livengine.IntentSink, emitGate func() bool) *livengine.Session {
 	t.Helper()
+	sectorModel, err := model.Seed("sector-only")
+	require.NoError(t, err)
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Strategy:        "sector_rotation",
+		Model:           sectorModel,
 		StartingBalance: 100000,
 		Params:          strategyassembly.Params{Sector: paramsSector()},
 	})
@@ -34,7 +37,7 @@ func buildSectorSession(t *testing.T, sink livengine.IntentSink, emitGate func()
 	sess, err := livengine.NewSession(livengine.Config{
 		Exec:            domain.ExecSignal,
 		Strategies:      asm.Strategies,
-		Portfolio:       asm.Portfolio,
+		Gate:            asm.Gate,
 		StartingBalance: domain.MustMoney("100000"),
 		Sink:            sink,
 		EmitGate:        emitGate,
@@ -325,7 +328,7 @@ func openTestSession(t *testing.T, pool *pgxpool.Pool, traderID string) int64 {
 	defer cancel()
 	var id int64
 	require.NoError(t, pool.QueryRow(ctx,
-		`INSERT INTO tms.sessions (trader_id, mode, status) VALUES ($1, 'signal', 'RUNNING') RETURNING id`,
+		`INSERT INTO tms.sessions (trader_id, exec_policy, status) VALUES ($1, 'signal', 'RUNNING') RETURNING id`,
 		traderID).Scan(&id))
 	return id
 }

@@ -13,11 +13,11 @@ export default function NotFound() {
           This page does not exist in the TMS control plane.
         </p>
         <Link
-          href="/data"
+          href="/systems"
           className={buttonVariants({ variant: "default" })}
           data-testid="not-found-home"
         >
-          Go to Data
+          Go to Systems &amp; Data
         </Link>
       </div>
     </main>

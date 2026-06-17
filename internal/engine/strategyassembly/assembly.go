@@ -6,8 +6,9 @@ import (
 	"sync/atomic"
 
 	"github.com/byjackchen/trade-tms-go/internal/engine"
+	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 	"github.com/byjackchen/trade-tms-go/internal/strategy/orb"
 	"github.com/byjackchen/trade-tms-go/internal/strategy/orbadapter"
 	"github.com/byjackchen/trade-tms-go/internal/strategy/pairs"
@@ -27,38 +28,24 @@ const (
 	IDORB    = "IntradayBreakoutRunner-000"
 )
 
-// Canonical multi-strategy capital allocation + risk thresholds
-// (strategy_assembly.py:_build_portfolio): SEPA 40% / SectorRotation 30% /
-// Pairs 20% (10% cash); single-name 50%, concentration 40%, daily-loss-halt
-// 10%. These are the multi-strategy weights, NOT the single-strategy defaults.
-const (
-	allocSEPA   = 0.40
-	allocSector = 0.30
-	allocPairs  = 0.20
-
-	riskMaxSingleName = 0.50
-	riskConcentration = 0.40
-	riskDailyLossHalt = 0.10
-)
-
-// Canonical SectorRotation risk caps. SectorRotation is a CONCENTRATED rotation:
-// it holds 1/topK of its deployed capital in each of topK sector ETFs (33% per
-// name at the baseline topK=3). The generic single-strategy default caps
-// (single-name 20%, concentration 30%) are structurally incompatible with that
-// shape — a 33% pick can never pass a 20% single-name cap regardless of NAV. The
-// ONLY risk config the reference defines for SectorRotation is the multi-strategy
-// gate (single-name 50% / concentration 40% / daily-loss 10%; see
-// scripts/multi_strategy_backtest._build_portfolio), which is sized precisely to
-// admit a topK rotation. The lone-strategy SectorRotation path therefore uses
-// these SAME canonical caps (NOT the generic 20/30/5 default) so the default live
-// profile strategy can actually trade. This does not weaken any parity-critical
-// gate: the P4 hyperopt objective path always sets MultiStrategyGate=true and
-// already uses these caps; only single-strategy backtest/live is affected.
-const (
-	sectorMaxSingleName = riskMaxSingleName
-	sectorConcentration = riskConcentration
-	sectorDailyLossHalt = riskDailyLossHalt
-)
+// engineID maps a LOGICAL model strategy id (the values a model.Member carries)
+// to its canonical ENGINE id (the allocator key). The weights and risk that used
+// to be hardcoded constants here are now DATA carried by the Model
+// (docs/concept-alignment.md §1.2, §3.2).
+func engineID(strategyID string) (string, error) {
+	switch strategyID {
+	case model.StrategySEPA:
+		return IDSEPA, nil
+	case model.StrategySectorRotation:
+		return IDSector, nil
+	case model.StrategyPairs:
+		return IDPairs, nil
+	case model.StrategyIntradayBreakout:
+		return IDORB, nil
+	default:
+		return "", fmt.Errorf("strategyassembly: unknown strategy id %q", strategyID)
+	}
+}
 
 // LiveEquity is a late-bound equity source. Before binding, Get returns the
 // fallback (the starting balance); after BindEquity it reads the live account.
@@ -98,40 +85,29 @@ type Params struct {
 
 // Input is the assembly request.
 type Input struct {
-	// Strategy selects what to build: "sepa" | "sector_rotation" | "pairs" |
-	// "orb" | "multi".
-	Strategy string
+	// Model is the portfolio blueprint that drives assembly: its ACTIVE members
+	// select which strategies to build (logical id -> engine id) and seed the
+	// allocator budgets (CapitalPct = member.Weight), and model.Risk seeds the
+	// risk constraints. This replaces the old "multi"/"sepa"/… strategy switch and
+	// the hardcoded weight/risk constants — risk is now DATA, not code branches.
+	Model model.Model
 	// StartingBalance seeds the late-bound equity fallback (used until the
 	// engine account is bound and for the allocator's pre-run sizing context).
 	StartingBalance float64
 	// Params carries the resolved per-strategy knobs.
 	Params Params
 	// SEPAStocks is the SEPA stock universe (one per-symbol generator each). Only
-	// used by the "sepa" and "multi" paths.
+	// used when the Model has a SEPA member.
 	SEPAStocks []string
-	// ORBSymbol is the single instrument the ORB path trades (intraday).
+	// ORBSymbol is the single instrument the ORB path trades (intraday). Only used
+	// when the Model has an intraday_breakout member.
 	ORBSymbol string
 	// Context, when non-nil, is the look-ahead-safe per-bar context provider the
 	// engine drives on the SPY heartbeat (regime / market-cap / earnings). Only
-	// the SEPA / multi paths consume it.
-	Context *portfolio.ContextProvider
+	// consumed when the Model has a SEPA member.
+	Context *riskgate.ContextProvider
 	// SPYSymbol is the context heartbeat instrument (default "SPY").
 	SPYSymbol string
-	// MultiStrategyGate, when true, makes a SINGLE-strategy path (sepa /
-	// sector_rotation / pairs) install the canonical MULTI-strategy portfolio gate
-	// (SEPA 40 / Sector 30 / Pairs 20; single-name 50%, concentration 40%,
-	// daily-loss 10%) instead of the lone-strategy 100%/default-caps gate. The
-	// selected strategy then receives EXACTLY its canonical multi-strategy capital
-	// slice and risk caps.
-	//
-	// This is the parity contract for the P4 hyperopt objective: Python's
-	// scripts/multi_strategy_backtest.run_backtest ALWAYS builds all three runners
-	// under _build_portfolio's multi-strategy Allocator+RiskConstraints, even when
-	// a hyperopt trial only overrides one sub-strategy's params (the others run on
-	// their JSON defaults). The single-strategy 100%-budget gate would admit/reject
-	// a DIFFERENT order set, so objectives would diverge. Ignored by the "multi"
-	// and "orb" paths (multi already uses this gate; ORB is never in the multi set).
-	MultiStrategyGate bool
 }
 
 // Assembly is the constructed strategy set + gate + context, ready to plug into
@@ -141,8 +117,8 @@ type Input struct {
 // before same-date stock bars (look-ahead-safe context).
 type Assembly struct {
 	Strategies   []engine.Strategy
-	Portfolio    *portfolio.Portfolio
-	Context      *portfolio.ContextProvider
+	Gate         *riskgate.Gate
+	Context      *riskgate.ContextProvider
 	SPYSymbol    string
 	ExtraTickers []string
 	equity       *LiveEquity
@@ -158,28 +134,124 @@ func (a *Assembly) BindEquity(eng *engine.Engine) {
 	}
 }
 
-// Assemble builds the strategy set selected by in.Strategy.
+// Assemble builds the strategy set the Model describes: it wires a generator for
+// each ACTIVE member, an allocator from the member weights (logical id -> engine
+// id, CapitalPct = member.Weight) and risk constraints from the Model risk. This
+// is the single Model-driven assembler that replaced the old per-strategy
+// switch + hardcoded weight/risk constants (docs/concept-alignment.md §3.2).
 func Assemble(in Input) (*Assembly, error) {
+	return assembleFromModel(in)
+}
+
+// assembleFromModel is the crux of the Model-driven assembly: from in.Model it
+// builds the riskgate.Allocator (one StrategyAllocation per ACTIVE member,
+// keyed by the member's ENGINE id with CapitalPct = member.Weight) and the
+// riskgate.RiskConstraints (from model.Risk), then wires the SEPA / Sector /
+// Pairs / ORB generators for whichever members are present (reusing the
+// buildSEPA / buildSector / buildPairs / buildORB helpers). ExtraTickers union
+// the SPY heartbeat (FIRST, when a context provider is configured), then the
+// sector universe and pair legs, deduped SPY-first (look-ahead-safe context).
+func assembleFromModel(in Input) (*Assembly, error) {
+	if err := in.Model.Validate(); err != nil {
+		return nil, fmt.Errorf("strategyassembly: %w", err)
+	}
 	spy := in.SPYSymbol
 	if spy == "" {
 		spy = "SPY"
 	}
 	eq := NewLiveEquity(in.StartingBalance)
 
-	switch in.Strategy {
-	case "sepa":
-		return assembleSEPA(in, eq, spy, true)
-	case "sector_rotation":
-		return assembleSector(in, eq)
-	case "pairs":
-		return assemblePairs(in, eq)
-	case "orb":
-		return assembleORB(in, eq)
-	case "multi":
-		return assembleMulti(in, eq, spy)
-	default:
-		return nil, fmt.Errorf("strategyassembly: unknown strategy %q (want sepa|sector_rotation|pairs|orb|multi)", in.Strategy)
+	var (
+		strats   []engine.Strategy
+		allocs   []riskgate.StrategyAllocation
+		universe []string // sector ETF universe (if a sector member is present)
+		legs     []string // pair legs (if a pairs member is present)
+	)
+
+	for _, mem := range in.Model.Members {
+		if !mem.Active {
+			continue
+		}
+		id, err := engineID(mem.StrategyID)
+		if err != nil {
+			return nil, err
+		}
+		allocs = append(allocs, riskgate.StrategyAllocation{StrategyID: id, CapitalPct: mem.Weight})
+
+		switch mem.StrategyID {
+		case model.StrategySEPA:
+			sepaStrats, err := buildSEPA(in.Params.SEPA, in.SEPAStocks, eq)
+			if err != nil {
+				return nil, err
+			}
+			strats = append(strats, sepaStrats...)
+		case model.StrategySectorRotation:
+			adp, uni, err := buildSector(in.Params.Sector, eq)
+			if err != nil {
+				return nil, err
+			}
+			strats = append(strats, adp)
+			universe = uni
+		case model.StrategyPairs:
+			adp, lg, err := buildPairs(in.Params.Pairs, eq)
+			if err != nil {
+				return nil, err
+			}
+			strats = append(strats, adp)
+			legs = lg
+		case model.StrategyIntradayBreakout:
+			adp, err := buildORB(in.Params.ORB, in.ORBSymbol, eq)
+			if err != nil {
+				return nil, err
+			}
+			strats = append(strats, adp)
+			legs = append(legs, in.ORBSymbol)
+		}
 	}
+
+	gate, err := buildGate(allocs, in.Model.Risk)
+	if err != nil {
+		return nil, err
+	}
+
+	// Extra instruments: SPY heartbeat FIRST (context look-ahead safety) when a
+	// context provider is configured — only the SEPA path consumes context — then
+	// the sector ETFs and pair legs, deduped preserving the SPY-first order.
+	var extra []string
+	if in.Context != nil {
+		extra = append(extra, spy)
+	}
+	extra = append(extra, universe...)
+	extra = append(extra, legs...)
+
+	a := &Assembly{
+		Strategies:   strats,
+		Gate:         gate,
+		Context:      in.Context,
+		SPYSymbol:    spy,
+		ExtraTickers: dedupKeepOrder(extra),
+		equity:       eq,
+	}
+	return a, nil
+}
+
+// buildGate builds the portfolio gate from the Model-derived allocations and
+// risk: the allocator budgets (one per active member) and the risk constraints
+// (the Model's SingleNamePct / ConcentrationPct / DailyLossHaltPct).
+func buildGate(allocs []riskgate.StrategyAllocation, risk model.Risk) (*riskgate.Gate, error) {
+	alloc, err := riskgate.NewAllocator(allocs)
+	if err != nil {
+		return nil, fmt.Errorf("strategyassembly: allocator: %w", err)
+	}
+	rc, err := riskgate.NewRiskConstraints(riskgate.RiskConstraintsConfig{
+		MaxSingleNamePct: risk.SingleNamePct,
+		ConcentrationPct: risk.ConcentrationPct,
+		DailyLossHaltPct: risk.DailyLossHaltPct,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("strategyassembly: risk constraints: %w", err)
+	}
+	return riskgate.NewGate(alloc, rc), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -297,208 +369,6 @@ func buildORB(p params.IntradayBreakoutParams, symbol string, eq *LiveEquity) (e
 		return nil, fmt.Errorf("strategyassembly: orb adapter: %w", err)
 	}
 	return adp, nil
-}
-
-// ---------------------------------------------------------------------------
-// strategy-set assemblers
-// ---------------------------------------------------------------------------
-
-func assembleSEPA(in Input, eq *LiveEquity, spy string, singleAlloc bool) (*Assembly, error) {
-	strats, err := buildSEPA(in.Params.SEPA, in.SEPAStocks, eq)
-	if err != nil {
-		return nil, err
-	}
-	// Single-strategy SEPA: the full risk budget (100%) plus default risk caps,
-	// so a lone strategy is never starved by the multi-strategy 40% slice — unless
-	// MultiStrategyGate is set (P4 objective parity), in which case it receives its
-	// canonical multi-strategy slice + caps.
-	pf, err := strategyGate(IDSEPA, in.MultiStrategyGate)
-	if err != nil {
-		return nil, err
-	}
-	a := &Assembly{
-		Strategies: strats, Portfolio: pf, Context: in.Context, SPYSymbol: spy, equity: eq,
-	}
-	if in.Context != nil {
-		a.ExtraTickers = []string{spy} // SPY heartbeat for context refresh
-	}
-	return a, nil
-}
-
-func assembleSector(in Input, eq *LiveEquity) (*Assembly, error) {
-	adp, universe, err := buildSector(in.Params.Sector, eq)
-	if err != nil {
-		return nil, err
-	}
-	pf, err := strategyGate(IDSector, in.MultiStrategyGate)
-	if err != nil {
-		return nil, err
-	}
-	return &Assembly{
-		Strategies: []engine.Strategy{adp}, Portfolio: pf,
-		ExtraTickers: universe, equity: eq,
-	}, nil
-}
-
-func assemblePairs(in Input, eq *LiveEquity) (*Assembly, error) {
-	adp, legs, err := buildPairs(in.Params.Pairs, eq)
-	if err != nil {
-		return nil, err
-	}
-	pf, err := strategyGate(IDPairs, in.MultiStrategyGate)
-	if err != nil {
-		return nil, err
-	}
-	return &Assembly{
-		Strategies: []engine.Strategy{adp}, Portfolio: pf,
-		ExtraTickers: legs, equity: eq,
-	}, nil
-}
-
-func assembleORB(in Input, eq *LiveEquity) (*Assembly, error) {
-	adp, err := buildORB(in.Params.ORB, in.ORBSymbol, eq)
-	if err != nil {
-		return nil, err
-	}
-	pf, err := singleStrategyPortfolio(IDORB)
-	if err != nil {
-		return nil, err
-	}
-	return &Assembly{
-		Strategies: []engine.Strategy{adp}, Portfolio: pf,
-		ExtraTickers: []string{in.ORBSymbol}, equity: eq,
-	}, nil
-}
-
-// assembleMulti builds the canonical 3-daily-strategy set (SEPA + Sector +
-// Pairs) with the multi-strategy Allocator split and risk constraints — the Go
-// port of scripts/multi_strategy_backtest.py + strategy_assembly.py. ORB is
-// intraday and intentionally NOT part of the multi set (runs as its own
-// single-strategy backtest path).
-func assembleMulti(in Input, eq *LiveEquity, spy string) (*Assembly, error) {
-	sepaStrats, err := buildSEPA(in.Params.SEPA, in.SEPAStocks, eq)
-	if err != nil {
-		return nil, err
-	}
-	sectorAdp, universe, err := buildSector(in.Params.Sector, eq)
-	if err != nil {
-		return nil, err
-	}
-	pairsAdp, legs, err := buildPairs(in.Params.Pairs, eq)
-	if err != nil {
-		return nil, err
-	}
-
-	strats := make([]engine.Strategy, 0, len(sepaStrats)+2)
-	strats = append(strats, sepaStrats...)
-	strats = append(strats, sectorAdp, pairsAdp)
-
-	pf, err := multiStrategyPortfolio()
-	if err != nil {
-		return nil, err
-	}
-
-	// Extra instruments: SPY heartbeat FIRST (context look-ahead safety), then
-	// the sector ETFs and pair legs. Deduped, preserving the SPY-first order.
-	extra := dedupKeepOrder(append([]string{spy}, append(universe, legs...)...))
-
-	return &Assembly{
-		Strategies: strats, Portfolio: pf, Context: in.Context, SPYSymbol: spy,
-		ExtraTickers: extra, equity: eq,
-	}, nil
-}
-
-// ---------------------------------------------------------------------------
-// portfolio builders
-// ---------------------------------------------------------------------------
-
-// multiStrategyPortfolio builds the canonical multi-strategy gate
-// (strategy_assembly.py:_build_portfolio): SEPA 40 / Sector 30 / Pairs 20,
-// single-name 50%, concentration 40%, daily-loss-halt 10%.
-func multiStrategyPortfolio() (*portfolio.Portfolio, error) {
-	alloc, err := portfolio.NewAllocator([]portfolio.StrategyAllocation{
-		{StrategyID: IDSEPA, CapitalPct: allocSEPA},
-		{StrategyID: IDSector, CapitalPct: allocSector},
-		{StrategyID: IDPairs, CapitalPct: allocPairs},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("strategyassembly: allocator: %w", err)
-	}
-	rc, err := portfolio.NewRiskConstraints(portfolio.RiskConstraintsConfig{
-		MaxSingleNamePct: riskMaxSingleName,
-		ConcentrationPct: riskConcentration,
-		DailyLossHaltPct: riskDailyLossHalt,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("strategyassembly: risk constraints: %w", err)
-	}
-	return portfolio.NewPortfolio(alloc, rc), nil
-}
-
-// strategyGate selects the portfolio gate for a single-strategy path: the
-// canonical multi-strategy gate (when multiGate is set — the P4 hyperopt
-// objective-parity contract, mirroring multi_strategy_backtest.run_backtest
-// which always builds all three runners under the multi-strategy
-// Allocator+RiskConstraints) or the lone-strategy 100%-budget gate otherwise
-// (the default single-strategy backtest path). When multiGate is set, the
-// strategy id MUST be one of the three daily multi-strategy ids so the allocator
-// registers a budget for it; ORB has no multi slice and always uses the
-// single-strategy gate.
-func strategyGate(id string, multiGate bool) (*portfolio.Portfolio, error) {
-	if multiGate && (id == IDSEPA || id == IDSector || id == IDPairs) {
-		return multiStrategyPortfolio()
-	}
-	// Lone SectorRotation needs its canonical caps (50/40/10), NOT the generic
-	// 20/30/5 default — a topK rotation holds 1/topK (33% at topK=3) per name,
-	// which the 20% single-name default would reject outright. The reference only
-	// ever runs SectorRotation under these caps (FIXER round 2, finding 1). Other
-	// lone strategies keep the default gate (their P4 parity contract).
-	if id == IDSector {
-		return loneSectorPortfolio()
-	}
-	return singleStrategyPortfolio(id)
-}
-
-// loneSectorPortfolio builds the lone-strategy gate for SectorRotation: the whole
-// book (100% budget) under SectorRotation's canonical risk caps (single-name 50%,
-// concentration 40%, daily-loss 10%) — the only caps the reference defines for a
-// topK rotation. Paired with full-equity sizing (budget 100% -> unscaled), each
-// pick is 1/topK (33% at topK=3), within the 50% single-name cap.
-func loneSectorPortfolio() (*portfolio.Portfolio, error) {
-	alloc, err := portfolio.NewAllocator([]portfolio.StrategyAllocation{
-		{StrategyID: IDSector, CapitalPct: 1.0},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("strategyassembly: allocator: %w", err)
-	}
-	rc, err := portfolio.NewRiskConstraints(portfolio.RiskConstraintsConfig{
-		MaxSingleNamePct: sectorMaxSingleName,
-		ConcentrationPct: sectorConcentration,
-		DailyLossHaltPct: sectorDailyLossHalt,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("strategyassembly: risk constraints: %w", err)
-	}
-	return portfolio.NewPortfolio(alloc, rc), nil
-}
-
-// singleStrategyPortfolio builds a gate for a lone strategy: the whole budget
-// (100%) to that id, with the reference DEFAULT risk caps (single-name 20%,
-// concentration 30%, daily-loss-halt 5%). This still enforces the aggregate
-// risk rules a single-strategy backtest must respect, while not under-funding
-// the only strategy present.
-func singleStrategyPortfolio(id string) (*portfolio.Portfolio, error) {
-	alloc, err := portfolio.NewAllocator([]portfolio.StrategyAllocation{
-		{StrategyID: id, CapitalPct: 1.0},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("strategyassembly: allocator: %w", err)
-	}
-	rc, err := portfolio.NewRiskConstraints(portfolio.DefaultRiskConstraintsConfig())
-	if err != nil {
-		return nil, fmt.Errorf("strategyassembly: risk constraints: %w", err)
-	}
-	return portfolio.NewPortfolio(alloc, rc), nil
 }
 
 func dedupKeepOrder(in []string) []string {

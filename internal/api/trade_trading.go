@@ -225,6 +225,65 @@ func (s *Server) handleTradeReconciliation(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, rep)
 }
 
+// handleTradePortfolio serves GET /api/v1/trade/portfolio?account_id=: an
+// Account's runtime Portfolio (its ledger) composed in one read —
+// {account snapshot, positions, health} — so the UI's Portfolio view fetches the
+// whole ledger atomically instead of fanning out to /trade/account +
+// /trade/positions + /trade/health (docs/concept-alignment.md §3.3). It reuses the
+// existing TradeStore reads: positions (account-filtered), the day-PnL/market-value
+// snapshot, and the latest PortfolioHealth (health is process-wide, hence not
+// account-scoped — null when no producer is running).
+func (s *Server) handleTradePortfolio(w http.ResponseWriter, r *http.Request) {
+	reader, ok := s.tradeTrading()
+	if !ok {
+		writeError(w, http.StatusServiceUnavailable, "unavailable", "trade trading reader not configured")
+		return
+	}
+	accountID := queryStr(r, "account_id")
+
+	positions, err := reader.OpenPositionsFor(r.Context(), accountID)
+	if err != nil {
+		internalError(w, s.log, "trade portfolio positions", err)
+		return
+	}
+	if positions == nil {
+		positions = []TradePosition{}
+	}
+	// Day P&L over the FULL book (open + intraday-closed); market value over open
+	// positions only (closed positions have no mark) — mirrors handleTradeAccount.
+	dayPnL, err := reader.SessionRealizedPnL(r.Context())
+	if err != nil {
+		internalError(w, s.log, "trade portfolio account", err)
+		return
+	}
+	var marketValue float64
+	for _, p := range positions {
+		marketValue += float64(p.SignedQty) * p.AvgEntryPx
+	}
+	account := TradeAccount{
+		MarketValue: marketValue,
+		DayPnL:      dayPnL,
+		TS:          time.Now().UTC(),
+	}
+
+	// Health is the process-wide PortfolioHealth snapshot (best-effort: null when
+	// no trade producer is running) — not fatal to the ledger view.
+	var health *TradeHealth
+	if h, herr := s.trade.LatestHealth(r.Context()); herr != nil {
+		internalError(w, s.log, "trade portfolio health", herr)
+		return
+	} else {
+		health = h
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"account_id": accountID,
+		"account":    account,
+		"positions":  positions,
+		"health":     health,
+	})
+}
+
 // tradeTrading returns the trading reader (the TradeStore, when it implements the
 // trading surface). Signal-mode-only deployments still expose the signal reads.
 func (s *Server) tradeTrading() (TradeTradingReader, bool) {

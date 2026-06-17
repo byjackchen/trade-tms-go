@@ -75,7 +75,7 @@ func (a *AccountAdapter) ObserveBar(bar domain.Bar) {
 // parity snapshot (NAV = settled cash; day P&L 0) for the BUDGET rules so live
 // gating matches backtest gating exactly. The daily-loss-halt rule reads the
 // MarkedSnapshot instead (see MarkedSnapshot).
-func (a *AccountAdapter) Snapshot() (domain.AccountSnapshot, error) {
+func (a *AccountAdapter) Snapshot() (domain.PortfolioSnapshot, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.acct.Snapshot()
@@ -89,27 +89,27 @@ func (a *AccountAdapter) Snapshot() (domain.AccountSnapshot, error) {
 // balance (the day's baseline). This is the live extension the daily-loss halt
 // needs: a backtest never crosses it (P&L 0), a live session does when a held
 // position moves against the book.
-func (a *AccountAdapter) MarkedSnapshot(startingNAV domain.Money) (domain.AccountSnapshot, error) {
+func (a *AccountAdapter) MarkedSnapshot(startingNAV domain.Money) (domain.PortfolioSnapshot, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	base, err := a.acct.Snapshot()
 	if err != nil {
-		return domain.AccountSnapshot{}, err
+		return domain.PortfolioSnapshot{}, err
 	}
 	realized := a.acct.RealizedPnL()
 	unrealized, err := a.acct.Unrealized()
 	if err != nil {
-		return domain.AccountSnapshot{}, err
+		return domain.PortfolioSnapshot{}, err
 	}
 	equity, err := a.acct.Equity()
 	if err != nil {
-		return domain.AccountSnapshot{}, err
+		return domain.PortfolioSnapshot{}, err
 	}
 	// Day P&L baseline = the session's opening NAV. realized is cumulative since
 	// the session start (which restarts daily for a live node), so realized today
 	// == realized; unrealized today == current unrealized.
 	_ = startingNAV
-	return domain.NewAccountSnapshot(
+	return domain.NewPortfolioSnapshot(
 		equity, base.Cash, realized, unrealized, base.Positions, base.LastClose,
 	), nil
 }

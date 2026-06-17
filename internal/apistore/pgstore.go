@@ -375,10 +375,44 @@ func (s *PGStore) Audit(ctx context.Context, f api.AuditFilter) ([]api.AuditEntr
 	return out, nil
 }
 
-// compile-time checks: PGStore is the api.DataStore, api.SystemReader and
-// api.AuditReader.
+// WriteAudit implements api.AuditWriter: append one row to the append-only
+// tms.audit_log (the write twin of Audit). It backs the Model mutation endpoints
+// (create/update/delete /api/v1/models), matching the trail the job queue and
+// command consumer keep for their own writes. Details, when nil, is stored as an
+// empty object so the column's NOT NULL default is satisfied.
+func (s *PGStore) WriteAudit(ctx context.Context, rec api.AuditRecord) error {
+	details := rec.Details
+	if details == nil {
+		details = map[string]any{}
+	}
+	detBytes, err := json.Marshal(details)
+	if err != nil {
+		return fmt.Errorf("api: marshal audit details: %w", err)
+	}
+	if _, err := s.pool.Exec(ctx,
+		`INSERT INTO tms.audit_log (actor, action, entity, entity_id, details)
+		 VALUES ($1, $2, $3, $4, $5::jsonb)`,
+		rec.Actor, rec.Action, nullIfEmpty(rec.Entity), nullIfEmpty(rec.EntityID),
+		string(detBytes)); err != nil {
+		return fmt.Errorf("api: writing audit row: %w", err)
+	}
+	return nil
+}
+
+// nullIfEmpty maps "" to a SQL NULL (the audit_log entity/entity_id columns are
+// nullable; an empty string would otherwise be stored verbatim).
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// compile-time checks: PGStore is the api.DataStore, api.SystemReader,
+// api.AuditReader and api.AuditWriter.
 var (
 	_ api.DataStore    = (*PGStore)(nil)
 	_ api.SystemReader = (*PGStore)(nil)
 	_ api.AuditReader  = (*PGStore)(nil)
+	_ api.AuditWriter  = (*PGStore)(nil)
 )

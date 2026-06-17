@@ -35,9 +35,15 @@ type Deps struct {
 	Strategies  StrategyReader
 	Hyperopt    HyperoptReader
 	Promoter    HyperoptPromoter
-	Calendar    *calendar.Calendar
-	PingPG      PingFunc
-	PingRedis   PingFunc
+	// Models backs the /api/v1/models CRUD + the model_id resolution the backtest
+	// and optimize endpoints do. Optional: when nil those endpoints return 503.
+	Models ModelStore
+	// AuditLog appends rows to tms.audit_log for the Model mutation endpoints.
+	// Optional: when nil those mutations skip the audit write (best-effort).
+	AuditLog  AuditWriter
+	Calendar  *calendar.Calendar
+	PingPG    PingFunc
+	PingRedis PingFunc
 	// Trade is the trade cockpit read surface (PG-backed). Optional: when nil the
 	// /api/v1/trade/* read endpoints return 503.
 	Trade TradeReader
@@ -86,6 +92,8 @@ type Server struct {
 	strat       StrategyReader
 	hyperopt    HyperoptReader
 	promoter    HyperoptPromoter
+	models      ModelStore
+	auditLog    AuditWriter
 	cal         *calendar.Calendar
 	pingPG      PingFunc
 	pingRedis   PingFunc
@@ -135,6 +143,8 @@ func NewServer(d Deps) (*Server, error) {
 		strat:       d.Strategies,
 		hyperopt:    d.Hyperopt,
 		promoter:    d.Promoter,
+		models:      d.Models,
+		auditLog:    d.AuditLog,
 		cal:         d.Calendar,
 		pingPG:      d.PingPG,
 		pingRedis:   d.PingRedis,
@@ -204,6 +214,18 @@ func (s *Server) Routes() *chi.Mux {
 			r.Get("/strategies", s.handleStrategyList)
 			r.Get("/strategies/{id}", s.handleStrategyGet)
 
+			// Models (named portfolio blueprints): CRUD + joint optimize. The
+			// mutating routes are audited (tms.audit_log). Backtest/optimize drop
+			// in the Model by id (docs/concept-alignment.md §3.3).
+			r.Get("/models", s.handleModelList)
+			r.Get("/models/{id}", s.handleModelGet)
+			r.Post("/models", s.handleModelCreate)
+			r.Put("/models/{id}", s.handleModelUpdate)
+			r.Delete("/models/{id}", s.handleModelDelete)
+			// Joint (multi-strategy) optimisation of a Model — the Models-module
+			// "Optimize" (the old hyperopt joint path), enqueued against this Model.
+			r.Post("/models/{id}/optimize", s.handleModelOptimize)
+
 			// Aggregated system status (P7 capstone): pg + redis + moomoo feed
 			// + active sessions + job-queue depth + data freshness in one call
 			// for the UI System page.
@@ -238,6 +260,9 @@ func (s *Server) Routes() *chi.Mux {
 			r.Get("/trade/fills", s.handleTradeFills)
 			r.Get("/trade/positions", s.handleTradePositions)
 			r.Get("/trade/reconciliation", s.handleTradeReconciliation)
+			// Portfolio (the Account's runtime ledger, docs/concept-alignment.md
+			// §3.3): one read aggregating {account snapshot, positions, health}.
+			r.Get("/trade/portfolio", s.handleTradePortfolio)
 			// Account registry (P5 step A): list accounts for the UI selector /
 			// per-account filter. NOTE: distinct from /trade/account (the funds
 			// snapshot served by the mutation block below).

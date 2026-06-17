@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/cobra"
@@ -10,6 +11,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/app"
 	"github.com/byjackchen/trade-tms-go/internal/commands"
 	"github.com/byjackchen/trade-tms-go/internal/db"
+	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
 // newCtlCmd implements `tms ctl <command>`: the operator control plane for the
@@ -22,7 +24,7 @@ import (
 //	tms ctl flatten --confirm       — close ALL positions (kill-switch)
 //	tms ctl emergency-kill --confirm — halt + flatten + stop (panic button)
 //	tms ctl halt | resume | stop | kill
-//	tms ctl set-mode <signal|paper|live> [--confirm]
+//	tms ctl set-mode --exec-policy signal|auto [--env sim|simulate|real] [--confirm]
 func newCtlCmd(env *runtimeEnv) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ctl",
@@ -79,19 +81,43 @@ func ctlSimple(env *runtimeEnv, use string, name commands.Name, short string, co
 	return c
 }
 
-// newSetModeCmd builds `tms ctl set-mode <signal|paper|live> [--confirm]`.
+// newSetModeCmd builds `tms ctl set-mode --exec-policy signal|auto [--env
+// sim|simulate|real] [--confirm]`. The legacy three-valued mode is replaced by
+// the 2D model (docs §1.3): exec-policy signal = emit-only; auto + env simulate =
+// "go paper"; auto + env real = "go live" (both confirm-gated).
 func newSetModeCmd(env *runtimeEnv) *cobra.Command {
-	var confirm bool
+	var (
+		execPolicy string
+		envStr     string
+		confirm    bool
+	)
 	c := &cobra.Command{
-		Use:   "set-mode <signal|paper|live>",
-		Short: "Switch the live node execution mode (paper/live require --confirm)",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			mode := args[0]
+		Use:   "set-mode --exec-policy signal|auto [--env sim|simulate|real]",
+		Short: "Switch the live node execution policy/account (auto/live require --confirm)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			exec, err := domain.ParseExecutionPolicy(strings.TrimSpace(execPolicy))
+			if err != nil {
+				return fmt.Errorf("--exec-policy %q invalid (want signal|auto)", execPolicy)
+			}
+			var mode string
+			if exec == domain.ExecSignal {
+				mode = domain.RunWord(exec, "")
+			} else {
+				e := domain.BrokerEnv(strings.TrimSpace(envStr))
+				if e == "" {
+					return fmt.Errorf("--exec-policy auto requires --env (simulate for paper, real for live)")
+				}
+				if !e.IsValid() {
+					return fmt.Errorf("--env %q invalid (want sim|simulate|real)", envStr)
+				}
+				mode = domain.RunWord(exec, e)
+			}
+			// auto (paper/live) mutates real risk — confirm-gated.
 			token := ""
-			if mode == "paper" || mode == "live" {
+			if exec == domain.ExecAuto {
 				if !confirm {
-					return fmt.Errorf("switching to %s mutates real risk: pass --confirm", mode)
+					return fmt.Errorf("switching to exec-policy=auto (%s) mutates real risk: pass --confirm", mode)
 				}
 				token = "confirmed"
 			}
@@ -103,7 +129,9 @@ func newSetModeCmd(env *runtimeEnv) *cobra.Command {
 			})
 		},
 	}
-	c.Flags().BoolVar(&confirm, "confirm", false, "confirm a paper/live mode switch")
+	c.Flags().StringVar(&execPolicy, "exec-policy", "signal", "execution policy: signal (emit-only) | auto (auto-submit)")
+	c.Flags().StringVar(&envStr, "env", "", "bound account env for --exec-policy auto: sim | simulate | real")
+	c.Flags().BoolVar(&confirm, "confirm", false, "confirm an auto (paper/live) switch")
 	return c
 }
 

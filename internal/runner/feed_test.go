@@ -22,6 +22,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
+	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/publish"
 	"github.com/byjackchen/trade-tms-go/internal/runner"
 )
@@ -59,8 +60,10 @@ func TestLiveFeedOverMockOpenD(t *testing.T) {
 
 	// (3) A signal-mode sector session writing into a MemSink, over the live feed
 	// (wall clock — the feed produces bars as the mock pushes them).
+	sectorModel, err := model.Seed("sector-only")
+	require.NoError(t, err)
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Strategy:        "sector_rotation",
+		Model:           sectorModel,
 		StartingBalance: 100000,
 		Params:          strategyassembly.Params{Sector: paramsSector()},
 	})
@@ -69,7 +72,7 @@ func TestLiveFeedOverMockOpenD(t *testing.T) {
 	sess, err := livengine.NewSession(livengine.Config{
 		Exec:            domain.ExecSignal,
 		Strategies:      asm.Strategies,
-		Portfolio:       asm.Portfolio,
+		Gate:            asm.Gate,
 		StartingBalance: domain.MustMoney("100000"),
 		Sink:            sink,
 	})

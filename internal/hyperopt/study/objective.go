@@ -23,8 +23,9 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt"
 	"github.com/byjackchen/trade-tms-go/internal/metrics"
+	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // EvalResult is the outcome of evaluating one candidate over all folds: the
@@ -50,6 +51,7 @@ func (r EvalResult) Objectives() []float64 {
 // shared between concurrent calls (the dataset is immutable).
 type Evaluator struct {
 	strategy  string
+	model     *model.Model // joint target Model (nil => seed Model for strategy)
 	order     []string
 	ds        *Dataset
 	start     calendar.Date
@@ -63,8 +65,12 @@ type Evaluator struct {
 
 // EvaluatorConfig parameterizes a new Evaluator.
 type EvaluatorConfig struct {
-	Strategy        string                 // sepa|sector_rotation|pairs|joint
-	Dataset         *Dataset               // shared read-only bars
+	Strategy string // sepa|sector_rotation|pairs|joint
+	// Model, when set, is the concrete blueprint a JOINT study assembles (its
+	// ACTIVE members + weights + risk). nil => the strategy's seed Model
+	// (docs/concept-alignment.md §3.3).
+	Model           *model.Model
+	Dataset         *Dataset // shared read-only bars
 	Start, End      calendar.Date          // study window (inclusive)
 	Folds           []hyperopt.EvalSegment // nil => single full-window backtest
 	Defaults        map[string]map[string]any
@@ -92,6 +98,7 @@ func NewEvaluator(cfg EvaluatorConfig) (*Evaluator, error) {
 	}
 	return &Evaluator{
 		strategy:  cfg.Strategy,
+		model:     cfg.Model,
 		order:     order,
 		ds:        cfg.Dataset,
 		start:     cfg.Start,
@@ -147,18 +154,22 @@ func (e *Evaluator) Evaluate(ctx context.Context, dec Decoded) (EvalResult, erro
 // strategyassembly.Input (minus context, which is built per-run since it depends
 // on the fold window). A validation failure here FAILs the trial.
 func (e *Evaluator) buildAssemblyInput(dec Decoded) (strategyassembly.Input, error) {
+	mdl, err := e.assemblyModel()
+	if err != nil {
+		return strategyassembly.Input{}, err
+	}
 	in := strategyassembly.Input{
-		Strategy:        assemblyStrategy(e.strategy),
+		// A joint study assembles the TARGET Model the optimize endpoint enqueued
+		// (its ACTIVE members + weights + risk); when none was enqueued (single
+		// tune, or older queued joint payload) it falls back to the strategy's SEED
+		// Model: joint -> default-multi, each single -> its *-only single-member
+		// Model. The allocator + risk come from that Model; the old
+		// MultiStrategyGate parity flag is gone (parity is abandoned —
+		// docs/concept-alignment.md §3.2/§3.3, D1).
+		Model:           mdl,
 		StartingBalance: e.startBal,
 		SEPAStocks:      e.sepaStock,
 		SPYSymbol:       e.spy,
-		// P4 objective parity (locked decision 3): Python's run_backtest ALWAYS
-		// gates the optimized sub-strategy under the multi-strategy portfolio
-		// (SEPA 40 / Sector 30 / Pairs 20; single-name 50%, concentration 40%,
-		// daily-loss 10%), even for a single-strategy trial. Use that same gate so
-		// the admitted/rejected order set — and therefore the objective vector —
-		// matches Python EXACTLY. ("multi"/"joint" already uses this gate.)
-		MultiStrategyGate: true,
 	}
 	for _, sub := range e.order {
 		merged := mergeOverrides(e.defaults[sub], dec.Overrides[sub])
@@ -221,7 +232,7 @@ func (e *Evaluator) run(ctx context.Context, in strategyassembly.Input, start, e
 		End:                end,
 		StartingBalance:    startBal,
 		Profile:            engine.ProfileNautilusCompat,
-		Portfolio:          asm.Portfolio,
+		Gate:               asm.Gate,
 		Context:            asm.Context,
 		SPYSymbol:          asm.SPYSymbol,
 		PrebuiltStrategies: asm.Strategies,
@@ -273,7 +284,7 @@ func (e *Evaluator) run(ctx context.Context, in strategyassembly.Input, start, e
 // SEPA cap gate. Returns nil when SPY is absent (cold-start defaults) or the
 // strategy does not consume context. Mirrors the backtest handler's buildContext
 // but reads the SHARED in-memory bars (no DB).
-func (e *Evaluator) buildContext(start, end calendar.Date) *portfolio.ContextProvider {
+func (e *Evaluator) buildContext(start, end calendar.Date) *riskgate.ContextProvider {
 	if e.strategy != "sepa" && e.strategy != "joint" {
 		return nil
 	}
@@ -283,12 +294,12 @@ func (e *Evaluator) buildContext(start, end calendar.Date) *portfolio.ContextPro
 	}
 	lo := midnight(start.AddDays(-spyWarmupDays))
 	hi := midnight(end)
-	spy := make([]portfolio.SPYBar, 0, len(spyIB.Bars))
+	spy := make([]riskgate.SPYBar, 0, len(spyIB.Bars))
 	for _, b := range spyIB.Bars {
 		if b.TS.Before(lo) || b.TS.After(hi) {
 			continue
 		}
-		spy = append(spy, portfolio.SPYBar{Date: b.TS.UTC(), Close: b.Close.Float64()})
+		spy = append(spy, riskgate.SPYBar{Date: b.TS.UTC(), Close: b.Close.Float64()})
 	}
 	if len(spy) == 0 {
 		return nil
@@ -303,28 +314,40 @@ func (e *Evaluator) buildContext(start, end calendar.Date) *portfolio.ContextPro
 	// cold-start behaviour — but the handler always populates them now, so SEPA
 	// names clear the $500M gate and trade (the intended objective fix).
 	asOf := midnight(start)
-	sf1 := make([]portfolio.SF1Row, 0, len(e.sepaStock))
+	sf1 := make([]riskgate.SF1Row, 0, len(e.sepaStock))
 	for _, t := range e.sepaStock {
 		mc := e.ds.MarketCap(t)
-		sf1 = append(sf1, portfolio.SF1Row{
+		sf1 = append(sf1, riskgate.SF1Row{
 			Ticker: t, DateKey: asOf, MarketCap: mc, HasMarketCap: mc != 0,
 			Dimension: "MRT", HasDimension: true,
 		})
 	}
-	return portfolio.NewContextProvider(spy, sf1, nil, e.sepaStock, "MRT", 0)
+	return riskgate.NewContextProvider(spy, sf1, nil, e.sepaStock, "MRT", 0)
 }
 
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 
-// assemblyStrategy maps the study strategy selector to the strategyassembly
-// selector. "joint" runs the canonical 3-strategy multi set.
-func assemblyStrategy(strategy string) string {
-	if strategy == "joint" {
-		return "multi"
+// assemblyModel returns the Model this study assembles: the concrete TARGET Model
+// the optimize endpoint enqueued (e.model) when present, else the strategy's SEED
+// Model. The seed mapping is the legacy fallback: "joint" runs the canonical
+// 3-strategy blend (default-multi); each single strategy runs its *-only
+// single-member Model. Resolved in-process from model.SeedModels (no DB pool).
+func (e *Evaluator) assemblyModel() (model.Model, error) {
+	if e.model != nil {
+		return *e.model, nil
 	}
-	return strategy
+	id := map[string]string{
+		"joint":           "default-multi",
+		"sepa":            "sepa-only",
+		"sector_rotation": "sector-only",
+		"pairs":           "pairs-only",
+	}[e.strategy]
+	if id == "" {
+		return model.Model{}, fmt.Errorf("hyperopt: no seed model for strategy %q", e.strategy)
+	}
+	return model.Seed(id)
 }
 
 // mergeOverrides overlays the searched override values (float64) onto a copy of

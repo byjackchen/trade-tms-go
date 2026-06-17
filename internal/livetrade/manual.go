@@ -48,7 +48,7 @@ import (
 
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // ManualStrategyID is the pseudo-strategy every manual order is attributed to,
@@ -122,7 +122,7 @@ type ManualAuditRecord struct {
 type ManualController struct {
 	acct       domain.Account
 	exec       *moexec.MoomooExecutor
-	gate       *portfolio.Portfolio
+	gate       *riskgate.Gate
 	account    *AccountAdapter
 	prices     PriceSource
 	halt       Halter
@@ -149,7 +149,7 @@ type ManualControllerConfig struct {
 	Executor *moexec.MoomooExecutor
 	// Gate is the portfolio risk gate (allocator budget + concentration + daily-loss
 	// halt). Required in production; nil disables the gate (tests only).
-	Gate *portfolio.Portfolio
+	Gate *riskgate.Gate
 	// Account is the accounting adapter the executor settles into + the gate reads
 	// (required).
 	Account *AccountAdapter
@@ -228,12 +228,13 @@ func (m *ManualController) IsLive() bool { return m.acct.IsReal() }
 // Mode reports the desk's bound mode ("paper" | "live"). Surfaced by the desk's
 // status/account endpoints so the UI + e2e can positively confirm a PAPER desk
 // (never place against live) without inferring it from the session. Derived from
-// the bound account's env (simulate => paper, real => live).
+// the bound account's env (simulate => paper, real => live) — a presentational
+// label for the desk, distinct from the retired domain.Mode enum.
 func (m *ManualController) Mode() string {
 	if m.acct.IsReal() {
-		return string(domain.ModeLive)
+		return "live"
 	}
-	return string(domain.ModePaper)
+	return "paper"
 }
 
 // ManualAccountView is a small read-only snapshot of the MANUAL book's account for
@@ -618,8 +619,8 @@ func (m *ManualController) runRiskGate(ctx context.Context, coid string, req Man
 	if req.Side == domain.OrderSideSell {
 		signalSide = domain.SideShort
 	}
-	proposed := portfolio.NewProposedOrder(ManualStrategyID, req.Symbol, signalSide, req.Qty, price, ts)
-	decision := m.gate.Check(proposed, portfolio.SnapshotFromDomain(snap))
+	proposed := riskgate.NewProposedOrder(ManualStrategyID, req.Symbol, signalSide, req.Qty, price, ts)
+	decision := m.gate.Check(proposed, riskgate.SnapshotFromDomain(snap))
 	if decision.Approved {
 		return "", "", true
 	}

@@ -115,7 +115,7 @@ func runWindowIntents(recs []livengine.IntentRecord, runStart time.Time) []liven
 func buildSectorWarmupSession(t *testing.T, sink livengine.IntentSink, batch []domain.Bar) *livengine.Session {
 	t.Helper()
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Strategy:        "sector_rotation",
+		Model:           mustSeed(t, "sector-only"),
 		StartingBalance: 100000,
 		Params:          strategyassembly.Params{Sector: sectorWarmupParams()},
 	})
@@ -123,7 +123,7 @@ func buildSectorWarmupSession(t *testing.T, sink livengine.IntentSink, batch []d
 	sess, err := livengine.NewSession(livengine.Config{
 		Exec:            domain.ExecSignal,
 		Strategies:      asm.Strategies,
-		Portfolio:       asm.Portfolio,
+		Gate:            asm.Gate,
 		StartingBalance: domain.MustMoney("100000"),
 		WarmupBatch:     batch,
 		Sink:            sink,
@@ -303,7 +303,7 @@ func pairsPreRun() (pre, run []engine.InstrumentBars, runStart time.Time) {
 func buildPairsWarmupSession(t *testing.T, sink livengine.IntentSink, batch []domain.Bar) *livengine.Session {
 	t.Helper()
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Strategy:        "pairs",
+		Model:           mustSeed(t, "pairs-only"),
 		StartingBalance: 100000,
 		Params:          strategyassembly.Params{Pairs: pairsWarmupParams()},
 	})
@@ -311,7 +311,7 @@ func buildPairsWarmupSession(t *testing.T, sink livengine.IntentSink, batch []do
 	sess, err := livengine.NewSession(livengine.Config{
 		Exec:            domain.ExecSignal,
 		Strategies:      asm.Strategies,
-		Portfolio:       asm.Portfolio,
+		Gate:            asm.Gate,
 		StartingBalance: domain.MustMoney("100000"),
 		WarmupBatch:     batch,
 		Sink:            sink,

@@ -95,7 +95,6 @@ func (r *strategyMetaReader) ListStrategies(ctx context.Context) ([]StrategyMeta
 				ID:         d.ID,
 				BacktestID: d.BacktestID,
 				Label:      d.Label,
-				Active:     true,
 				Parameters: []ParamSchema{},
 				Error:      err.Error(),
 			})
@@ -149,18 +148,11 @@ func (r *strategyMetaReader) resolve(ctx context.Context, d strategyDescriptor) 
 	if doc.Display != nil {
 		desc = doc.Display.Description
 	}
-	var capPct *float64
-	if pct, ok := doc.CapitalPct(); ok {
-		capPct = &pct
-	}
-
 	return &StrategyMeta{
 		ID:              d.ID,
 		BacktestID:      d.BacktestID,
 		Label:           d.Label,
 		Description:     desc,
-		CapitalPct:      capPct,
-		Active:          doc.Active(),
 		ParamsSource:    string(doc.Source),
 		SchemaVersion:   sp.SchemaVersion,
 		ParametersCount: len(schema),

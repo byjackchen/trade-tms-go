@@ -18,6 +18,8 @@ import (
 	"context"
 	"sort"
 	"time"
+
+	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
 // Status is a check outcome.
@@ -84,8 +86,13 @@ func (r CheckResult) blocking() bool {
 
 // Report is the full preflight outcome.
 type Report struct {
-	// Mode is the session mode the report was evaluated for (signal|paper|live).
-	Mode string `json:"mode"`
+	// ExecPolicy is the execution policy the report was evaluated for (signal|auto).
+	ExecPolicy domain.ExecutionPolicy `json:"exec_policy"`
+	// Env is the bound account env the report was evaluated for (sim|simulate|real).
+	Env domain.BrokerEnv `json:"env"`
+	// RunWord is the derived convenience label (signal|paper|live) — read-only,
+	// always derived from (exec_policy, env); kept for display/back-compat.
+	RunWord string `json:"run_word"`
 	// Strategy is the strategy set the report was evaluated for.
 	Strategy string `json:"strategy"`
 	// TS is when the preflight ran (UTC).
@@ -135,9 +142,13 @@ var checkOrder = map[string]int{
 
 // Config selects what session the preflight is validating.
 type Config struct {
-	// Mode is "signal" | "paper" | "live". Drives per-check severity (signal
-	// treats DATA_CURRENT + OPEND as advisory; paper/live require them).
-	Mode string
+	// ExecPolicy is "signal" | "auto". Drives per-check severity: signal treats
+	// DATA_CURRENT + OPEND as advisory; auto (paper/live) requires them. Empty
+	// defaults to ExecSignal.
+	ExecPolicy domain.ExecutionPolicy
+	// Env is the bound account env (sim|simulate|real). Used only to derive the
+	// report's display RunWord; severity keys off ExecPolicy alone.
+	Env domain.BrokerEnv
 	// Strategy is "sepa" | "sector_rotation" | "pairs" | "orb" | "multi".
 	Strategy string
 	// Tickers is the explicit SEPA stock universe (sepa/multi); empty falls back
@@ -171,10 +182,10 @@ func (c Config) now() time.Time {
 	return time.Now().UTC()
 }
 
-// isPaperOrLive reports whether the mode submits orders (paper/live), where the
-// strict severities apply.
+// isPaperOrLive reports whether the run auto-submits orders (exec_policy=auto,
+// i.e. paper or live), where the strict severities apply.
 func (c Config) isPaperOrLive() bool {
-	return c.Mode == "paper" || c.Mode == "live"
+	return c.ExecPolicy == domain.ExecAuto
 }
 
 // needsSFP reports whether the session trades SFP-sourced funds (the sector ETFs
@@ -219,11 +230,17 @@ func Run(ctx context.Context, cfg Config, probes Probes) Report {
 			ok = false
 		}
 	}
+	exec := cfg.ExecPolicy
+	if exec == "" {
+		exec = domain.ExecSignal
+	}
 	return Report{
-		Mode:     cfg.Mode,
-		Strategy: cfg.Strategy,
-		TS:       cfg.now(),
-		Checks:   checks,
-		OK:       ok,
+		ExecPolicy: exec,
+		Env:        cfg.Env,
+		RunWord:    domain.RunWord(exec, cfg.Env),
+		Strategy:   cfg.Strategy,
+		TS:         cfg.now(),
+		Checks:     checks,
+		OK:         ok,
 	}
 }

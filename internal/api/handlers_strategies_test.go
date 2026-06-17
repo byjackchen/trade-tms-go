@@ -34,19 +34,13 @@ func TestStrategyReaderListBaseline(t *testing.T) {
 		require.Len(t, m.Parameters, m.ParametersCount)
 	}
 
-	// SEPA baseline carries an allocation block (capital_pct 0.40, active).
+	// Allocation is owned by the Model now, so StrategyMeta no longer exposes
+	// capital_pct/active — only the strategy-level display metadata remains.
 	sepa := list[0]
-	require.NotNil(t, sepa.CapitalPct)
-	require.InDelta(t, 0.40, *sepa.CapitalPct, 1e-9)
-	require.True(t, sepa.Active)
 	require.Equal(t, "SEPA", sepa.Label)
 	require.NotEmpty(t, sepa.Description)
 
-	// ORB baseline (intraday_breakout) has no allocation block -> nil capital,
-	// active defaults true.
 	orb := list[3]
-	require.Nil(t, orb.CapitalPct)
-	require.True(t, orb.Active)
 	require.Equal(t, "ORB", orb.Label)
 }
 

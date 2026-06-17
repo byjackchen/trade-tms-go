@@ -49,12 +49,6 @@ func TestSEPABaselineMatchesPython(t *testing.T) {
 	if doc.Params.SchemaVersion != 1 {
 		t.Errorf("schema_version = %d, want 1", doc.Params.SchemaVersion)
 	}
-	if pct, ok := doc.CapitalPct(); !ok || pct != 0.40 {
-		t.Errorf("allocation.capital_pct = (%v,%v), want (0.40,true)", pct, ok)
-	}
-	if !doc.Active() {
-		t.Errorf("sepa should be active")
-	}
 }
 
 func TestPairsBaselineMatchesPython(t *testing.T) {
@@ -85,9 +79,6 @@ func TestPairsBaselineMatchesPython(t *testing.T) {
 	if c.Kind != "clamp_high" || c.Param != "exit_z" || c.Expression != "min(1.0, entry_z - 0.1)" {
 		t.Errorf("constraint = %+v, want clamp_high/exit_z/min(1.0, entry_z - 0.1)", c)
 	}
-	if pct, ok := doc.CapitalPct(); !ok || pct != 0.20 {
-		t.Errorf("allocation.capital_pct = (%v,%v), want (0.20,true)", pct, ok)
-	}
 }
 
 func TestSectorRotationBaselineMatchesPython(t *testing.T) {
@@ -107,7 +98,7 @@ func TestSectorRotationBaselineMatchesPython(t *testing.T) {
 }
 
 func TestIntradayBreakoutBaselineMatchesPython(t *testing.T) {
-	got, doc, err := testdataLoader().IntradayBreakout(context.Background())
+	got, _, err := testdataLoader().IntradayBreakout(context.Background())
 	if err != nil {
 		t.Fatalf("IntradayBreakout: %v", err)
 	}
@@ -122,13 +113,6 @@ func TestIntradayBreakoutBaselineMatchesPython(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("IntradayBreakout params mismatch:\n got %+v\nwant %+v", got, want)
-	}
-	// intraday_breakout baseline omits the allocation block entirely.
-	if _, ok := doc.CapitalPct(); ok {
-		t.Errorf("intraday_breakout should have no allocation block")
-	}
-	if !doc.Active() {
-		t.Errorf("absent allocation block -> active by default")
 	}
 }
 

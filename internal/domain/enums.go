@@ -286,54 +286,6 @@ func (s OrderStatus) IsTerminal() bool {
 }
 
 // ---------------------------------------------------------------------------
-// Mode — platform run mode
-// ---------------------------------------------------------------------------
-
-// Mode is the platform run mode: signal-only (no orders), paper (simulated
-// fills), or live (real broker).
-type Mode string
-
-const (
-	ModeSignal Mode = "signal"
-	ModePaper  Mode = "paper"
-	ModeLive   Mode = "live"
-)
-
-// IsValid reports whether m is a known Mode.
-func (m Mode) IsValid() bool {
-	switch m {
-	case ModeSignal, ModePaper, ModeLive:
-		return true
-	}
-	return false
-}
-
-// String returns the wire value.
-func (m Mode) String() string { return string(m) }
-
-// ParseMode validates and returns the Mode for s.
-func ParseMode(s string) (Mode, error) {
-	v := Mode(s)
-	if !v.IsValid() {
-		return "", fmt.Errorf("%w: unknown Mode %q", ErrInvalidArgument, s)
-	}
-	return v, nil
-}
-
-// MarshalText implements encoding.TextMarshaler.
-func (m Mode) MarshalText() ([]byte, error) { return []byte(m), nil }
-
-// UnmarshalText implements encoding.TextUnmarshaler with validation.
-func (m *Mode) UnmarshalText(b []byte) error {
-	v, err := ParseMode(string(b))
-	if err != nil {
-		return err
-	}
-	*m = v
-	return nil
-}
-
-// ---------------------------------------------------------------------------
 // SignalState — shared intent state machine [MUST-MATCH]
 // (src/strategies/*/intent.py, identical in all four strategies)
 // ---------------------------------------------------------------------------

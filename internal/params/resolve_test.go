@@ -184,8 +184,10 @@ func TestParseDocumentRejectsStrategyMismatch(t *testing.T) {
 	}
 }
 
-// TestParseDocumentDisplayAllocation checks display/allocation decode.
-func TestParseDocumentDisplayAllocation(t *testing.T) {
+// TestParseDocumentDisplay checks display decode. An allocation block may still
+// be physically present in the JSON, but the Model owns allocation now, so it is
+// neither parsed nor exposed (it must not cause a parse error either).
+func TestParseDocumentDisplay(t *testing.T) {
 	raw := []byte(`{
 	  "strategy":"sepa","schema_version":1,
 	  "display":{"description":"hello"},
@@ -198,12 +200,6 @@ func TestParseDocumentDisplayAllocation(t *testing.T) {
 	}
 	if doc.Display == nil || doc.Display.Description != "hello" {
 		t.Errorf("display = %+v", doc.Display)
-	}
-	if pct, ok := doc.CapitalPct(); !ok || pct != 0.4 {
-		t.Errorf("capital_pct = (%v,%v)", pct, ok)
-	}
-	if doc.Active() {
-		t.Errorf("active=false should be honored")
 	}
 }
 

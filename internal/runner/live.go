@@ -38,9 +38,30 @@ import (
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
 	"github.com/byjackchen/trade-tms-go/internal/livetrade"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 	"github.com/byjackchen/trade-tms-go/internal/publish"
 )
+
+// The live node's runtime control-plane vocabulary: the operator switches a
+// running node between these via the set_mode command (decision 6's "mode-switch
+// via graceful session restart"). These are NOT a domain type — they map onto the
+// 2D model (docs/concept-alignment.md §1.3): each value derives an ExecutionPolicy
+// (modeSignal → ExecSignal; modePaper/modeLive → ExecAuto) and a bound Account env
+// (signal → sim, paper → simulate, live → real) via resolveAccount/execPolicyFor.
+const (
+	modeSignal = "signal"
+	modePaper  = "paper"
+	modeLive   = "live"
+)
+
+// execPolicyForMode maps a control-plane mode onto the execution axis: signal
+// emits only; paper/live auto-submit against the bound account.
+func execPolicyForMode(mode string) domain.ExecutionPolicy {
+	if mode == modeSignal {
+		return domain.ExecSignal
+	}
+	return domain.ExecAuto
+}
 
 // LiveConfig configures a live node.
 type LiveConfig struct {
@@ -175,15 +196,15 @@ func NewLive(pool *pgxpool.Pool, rdb *redis.Client, cfg LiveConfig, log zerolog.
 	}
 	mode := cfg.Mode
 	if mode == "" {
-		mode = string(domain.ModeSignal)
+		mode = modeSignal
 	}
-	switch domain.Mode(mode) {
-	case domain.ModeSignal:
-	case domain.ModePaper:
+	switch mode {
+	case modeSignal:
+	case modePaper:
 		if cfg.PaperAccID == 0 {
 			return nil, fmt.Errorf("runner: paper mode requires a SIMULATE acc id (TMS_MOOMOO_PAPER_ACC_ID)")
 		}
-	case domain.ModeLive:
+	case modeLive:
 		// SAFETY (decision 8): live mode needs the real acc id + the typed
 		// confirmation phrase configured up front. The MoomooExecutor re-asserts
 		// the full gate (phrase + acc id + UnlockTrade + trader-id) at activation.
@@ -276,13 +297,13 @@ func (l *Live) Mode() string {
 // creds can never switch to live at runtime — there is no code path to real
 // money without the up-front gate.
 func (l *Live) SetMode(_ context.Context, mode string) error {
-	switch domain.Mode(mode) {
-	case domain.ModeSignal:
-	case domain.ModePaper:
+	switch mode {
+	case modeSignal:
+	case modePaper:
 		if l.cfg.PaperAccID == 0 {
 			return fmt.Errorf("cannot switch to paper: no SIMULATE acc id configured")
 		}
-	case domain.ModeLive:
+	case modeLive:
 		if l.cfg.LiveAccID == 0 || l.cfg.LiveConfirmationPhrase != moexec.LiveConfirmationPhrase {
 			return fmt.Errorf("cannot switch to live: real acc id + confirmation phrase not configured (refusing real money)")
 		}
@@ -676,7 +697,7 @@ type streamRunner interface {
 // strategies. It returns the stream runner, the prime function, and a cleanup
 // that detaches the active trade session.
 func (l *Live) buildRunnable(ctx context.Context, mode string, as *Assembled, warmup livengine.WarmupProvider, warmupBatch []domain.Bar, startMoney domain.Money, sink *Sink, sessionID int64, client MoomooClient, warmupEnd time.Time) (streamRunner, func(context.Context) error, func(), error) {
-	if domain.Mode(mode).ExecutionPolicy() == domain.ExecSignal {
+	if execPolicyForMode(mode) == domain.ExecSignal {
 		// Keep the reused sessions row's account_id consistent with the account this
 		// (re)built signal session binds. A node can START in paper/live and switch
 		// BACK to signal at runtime; without this the session row would keep the
@@ -687,7 +708,7 @@ func (l *Live) buildRunnable(ctx context.Context, mode string, as *Assembled, wa
 		sess, err := livengine.NewSession(livengine.Config{
 			Exec:            domain.ExecSignal,
 			Strategies:      as.Assembly.Strategies,
-			Portfolio:       as.Assembly.Portfolio,
+			Gate:       as.Assembly.Gate,
 			Context:         as.Assembly.Context,
 			SPYSymbol:       as.SPYSymbol,
 			Warmup:          warmup,
@@ -755,7 +776,7 @@ func (l *Live) buildRunnable(ctx context.Context, mode string, as *Assembled, wa
 	ts, err := livetrade.NewTradeSession(livetrade.TradeSessionConfig{
 		Acct:          acct,
 		Strategies:    as.Assembly.Strategies,
-		Gate:          as.Assembly.Portfolio,
+		Gate:          as.Assembly.Gate,
 		Context:       as.Assembly.Context,
 		SPYSymbol:     as.SPYSymbol,
 		Warmup:        warmup,
@@ -840,7 +861,7 @@ func (l *Live) buildRunnable(ctx context.Context, mode string, as *Assembled, wa
 // reconcileAlerter halts the node on a reconciliation mismatch + surfaces it to
 // the cockpit (NO auto-correct, decision 5).
 func (l *Live) reconcileAlerter() livetrade.MismatchAlerter {
-	return reconcileAlerterFunc(func(ctx context.Context, r portfolio.ReconciliationReport) {
+	return reconcileAlerterFunc(func(ctx context.Context, r riskgate.ReconciliationReport) {
 		l.halt.Halt(commands.HaltReconciliation, "reconciliation mismatch detected (no auto-correct)")
 		l.recordHalt(ctx, commands.HaltReconciliation, "reconciliation mismatch: "+r.Summary())
 		l.log.Error().Str("summary", r.Summary()).Msg("RECONCILIATION MISMATCH — halted; human resolution required")
@@ -848,9 +869,9 @@ func (l *Live) reconcileAlerter() livetrade.MismatchAlerter {
 }
 
 // reconcileAlerterFunc adapts a func to livetrade.MismatchAlerter.
-type reconcileAlerterFunc func(context.Context, portfolio.ReconciliationReport)
+type reconcileAlerterFunc func(context.Context, riskgate.ReconciliationReport)
 
-func (f reconcileAlerterFunc) OnReconciliationMismatch(ctx context.Context, r portfolio.ReconciliationReport) {
+func (f reconcileAlerterFunc) OnReconciliationMismatch(ctx context.Context, r riskgate.ReconciliationReport) {
 	f(ctx, r)
 }
 
@@ -876,10 +897,10 @@ func execEnv(acct domain.Account) moomoo.TrdEnv {
 // single point where the paper-vs-live account axis is derived; everything
 // downstream (executor TrdEnv, persistence account_id, reconciler) flows from it.
 func (l *Live) resolveAccount(mode string) domain.Account {
-	switch domain.Mode(mode) {
-	case domain.ModePaper:
+	switch mode {
+	case modePaper:
 		return domain.NewBrokerAccount("moomoo", domain.EnvSimulate, l.cfg.PaperAccID, "")
-	case domain.ModeLive:
+	case modeLive:
 		return domain.NewBrokerAccount("moomoo", domain.EnvReal, l.cfg.LiveAccID, "")
 	default:
 		return domain.SimAccount("signal")
@@ -978,7 +999,9 @@ func (l *Live) subscriptionCap() int {
 // unique index). A pre-existing running row is reused (idempotent restart).
 func (l *Live) openSession(ctx context.Context) (int64, error) {
 	// Resolve + ensure the bound account row exists BEFORE the session row so the
-	// sessions.account_id FK is satisfiable (keep sessions.mode for back-compat).
+	// sessions.account_id FK is satisfiable. The 2D model is persisted as
+	// exec_policy (signal/auto) + the bound account env (via account_id); the
+	// paper-vs-live distinction lives in the account, not the row's policy.
 	mode := l.Mode()
 	acct := l.resolveAccount(mode)
 	accountIDParam, err := l.ensureAccount(ctx, acct)
@@ -987,9 +1010,9 @@ func (l *Live) openSession(ctx context.Context) (int64, error) {
 	}
 	var id int64
 	err = l.pool.QueryRow(ctx,
-		`INSERT INTO tms.sessions (trader_id, mode, account_id, status)
+		`INSERT INTO tms.sessions (trader_id, exec_policy, account_id, status)
 		 VALUES ($1, $2, $3, 'RUNNING') RETURNING id`,
-		l.cfg.TraderID, mode, accountIDParam).Scan(&id)
+		l.cfg.TraderID, string(execPolicyForMode(mode)), accountIDParam).Scan(&id)
 	if err == nil {
 		l.log.Info().Int64("session_id", id).Msg("opened live session row")
 		return id, nil

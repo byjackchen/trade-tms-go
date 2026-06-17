@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Root redirects to the only implemented section in P1. */
+/** Root lands on Systems & Data, the first pipeline section. */
 export default function Home() {
-  redirect("/data");
+  redirect("/systems");
 }

@@ -71,18 +71,20 @@ func (s *Server) handleHyperoptEnqueue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeValidation, err.Error())
 		return
 	}
+	// SINGLE-strategy tuning only (docs/concept-alignment.md §3.3): joint
+	// (multi-strategy) optimisation moved to POST /api/v1/models/{id}/optimize.
 	switch req.Strategy {
-	case "sepa", "sector_rotation", "pairs", "joint":
+	case "sepa", "sector_rotation", "pairs":
 	default:
 		writeError(w, http.StatusBadRequest, CodeValidation,
-			fmt.Sprintf("unsupported strategy %q (want sepa|sector_rotation|pairs|joint)", req.Strategy))
+			fmt.Sprintf("unsupported strategy %q (want sepa|sector_rotation|pairs — joint optimisation is POST /models/{id}/optimize)", req.Strategy))
 		return
 	}
 	if strings.TrimSpace(req.Start) == "" || strings.TrimSpace(req.End) == "" {
 		writeError(w, http.StatusBadRequest, CodeValidation, `"start" and "end" are required (YYYY-MM-DD)`)
 		return
 	}
-	if (req.Strategy == "sepa" || req.Strategy == "joint") && len(req.Tickers) == 0 && req.Universe == nil {
+	if req.Strategy == "sepa" && len(req.Tickers) == 0 && req.Universe == nil {
 		writeError(w, http.StatusBadRequest, CodeValidation,
 			fmt.Sprintf("strategy %q requires a stock universe (\"tickers\" or \"universe\")", req.Strategy))
 		return

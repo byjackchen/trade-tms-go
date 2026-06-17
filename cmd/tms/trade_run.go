@@ -24,6 +24,33 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/runner"
 )
 
+// resolveRun validates the operator-facing run selector — the 2D model
+// (docs/concept-alignment.md §1.3): an ExecutionPolicy (signal vs auto) plus a
+// bound account env (sim/simulate/real). It returns the parsed axes and the
+// DERIVED convenience word (signal|paper|live) the runtime plumbing still uses
+// internally (runner.Live's restart vocabulary). exec=auto requires an env;
+// exec=signal settles nowhere (env ignored, normalized to "").
+//
+// "go paper" = exec=auto on a sim/simulate account; "go live" = exec=auto on a
+// real account; "signal" = exec=signal. Real money (env=real) is gated upstream.
+func resolveRun(execStr, envStr string) (domain.ExecutionPolicy, domain.BrokerEnv, string, error) {
+	exec, err := domain.ParseExecutionPolicy(execStr)
+	if err != nil {
+		return "", "", "", fmt.Errorf("--exec-policy %q invalid (want signal|auto)", execStr)
+	}
+	if exec == domain.ExecSignal {
+		return exec, "", domain.RunWord(exec, ""), nil
+	}
+	env := domain.BrokerEnv(strings.TrimSpace(envStr))
+	if env == "" {
+		return "", "", "", fmt.Errorf("--exec-policy auto requires --env (sim|simulate|real): a 'go paper' is auto on a simulate account, 'go live' is auto on a real account")
+	}
+	if !env.IsValid() {
+		return "", "", "", fmt.Errorf("--env %q invalid (want sim|simulate|real)", envStr)
+	}
+	return exec, env, domain.RunWord(exec, env), nil
+}
+
 // newTradeRunCmd implements `tms trade run --mode signal`: the live (real-time)
 // trading node. It wires the native moomoo OpenD client (or the protocol-faithful
 // mock, switched by TMS_MOOMOO_ADDR) -> a streaming feed -> the SAME internal/core
@@ -38,7 +65,8 @@ import (
 // are deferred to P6 (locked decision 1 + 6).
 func newTradeRunCmd(env *runtimeEnv) *cobra.Command {
 	var (
-		modeStr       string
+		execPolicy    string
+		envStr        string
 		traderID      string
 		strategy      string
 		tickersCSV    string
@@ -74,7 +102,8 @@ func newTradeRunCmd(env *runtimeEnv) *cobra.Command {
 				return probeTradeHealth(cmd.Context(), healthAddr)
 			}
 			return runTradeRun(cmd.Context(), env, tradeRunArgs{
-				mode:          strings.TrimSpace(modeStr),
+				execPolicy:    strings.TrimSpace(execPolicy),
+				env:           strings.TrimSpace(envStr),
 				traderID:      strings.TrimSpace(traderID),
 				strategy:      strings.TrimSpace(strategy),
 				tickersCSV:    tickersCSV,
@@ -92,7 +121,8 @@ func newTradeRunCmd(env *runtimeEnv) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&modeStr, "mode", "signal", "execution mode: signal | paper | live (live requires real acc id + TMS_LIVE_CONFIRM + the TMS-LIVE-REAL-001 trader id)")
+	cmd.Flags().StringVar(&execPolicy, "exec-policy", "signal", "execution policy: signal (emit-only) | auto (auto-submit). 'go paper' = auto + --env simulate; 'go live' = auto + --env real")
+	cmd.Flags().StringVar(&envStr, "env", "", "bound account env for --exec-policy auto: sim | simulate | real (real requires real acc id + TMS_LIVE_CONFIRM + the TMS-LIVE-REAL-001 trader id)")
 	cmd.Flags().StringVar(&traderID, "trader-id", "SIGNAL-001", "trader id (Redis namespace + sessions.trader_id)")
 	cmd.Flags().StringVar(&strategy, "strategy", "multi", "strategy: sepa | sector_rotation | pairs | orb | multi")
 	cmd.Flags().StringVar(&tickersCSV, "tickers", "", "comma-separated stock universe (SEPA/multi); strategy derives ETFs/legs/SPY from params")
@@ -103,7 +133,7 @@ func newTradeRunCmd(env *runtimeEnv) *cobra.Command {
 	cmd.Flags().StringVar(&healthAddr, "health-addr", "", "liveness HTTP listen/probe address (default TMS_WORKER_HEALTH_ADDR)")
 	cmd.Flags().BoolVar(&healthProbe, "health", false, "probe a running live node's /healthz and exit 0/1 (container healthcheck mode)")
 	cmd.Flags().DurationVar(&drainTimeout, "drain-timeout", 10*time.Second, "max wait for in-flight work on shutdown")
-	cmd.Flags().BoolVar(&skipPreflight, "skip-preflight", false, "DANGER: start without the go-live preflight gate (paper/signal only; REFUSED for --mode live)")
+	cmd.Flags().BoolVar(&skipPreflight, "skip-preflight", false, "DANGER: start without the go-live preflight gate (signal/paper only; REFUSED for live = exec-policy auto + env real)")
 	cmd.Flags().IntVar(&maxStaleDays, "max-stale-days", 1, "DATA_CURRENT tolerance: max trading days the data frontier may lag T-1")
 	cmd.Flags().StringVar(&manualMode, "manual-mode", "", "connect an operator MANUAL trade desk: paper | live (independent of --mode; live requires the full 4-factor activation). Serves /api/v1/trade/* on --manual-api-addr")
 	cmd.Flags().StringVar(&manualAPIAddr, "manual-api-addr", "127.0.0.1:18091", "MANUAL trade desk HTTP listen address (bearer-guarded by TMS_API_TOKEN)")
@@ -117,7 +147,8 @@ func newTradeRunCmd(env *runtimeEnv) *cobra.Command {
 // the operator (and CI) can run before a paper/live session.
 func newTradePreflightCmd(env *runtimeEnv) *cobra.Command {
 	var (
-		modeStr      string
+		execPolicy   string
+		envStr       string
 		strategy     string
 		tickersCSV   string
 		orbSymbol    string
@@ -131,13 +162,14 @@ func newTradePreflightCmd(env *runtimeEnv) *cobra.Command {
 		Short: "Verify go-live preconditions (data freshness, warmup, caps, universe, OpenD, PG/Redis)",
 		Long: "Runs the structured go-live PREFLIGHT for a session and prints a PASS/FAIL\n" +
 			"table. Each check reports pass | warn | fail with a blocker | warn severity.\n" +
-			"Exit 0 when every BLOCKER passes, 1 otherwise. signal mode treats data\n" +
-			"freshness + OpenD as advisory (warn); paper/live require all blockers. This\n" +
-			"is the same report 'tms trade run' enforces at startup and GET /api/v1/trade/preflight serves.",
+			"Exit 0 when every BLOCKER passes, 1 otherwise. exec-policy signal treats data\n" +
+			"freshness + OpenD as advisory (warn); auto (paper/live) requires all blockers.\n" +
+			"This is the same report 'tms trade run' enforces at startup and GET /api/v1/trade/preflight serves.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runTradePreflight(cmd.Context(), env, preflightArgs{
-				mode:         strings.TrimSpace(modeStr),
+				execPolicy:   strings.TrimSpace(execPolicy),
+				env:          strings.TrimSpace(envStr),
 				strategy:     strings.TrimSpace(strategy),
 				tickersCSV:   tickersCSV,
 				orbSymbol:    strings.TrimSpace(orbSymbol),
@@ -148,19 +180,21 @@ func newTradePreflightCmd(env *runtimeEnv) *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&modeStr, "mode", "signal", "session mode: signal | paper | live")
+	cmd.Flags().StringVar(&execPolicy, "exec-policy", "signal", "execution policy: signal (emit-only) | auto (auto-submit; paper/live)")
+	cmd.Flags().StringVar(&envStr, "env", "", "bound account env for --exec-policy auto: sim | simulate | real")
 	cmd.Flags().StringVar(&strategy, "strategy", "multi", "strategy: sepa | sector_rotation | pairs | orb | multi")
 	cmd.Flags().StringVar(&tickersCSV, "tickers", "", "comma-separated SEPA stock universe (sepa/multi); empty resolves the default SF1 window universe")
 	cmd.Flags().StringVar(&orbSymbol, "orb-symbol", "", "ORB strategy: the single intraday instrument symbol")
 	cmd.Flags().StringVar(&moomooAddr, "moomoo-addr", "", "moomoo OpenD address for the OpenD probe (default TMS_MOOMOO_ADDR)")
 	cmd.Flags().IntVar(&maxStaleDays, "max-stale-days", 1, "DATA_CURRENT tolerance: max trading days the data frontier may lag T-1")
-	cmd.Flags().BoolVar(&checkOpenD, "check-opend", false, "probe OpenD even in signal mode (paper/live always probe it)")
+	cmd.Flags().BoolVar(&checkOpenD, "check-opend", false, "probe OpenD even in signal mode (auto always probes it)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the report as JSON instead of the table")
 	return cmd
 }
 
 type tradeRunArgs struct {
-	mode          string
+	execPolicy    string
+	env           string
 	traderID      string
 	strategy      string
 	tickersCSV    string
@@ -182,17 +216,20 @@ type tradeRunArgs struct {
 // a wall clock, recording a SignalIntent per strategy per bar to PG + Redis and
 // submitting NO orders, under the ops.commands control plane.
 func runTradeRun(parent context.Context, env *runtimeEnv, a tradeRunArgs) error {
+	execPolicy, acctEnv, mode, err := resolveRun(a.execPolicy, a.env)
+	if err != nil {
+		return err
+	}
+
 	log := env.log.With().
 		Str("cmd", "trade run").
-		Str("mode", a.mode).
+		Str("exec_policy", string(execPolicy)).
+		Str("env", string(acctEnv)).
+		Str("run", mode).
 		Str("trader_id", a.traderID).
 		Str("strategy", a.strategy).
 		Logger()
 
-	mode := domain.Mode(a.mode)
-	if !mode.IsValid() {
-		return fmt.Errorf("--mode %q invalid (want signal|paper|live)", a.mode)
-	}
 	if a.traderID == "" {
 		return fmt.Errorf("--trader-id is required (Redis namespace + sessions.trader_id)")
 	}
@@ -257,26 +294,28 @@ func runTradeRun(parent context.Context, env *runtimeEnv, a tradeRunArgs) error 
 	// would have caught. --skip-preflight overrides with a loud warning (operators
 	// who knowingly accept the risk; never the default).
 	//
-	// HARD GUARD (finding 1): --skip-preflight is NEVER honored for mode=live
-	// (real money). Allowing an operator to start REAL-MONEY trading with zero
-	// precondition verification is exactly the bypassable-blocker the preflight
-	// exists to close. For live the preflight is mandatory and non-overridable;
-	// paper/signal may still skip it (loudly).
-	if a.skipPreflight && mode == domain.ModeLive {
-		return fmt.Errorf("--skip-preflight is refused for mode=live: the go-live preflight is MANDATORY for real-money trading and cannot be bypassed (run `tms trade preflight --mode live ...` to see the failing blockers and resolve them)")
+	// HARD GUARD (finding 1): --skip-preflight is NEVER honored for a real-money
+	// run (exec-policy auto + env real). Allowing an operator to start REAL-MONEY
+	// trading with zero precondition verification is exactly the bypassable-blocker
+	// the preflight exists to close. For live the preflight is mandatory and
+	// non-overridable; signal/paper may still skip it (loudly).
+	isLiveRun := acctEnv == domain.EnvReal
+	if a.skipPreflight && isLiveRun {
+		return fmt.Errorf("--skip-preflight is refused for a live run (exec-policy auto + env real): the go-live preflight is MANDATORY for real-money trading and cannot be bypassed (run `tms trade preflight --exec-policy auto --env real ...` to see the failing blockers and resolve them)")
 	}
 	if a.skipPreflight {
-		log.Warn().Str("mode", a.mode).Msg("PREFLIGHT SKIPPED (--skip-preflight): starting WITHOUT go-live precondition checks — blockers are NOT enforced (NOT permitted for mode=live)")
+		log.Warn().Str("run", mode).Msg("PREFLIGHT SKIPPED (--skip-preflight): starting WITHOUT go-live precondition checks — blockers are NOT enforced (NOT permitted for a live run)")
 	} else {
 		rep := preflight.Run(ctx, preflight.Config{
-			Mode:                a.mode,
+			ExecPolicy:          execPolicy,
+			Env:                 acctEnv,
 			Strategy:            a.strategy,
 			Tickers:             tickers,
 			ORBSymbol:           a.orbSymbol,
 			MaxStaleTradingDays: a.maxStaleDays,
-			// paper/live always probe OpenD; in signal mode we do too here (the node
+			// auto (paper/live) always probes OpenD; in signal we do too here (the node
 			// is about to open a live OpenD socket regardless, so an unreachable broker
-			// is worth surfacing — as a warn for signal, a blocker for paper/live).
+			// is worth surfacing — as a warn for signal, a blocker for auto).
 			CheckOpenD: true,
 		}, preflight.NewPGProbes(preflight.PGProbesConfig{
 			Pool:      pool,
@@ -294,12 +333,12 @@ func runTradeRun(parent context.Context, env *runtimeEnv, a tradeRunArgs) error 
 			for _, b := range rep.Blockers() {
 				log.Error().Str("check", b.Check).Str("detail", b.Detail).Msg("preflight BLOCKER failed")
 			}
-			// --skip-preflight is offered as an override ONLY for paper/signal; for
-			// mode=live it is refused above, so do not advertise it as an option.
-			if mode == domain.ModeLive {
+			// --skip-preflight is offered as an override ONLY for signal/paper; for
+			// a live run it is refused above, so do not advertise it as an option.
+			if isLiveRun {
 				return fmt.Errorf("go-live preflight failed: %d blocker(s) must be resolved before real-money (live) trading", len(rep.Blockers()))
 			}
-			return fmt.Errorf("go-live preflight failed: %d blocker(s) must be resolved (or pass --skip-preflight to override for paper/signal)", len(rep.Blockers()))
+			return fmt.Errorf("go-live preflight failed: %d blocker(s) must be resolved (or pass --skip-preflight to override for signal/paper)", len(rep.Blockers()))
 		}
 		log.Info().Int("checks", len(rep.Checks)).Int("warnings", len(rep.Warnings())).Msg("go-live preflight passed")
 	}
@@ -313,7 +352,7 @@ func runTradeRun(parent context.Context, env *runtimeEnv, a tradeRunArgs) error 
 
 	node, err := runner.NewLive(pool, redisClient, runner.LiveConfig{
 		TraderID:               a.traderID,
-		Mode:                   a.mode,
+		Mode:                   mode,
 		Strategy:               a.strategy,
 		Tickers:                tickers,
 		ORBSymbol:              a.orbSymbol,
@@ -358,7 +397,7 @@ func runTradeRun(parent context.Context, env *runtimeEnv, a tradeRunArgs) error 
 
 	log.Info().
 		Str("moomoo_addr", moomooAddr).
-		Str("mode", a.mode).
+		Str("run", mode).
 		Str("manual_mode", a.manualMode).
 		Float64("health_nav", a.startBalance).
 		Msg("live node starting")
@@ -378,7 +417,8 @@ func runTradeRun(parent context.Context, env *runtimeEnv, a tradeRunArgs) error 
 
 // preflightArgs carries the `tms trade preflight` flags.
 type preflightArgs struct {
-	mode         string
+	execPolicy   string
+	env          string
 	strategy     string
 	tickersCSV   string
 	orbSymbol    string
@@ -392,12 +432,13 @@ type preflightArgs struct {
 // PASS/FAIL table (or JSON). It returns a non-nil error (so the process exits
 // non-zero) iff any BLOCKER check failed — the machine-checkable go/no-go gate.
 func runTradePreflight(parent context.Context, env *runtimeEnv, a preflightArgs) error {
-	log := env.log.With().Str("cmd", "trade preflight").Str("mode", a.mode).Str("strategy", a.strategy).Logger()
-
-	mode := domain.Mode(a.mode)
-	if !mode.IsValid() {
-		return fmt.Errorf("--mode %q invalid (want signal|paper|live)", a.mode)
+	execPolicy, acctEnv, runWord, err := resolveRun(a.execPolicy, a.env)
+	if err != nil {
+		return err
 	}
+	log := env.log.With().Str("cmd", "trade preflight").
+		Str("exec_policy", string(execPolicy)).Str("env", string(acctEnv)).Str("run", runWord).
+		Str("strategy", a.strategy).Logger()
 
 	moomooAddr := a.moomooAddr
 	if moomooAddr == "" {
@@ -441,7 +482,8 @@ func runTradePreflight(parent context.Context, env *runtimeEnv, a preflightArgs)
 	}
 
 	rep := preflight.Run(ctx, preflight.Config{
-		Mode:                a.mode,
+		ExecPolicy:          execPolicy,
+		Env:                 acctEnv,
 		Strategy:            a.strategy,
 		Tickers:             tickers,
 		ORBSymbol:           a.orbSymbol,

@@ -32,6 +32,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/metrics"
+	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 )
 
@@ -100,20 +101,25 @@ func triplePairDefaults() map[string]any {
 	}
 }
 
-// runPairsEngineWithGate assembles + runs the pairs strategy over [start, end]
-// on the shared dataset with the requested gate (multiGate true => canonical
-// multi-strategy gate; false => lone-strategy 100% gate) and returns the whole
-// run Result. It mirrors Evaluator.run so the two can be compared directly.
-func runPairsEngineWithGate(t *testing.T, ds *Dataset, defaults map[string]any, start, end calendar.Date, multiGate bool, startBal float64) *engine.Result {
+// runPairsEngineLoneGate assembles + runs the pairs strategy over [start, end]
+// on the shared dataset under the pairs-only Model's lone gate (100% budget,
+// the pairs default risk caps) and returns the whole run Result. It mirrors
+// Evaluator.run so the two can be compared directly. With parity abandoned the
+// pairs objective now uses exactly this lone gate (it no longer force-installs
+// the multi-strategy gate — docs/concept-alignment.md §3.2, D1).
+func runPairsEngineLoneGate(t *testing.T, ds *Dataset, defaults map[string]any, start, end calendar.Date, startBal float64) *engine.Result {
 	t.Helper()
 	pp, err := params.PairsFromMap(defaults)
 	if err != nil {
 		t.Fatalf("PairsFromMap: %v", err)
 	}
+	mdl, err := model.Seed("pairs-only")
+	if err != nil {
+		t.Fatalf("model.Seed(pairs-only): %v", err)
+	}
 	in := strategyassembly.Input{
-		Strategy:          "pairs",
-		StartingBalance:   startBal,
-		MultiStrategyGate: multiGate,
+		Model:           mdl,
+		StartingBalance: startBal,
 	}
 	in.Params.Pairs = pp
 	asm, err := strategyassembly.Assemble(in)
@@ -129,7 +135,7 @@ func runPairsEngineWithGate(t *testing.T, ds *Dataset, defaults map[string]any, 
 		End:                end,
 		StartingBalance:    sb,
 		Profile:            engine.ProfileNautilusCompat,
-		Portfolio:          asm.Portfolio,
+		Gate:               asm.Gate,
 		Context:            asm.Context,
 		SPYSymbol:          asm.SPYSymbol,
 		PrebuiltStrategies: asm.Strategies,
@@ -182,12 +188,12 @@ func emptyPairsDecoded() Decoded {
 	return Decoded{Overrides: map[string]map[string]float64{"pairs": {}}}
 }
 
-// TestObjectiveUsesMultiStrategyGate proves finding 1: the single-strategy pairs
-// objective path gates under the MULTI-strategy portfolio, matching Python. The
-// Evaluator's metrics must equal an engine driven with the multi gate, and must
-// DIFFER from one driven with the lone 100% gate (otherwise the gate fix is a
-// no-op and the test is not load-bearing).
-func TestObjectiveUsesMultiStrategyGate(t *testing.T) {
+// TestObjectiveUsesLoneGate proves the post-parity contract: the single-strategy
+// pairs objective path gates under the pairs-only Model's LONE gate (100% budget
+// + the pairs default risk caps), NOT the multi-strategy portfolio gate. The old
+// MultiStrategyGate force-install is gone (parity abandoned), so the Evaluator's
+// counters must equal a lone-gate engine run over the same dataset.
+func TestObjectiveUsesLoneGate(t *testing.T) {
 	const startBal = 100000.0
 	start := calendar.NewDate(2023, 1, 2)
 	end := calendar.NewDate(2023, 12, 29)
@@ -201,28 +207,16 @@ func TestObjectiveUsesMultiStrategyGate(t *testing.T) {
 	}
 	got := res.Aggregated
 
-	multiRes := runPairsEngineWithGate(t, ds, defaults, start, end, true, startBal)
-	singleRes := runPairsEngineWithGate(t, ds, defaults, start, end, false, startBal)
-	multiCounts := multiRes.Counts("")
-	singleCounts := singleRes.Counts("")
+	loneRes := runPairsEngineLoneGate(t, ds, defaults, start, end, startBal)
+	loneCounts := loneRes.Counts("")
 
-	// The fix is only meaningful if the two gates actually diverge on this data.
-	if multiCounts == singleCounts && multiRes.FinalBalance.Cmp(singleRes.FinalBalance) == 0 {
-		t.Fatalf("multi and single gate produced identical results (%+v); test is not load-bearing — adjust dataset", multiCounts)
+	// The Evaluator's metrics must match the lone-gate engine exactly.
+	if counterTuple(got) != loneCounts {
+		t.Fatalf("objective counts %+v != lone-gate engine counts %+v (objective is NOT using the pairs-only lone gate)",
+			counterTuple(got), loneCounts)
 	}
-
-	// The Evaluator's metrics must match the MULTI-gate engine exactly.
-	if counterTuple(got) != multiCounts {
-		t.Fatalf("objective counts %+v != multi-gate engine counts %+v (objective is NOT using the multi-strategy gate)",
-			counterTuple(got), multiCounts)
-	}
-	// And must NOT match the single-gate engine (proves the gate switched).
-	if counterTuple(got) == singleCounts {
-		t.Fatalf("objective counts %+v match the LONE-strategy gate %+v — the multi-strategy gate is not in effect",
-			counterTuple(got), singleCounts)
-	}
-	t.Logf("multi-gate counts=%+v single-gate counts=%+v objective counts=%+v sharpe=%.6f calmar=%.6f",
-		multiCounts, singleCounts, counterTuple(got), got.Sharpe, got.Calmar)
+	t.Logf("lone-gate counts=%+v objective counts=%+v sharpe=%.6f calmar=%.6f",
+		loneCounts, counterTuple(got), got.Sharpe, got.Calmar)
 }
 
 // engineMetricsSharpe recomputes a run's Sharpe the same way the objective path
@@ -247,10 +241,11 @@ func engineMetricsSharpe(t *testing.T, r *engine.Result, startBal float64) float
 	return m.Sharpe
 }
 
-// TestObjectiveObjectiveValuesMatchMultiGate proves the objective VECTOR
-// (sharpe, calmar) computed by the Evaluator equals the multi-gate engine run's
-// metrics exactly — the locked-decision-3 parity contract at the value level.
-func TestObjectiveObjectiveValuesMatchMultiGate(t *testing.T) {
+// TestObjectiveObjectiveValuesMatchLoneGate proves the objective VECTOR (sharpe,
+// calmar) computed by the Evaluator equals the lone-gate engine run's metrics
+// exactly — the post-parity contract at the value level (the objective uses the
+// pairs-only Model's gate, not the multi gate).
+func TestObjectiveObjectiveValuesMatchLoneGate(t *testing.T) {
 	const startBal = 100000.0
 	start := calendar.NewDate(2023, 1, 2)
 	end := calendar.NewDate(2023, 12, 29)
@@ -262,11 +257,11 @@ func TestObjectiveObjectiveValuesMatchMultiGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Evaluate: %v", err)
 	}
-	multiRes := runPairsEngineWithGate(t, ds, defaults, start, end, true, startBal)
-	wantSharpe := engineMetricsSharpe(t, multiRes, startBal)
+	loneRes := runPairsEngineLoneGate(t, ds, defaults, start, end, startBal)
+	wantSharpe := engineMetricsSharpe(t, loneRes, startBal)
 
 	if res.Aggregated.Sharpe != wantSharpe {
-		t.Fatalf("objective sharpe=%.10f != multi-gate engine sharpe=%.10f", res.Aggregated.Sharpe, wantSharpe)
+		t.Fatalf("objective sharpe=%.10f != lone-gate engine sharpe=%.10f", res.Aggregated.Sharpe, wantSharpe)
 	}
 	objs := res.Objectives()
 	if len(objs) != 2 {
@@ -294,7 +289,7 @@ func TestObjectiveNumFilledOrdersNonZero(t *testing.T) {
 	}
 	got := res.Aggregated
 
-	wantRes := runPairsEngineWithGate(t, ds, defaults, start, end, true, startBal)
+	wantRes := runPairsEngineLoneGate(t, ds, defaults, start, end, startBal)
 	want := wantRes.Counts("")
 
 	// Sanity: this dataset must actually fill orders, else the test is vacuous.
@@ -324,7 +319,7 @@ func TestResultCountsFilledDerivedFromFills(t *testing.T) {
 	end := calendar.NewDate(2023, 12, 29)
 	ds := tradingTriplePairs(t, start, end)
 	defaults := triplePairDefaults()
-	res := runPairsEngineWithGate(t, ds, defaults, start, end, true, startBal)
+	res := runPairsEngineLoneGate(t, ds, defaults, start, end, startBal)
 
 	c := res.Counts("")
 

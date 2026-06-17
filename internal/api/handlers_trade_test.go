@@ -132,7 +132,7 @@ func newTradeTestServer(t *testing.T, trade TradeReader, enq CommandEnqueuer) *t
 
 func TestTradeSessionEndpoint(t *testing.T) {
 	trade := &stubTradeReader{session: &TradeSession{
-		ID: 3, TraderID: "SIGNAL-001", Mode: "signal", Status: "RUNNING",
+		ID: 3, TraderID: "SIGNAL-001", ExecPolicy: "signal", Status: "RUNNING",
 		StartedAt: fixedNow, Config: json.RawMessage(`{}`),
 		Halt: &TradeHalt{Kind: "manual", Reason: "stop", TriggeredAt: fixedNow},
 	}}
@@ -143,7 +143,7 @@ func TestTradeSessionEndpoint(t *testing.T) {
 	var got TradeSession
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	assert.Equal(t, "SIGNAL-001", got.TraderID)
-	assert.Equal(t, "signal", got.Mode)
+	assert.Equal(t, "signal", got.ExecPolicy)
 	require.NotNil(t, got.Halt)
 	assert.Equal(t, "manual", got.Halt.Kind)
 }
@@ -246,14 +246,14 @@ func TestTradeCommandEnqueue(t *testing.T) {
 	require.Len(t, enq.enqueued, 1)
 	assert.Equal(t, commands.NameHalt, enq.enqueued[0].Name)
 
-	// set_mode -> live without a token is 412.
+	// set_mode -> live (exec_policy=auto + env=real) without a token is 412.
 	rec = ts.do(t, http.MethodPost, "/api/v1/trade/commands",
-		strings.NewReader(`{"name":"set_mode","mode":"live"}`), true)
+		strings.NewReader(`{"name":"set_mode","exec_policy":"auto","env":"real"}`), true)
 	assert.Equal(t, http.StatusPreconditionFailed, rec.Code)
 
 	// set_mode -> live WITH a token is accepted.
 	rec = ts.do(t, http.MethodPost, "/api/v1/trade/commands",
-		strings.NewReader(`{"name":"set_mode","mode":"live","confirm_token":"ok"}`), true)
+		strings.NewReader(`{"name":"set_mode","exec_policy":"auto","env":"real","confirm_token":"ok"}`), true)
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 
 	// unknown command -> 400.

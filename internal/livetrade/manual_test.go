@@ -35,7 +35,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/livetrade"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 const (
@@ -89,19 +89,19 @@ type manualHarness struct {
 
 // manualGate builds a gate giving the MANUAL strategy `budgetPct` of NAV with the
 // default risk constraints.
-func manualGateFor(t *testing.T, budgetPct, haltPct float64) *portfolio.Portfolio {
+func manualGateFor(t *testing.T, budgetPct, haltPct float64) *riskgate.Gate {
 	t.Helper()
-	alloc, err := portfolio.NewAllocator([]portfolio.StrategyAllocation{
+	alloc, err := riskgate.NewAllocator([]riskgate.StrategyAllocation{
 		{StrategyID: livetrade.ManualStrategyID, CapitalPct: budgetPct},
 	})
 	require.NoError(t, err)
-	rc, err := portfolio.NewRiskConstraints(portfolio.RiskConstraintsConfig{
+	rc, err := riskgate.NewRiskConstraints(riskgate.RiskConstraintsConfig{
 		DailyLossHaltPct: haltPct,
 		MaxSingleNamePct: 0.50,
 		ConcentrationPct: 0.40,
 	})
 	require.NoError(t, err)
-	return portfolio.NewPortfolio(alloc, rc)
+	return riskgate.NewGate(alloc, rc)
 }
 
 // memPriceSource is a controllable PriceSource: it returns a configured price for
@@ -131,11 +131,11 @@ func (m *memPriceSource) LastPrice(_ context.Context, sym string) (domain.Price,
 	return domain.MustPrice(ftoa(px)), true
 }
 
-func newPaperManual(t *testing.T, gate *portfolio.Portfolio, navUSD float64) *manualHarness {
+func newPaperManual(t *testing.T, gate *riskgate.Gate, navUSD float64) *manualHarness {
 	return newPaperManualWithPrices(t, gate, navUSD, nil)
 }
 
-func newPaperManualWithPrices(t *testing.T, gate *portfolio.Portfolio, navUSD float64, prices livetrade.PriceSource) *manualHarness {
+func newPaperManualWithPrices(t *testing.T, gate *riskgate.Gate, navUSD float64, prices livetrade.PriceSource) *manualHarness {
 	t.Helper()
 	ctx := context.Background()
 	venue := moexec.NewMockVenue(manualPaperAcc)
@@ -521,10 +521,10 @@ func applyBuy(book *livetrade.AccountAdapter, strategyID, symbol string, qty int
 
 // stratBooks is a minimal StrategyBooks source for the whole-system reconcile test:
 // a fixed per-(strategy, symbol) signed book the strategy session "holds".
-type stratBooks map[portfolio.PositionKey]int64
+type stratBooks map[riskgate.PositionKey]int64
 
-func (b stratBooks) BookPositions() map[portfolio.PositionKey]int64 {
-	out := make(map[portfolio.PositionKey]int64, len(b))
+func (b stratBooks) BookPositions() map[riskgate.PositionKey]int64 {
+	out := make(map[riskgate.PositionKey]int64, len(b))
 	for k, v := range b {
 		out[k] = v
 	}

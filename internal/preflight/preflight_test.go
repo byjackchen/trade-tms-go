@@ -9,6 +9,7 @@ import (
 
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/sharadar"
+	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
 // fakeProbes is a fully scriptable Probes for the unit tests: every method reads
@@ -150,7 +151,7 @@ func healthyProbes() *fakeProbes {
 }
 
 func paperCfg() Config {
-	return Config{Mode: "paper", Strategy: "multi", MaxStaleTradingDays: 1, CheckOpenD: true,
+	return Config{ExecPolicy: domain.ExecAuto, Env: domain.EnvSimulate, Strategy: "multi", MaxStaleTradingDays: 1, CheckOpenD: true,
 		Now: func() time.Time { return time.Date(2026, time.June, 12, 14, 0, 0, 0, time.UTC) }}
 }
 
@@ -251,7 +252,7 @@ func TestCheckDataCurrent(t *testing.T) {
 		f.frontier[sharadar.DatasetSEP] = calendar.NewDate(2026, time.June, 1)
 		f.gap = 7
 		cfg := paperCfg()
-		cfg.Mode = "signal"
+		cfg.ExecPolicy = domain.ExecSignal
 		r := Run(context.Background(), cfg, f)
 		c := findCheck(t, r, CheckDataCurrent)
 		if c.Severity != SeverityWarn {
@@ -496,7 +497,7 @@ func TestCheckSubscriptionCap(t *testing.T) {
 		f := healthyProbes()
 		f.openDMaxSub = 3
 		cfg := paperCfg()
-		cfg.Mode = "signal"
+		cfg.ExecPolicy = domain.ExecSignal
 		r := Run(context.Background(), cfg, f)
 		c := findCheck(t, r, CheckSubscriptionCap)
 		if c.Status != StatusFail || c.Severity != SeverityBlocker {
@@ -558,7 +559,7 @@ func TestCheckOpenD(t *testing.T) {
 		f := healthyProbes()
 		f.opendErr = errors.New("refused")
 		cfg := paperCfg()
-		cfg.Mode = "signal"
+		cfg.ExecPolicy = domain.ExecSignal
 		cfg.CheckOpenD = false
 		c := findCheck(t, Run(context.Background(), cfg, f), CheckOpenD)
 		if c.Status != StatusSkip {
@@ -570,7 +571,7 @@ func TestCheckOpenD(t *testing.T) {
 		f := healthyProbes()
 		f.opendErr = errors.New("refused")
 		cfg := paperCfg()
-		cfg.Mode = "signal"
+		cfg.ExecPolicy = domain.ExecSignal
 		cfg.CheckOpenD = true
 		r := Run(context.Background(), cfg, f)
 		c := findCheck(t, r, CheckOpenD)

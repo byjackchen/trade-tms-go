@@ -27,6 +27,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
 	"github.com/byjackchen/trade-tms-go/internal/jobs/handlers"
 	"github.com/byjackchen/trade-tms-go/internal/metrics"
+	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
 )
 
@@ -41,6 +42,13 @@ const (
 
 // backtestRequest is the enqueue body. It is the backtest.run payload plus the
 // queue-level actor / max_attempts / dedupe_key. Unknown fields are rejected.
+//
+// The strategy selector is GONE (docs/concept-alignment.md §3.3, A3): a backtest's
+// object is always a Model, so the request carries model_id and the server
+// resolves the blueprint, passing it through to the engine's assembleFromModel. A
+// single-strategy backtest is just a single-member Model (e.g. "sepa-only"). The
+// "scripted" intents path keeps working WITHOUT a model_id (it bypasses strategy
+// assembly entirely).
 type backtestRequest struct {
 	Tickers         []string         `json:"tickers"`
 	Universe        map[string]any   `json:"universe"`
@@ -48,7 +56,7 @@ type backtestRequest struct {
 	End             string           `json:"end"`
 	StartingBalance *float64         `json:"starting_balance"`
 	FillProfile     string           `json:"fill_profile"`
-	Strategy        string           `json:"strategy"`
+	ModelID         string           `json:"model_id"`
 	ORBSymbol       string           `json:"orb_symbol"`
 	Intents         []map[string]any `json:"intents"`
 	Kind            string           `json:"kind"`
@@ -71,27 +79,48 @@ func (s *Server) handleBacktestEnqueue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeValidation, `"start" and "end" are required (YYYY-MM-DD)`)
 		return
 	}
-	strategy := req.Strategy
-	if strategy == "" {
-		strategy = "scripted"
-	}
-	switch strategy {
-	case "scripted", "sepa", "sector_rotation", "pairs", "orb", "multi":
-	default:
+	modelID := strings.TrimSpace(req.ModelID)
+	// Two backtest shapes: a Model-driven run (model_id, the real strategies) or a
+	// scripted run (intents, no model). Exactly one selector must be present.
+	scripted := len(req.Intents) > 0 && modelID == ""
+	switch {
+	case modelID == "" && !scripted:
 		writeError(w, http.StatusBadRequest, CodeValidation,
-			fmt.Sprintf("unsupported strategy %q (want scripted|sepa|sector_rotation|pairs|orb|multi)", req.Strategy))
+			`"model_id" is required (single-strategy backtest = a single-member Model id like "sepa-only")`)
+		return
+	case modelID != "" && len(req.Intents) > 0:
+		writeError(w, http.StatusBadRequest, CodeValidation, `"model_id" and "intents" are mutually exclusive`)
 		return
 	}
-	// scripted needs an explicit ticker list or universe window; the real
-	// strategies derive their universe (ETFs / pair legs / SPY) from params, so
-	// tickers/universe are optional for them (SEPA/multi treat supplied tickers
-	// as the stock universe).
-	if strategy == "scripted" && len(req.Tickers) == 0 && req.Universe == nil {
+
+	// Resolve the Model up front (so a bad id is a clean 404 here, not a deferred
+	// job failure) and pass the blueprint through to the engine's
+	// assembleFromModel. ORB-bearing Models need either orb_symbol or a single
+	// ticker; SEPA/multi treat supplied tickers as the stock universe.
+	var mdl *model.Model
+	if modelID != "" {
+		if s.models == nil {
+			writeError(w, http.StatusServiceUnavailable, CodeInternal, "model store not configured")
+			return
+		}
+		resolved, err := s.models.Get(r.Context(), modelID)
+		if errors.Is(err, model.ErrNotFound) {
+			writeError(w, http.StatusNotFound, CodeNotFound, fmt.Sprintf("model %q not found", modelID))
+			return
+		}
+		if err != nil {
+			internalError(w, s.log, "backtest resolve model", err)
+			return
+		}
+		mdl = resolved
+		if backtestHasORB(mdl) && strings.TrimSpace(req.ORBSymbol) == "" && len(req.Tickers) != 1 {
+			writeError(w, http.StatusBadRequest, CodeValidation,
+				`this Model has an ORB member; supply "orb_symbol" (or exactly one ticker)`)
+			return
+		}
+	} else if len(req.Tickers) == 0 && req.Universe == nil {
+		// Scripted needs an explicit ticker list or universe window.
 		writeError(w, http.StatusBadRequest, CodeValidation, `supply "tickers" or a "universe" window`)
-		return
-	}
-	if strategy == "orb" && strings.TrimSpace(req.ORBSymbol) == "" && len(req.Tickers) != 1 {
-		writeError(w, http.StatusBadRequest, CodeValidation, `strategy "orb" requires "orb_symbol" (or exactly one ticker)`)
 		return
 	}
 	if req.FillProfile != "" && req.FillProfile != "nautilus-compat" && req.FillProfile != "realistic" {
@@ -118,7 +147,12 @@ func (s *Server) handleBacktestEnqueue(w http.ResponseWriter, r *http.Request) {
 	if req.FillProfile != "" {
 		payload["fill_profile"] = req.FillProfile
 	}
-	payload["strategy"] = strategy
+	if mdl != nil {
+		// The resolved blueprint travels in the payload so the worker assembles
+		// from it directly (no second DB lookup, no legacy strategy= mapping).
+		payload["model_id"] = mdl.ID
+		payload["model"] = mdl
+	}
 	if s := strings.TrimSpace(req.ORBSymbol); s != "" {
 		payload["orb_symbol"] = s
 	}
@@ -414,6 +448,18 @@ func backtestIDParam(w http.ResponseWriter, r *http.Request) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+// backtestHasORB reports whether the Model has an intraday_breakout (ORB)
+// member — the ORB path trades a single intraday instrument, so it needs an
+// orb_symbol (or exactly one ticker) at enqueue time.
+func backtestHasORB(m *model.Model) bool {
+	for _, mem := range m.Members {
+		if mem.StrategyID == model.StrategyIntradayBreakout {
+			return true
+		}
+	}
+	return false
 }
 
 func moneyFloatPtr(m *domain.Money) *float64 {

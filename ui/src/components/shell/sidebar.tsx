@@ -5,12 +5,11 @@ import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useEffect, useState } from "react";
 import {
-  Database,
+  ServerCog,
   Boxes,
+  Layers,
   FlaskConical,
-  Sparkles,
   Activity,
-  Wrench,
   Moon,
   Sun,
   CircleDot,
@@ -27,13 +26,16 @@ type Section = {
   ready: boolean;
 };
 
+// The five top-level sections, in pipeline order (docs/concept-alignment.md §3.4,
+// C7): Systems & Data → Strategies → Models → Paper Trade → Live Trade. Backtest
+// lives under Models (a backtest's object is always a Model); Hyperopt lives under
+// Strategies (single-strategy tuning).
 const SECTIONS: Section[] = [
-  { href: "/data", label: "Data", icon: Database, testid: "nav-data", ready: true },
+  { href: "/systems", label: "Systems & Data", icon: ServerCog, testid: "nav-systems", ready: true },
   { href: "/strategies", label: "Strategies", icon: Boxes, testid: "nav-strategies", ready: true },
-  { href: "/backtests", label: "Backtests", icon: FlaskConical, testid: "nav-backtests", ready: true },
-  { href: "/hyperopt", label: "Hyperopt", icon: Sparkles, testid: "nav-hyperopt", ready: true },
-  { href: "/trade", label: "Trade", icon: Activity, testid: "nav-live", ready: true },
-  { href: "/ops", label: "Ops", icon: Wrench, testid: "nav-ops", ready: true },
+  { href: "/models", label: "Models", icon: Layers, testid: "nav-models", ready: true },
+  { href: "/paper", label: "Paper Trade", icon: FlaskConical, testid: "nav-paper", ready: true },
+  { href: "/live", label: "Live Trade", icon: Activity, testid: "nav-live", ready: true },
 ];
 
 function ThemeToggle() {

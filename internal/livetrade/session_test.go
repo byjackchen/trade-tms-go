@@ -33,7 +33,7 @@ import (
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
 	"github.com/byjackchen/trade-tms-go/internal/livetrade"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 const paperAcc = uint64(99001)
@@ -156,22 +156,22 @@ type harness struct {
 // gate100 builds a single-strategy gate giving the strategy 100% of NAV budget
 // with the default risk constraints (10% daily-loss halt, 50% single-name, 40%
 // concentration). The budget is large enough that normal opens pass.
-func gate100(t *testing.T, id string, haltPct float64) *portfolio.Portfolio {
+func gate100(t *testing.T, id string, haltPct float64) *riskgate.Gate {
 	t.Helper()
-	alloc, err := portfolio.NewAllocator([]portfolio.StrategyAllocation{
+	alloc, err := riskgate.NewAllocator([]riskgate.StrategyAllocation{
 		{StrategyID: id, CapitalPct: 1.0},
 	})
 	require.NoError(t, err)
-	rc, err := portfolio.NewRiskConstraints(portfolio.RiskConstraintsConfig{
+	rc, err := riskgate.NewRiskConstraints(riskgate.RiskConstraintsConfig{
 		DailyLossHaltPct: haltPct,
 		MaxSingleNamePct: 0.50,
 		ConcentrationPct: 0.40,
 	})
 	require.NoError(t, err)
-	return portfolio.NewPortfolio(alloc, rc)
+	return riskgate.NewGate(alloc, rc)
 }
 
-func newHarness(t *testing.T, strat engine.Strategy, gate *portfolio.Portfolio, navUSD float64) *harness {
+func newHarness(t *testing.T, strat engine.Strategy, gate *riskgate.Gate, navUSD float64) *harness {
 	t.Helper()
 	ctx := context.Background()
 	venue := moexec.NewMockVenue(paperAcc)
@@ -400,10 +400,10 @@ func TestDailyLossHaltRejectsNewOpens(t *testing.T) {
 // memReport captures saved reconciliation reports.
 type memReport struct {
 	mu      sync.Mutex
-	reports []portfolio.ReconciliationReport
+	reports []riskgate.ReconciliationReport
 }
 
-func (m *memReport) SaveReconciliation(_ context.Context, r portfolio.ReconciliationReport, _ int64) error {
+func (m *memReport) SaveReconciliation(_ context.Context, r riskgate.ReconciliationReport, _ int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.reports = append(m.reports, r)
@@ -417,7 +417,7 @@ type memAlerter struct {
 	halt   *commands.HaltState
 }
 
-func (m *memAlerter) OnReconciliationMismatch(_ context.Context, _ portfolio.ReconciliationReport) {
+func (m *memAlerter) OnReconciliationMismatch(_ context.Context, _ riskgate.ReconciliationReport) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.alerts++

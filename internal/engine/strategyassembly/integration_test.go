@@ -24,8 +24,9 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
+	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 	"github.com/byjackchen/trade-tms-go/internal/strategy/sepaadapter"
 )
 
@@ -82,6 +83,15 @@ func wideETFBars() []engine.InstrumentBars {
 	return out
 }
 
+// seedModel resolves the named seed Model (the Model-driven assembler's input,
+// replacing the old strategy string selector).
+func seedModel(t *testing.T, id string) model.Model {
+	t.Helper()
+	mdl, err := model.Seed(id)
+	require.NoError(t, err)
+	return mdl
+}
+
 // runAssembly builds the engine from an Assembly + feed and runs it.
 func runAssembly(t *testing.T, asm *strategyassembly.Assembly, start, end calendar.Date, bal string, instruments []engine.InstrumentBars) *engine.Result {
 	t.Helper()
@@ -92,7 +102,7 @@ func runAssembly(t *testing.T, asm *strategyassembly.Assembly, start, end calend
 		StartingBalance:    domain.MustMoney(bal),
 		Profile:            engine.ProfileNautilusCompat,
 		PrebuiltStrategies: asm.Strategies,
-		Portfolio:          asm.Portfolio,
+		Gate:          asm.Gate,
 		Context:            asm.Context,
 		SPYSymbol:          asm.SPYSymbol,
 	}
@@ -111,7 +121,7 @@ func runAssembly(t *testing.T, asm *strategyassembly.Assembly, start, end calend
 func TestSectorRotationEndToEnd(t *testing.T) {
 	build := func() *strategyassembly.Assembly {
 		asm, err := strategyassembly.Assemble(strategyassembly.Input{
-			Strategy:        "sector_rotation",
+			Model:           seedModel(t, "sector-only"),
 			StartingBalance: 100000,
 			Params:          strategyassembly.Params{Sector: wideSectorParams()},
 		})
@@ -185,7 +195,7 @@ func TestLoneSectorBaselineTopK3Trades(t *testing.T) {
 	for _, bal := range []string{"100000", "1000000"} {
 		t.Run("nav="+bal, func(t *testing.T) {
 			asm, err := strategyassembly.Assemble(strategyassembly.Input{
-				Strategy:        "sector_rotation",
+				Model:           seedModel(t, "sector-only"),
 				StartingBalance: mustFloat(bal),
 				Params: strategyassembly.Params{Sector: params.SectorRotationParams{
 					Universe:         []string{"XLK", "XLF", "XLE"},
@@ -233,7 +243,7 @@ func TestPortfolioGateRejectsOverBudget(t *testing.T) {
 	// the allocator budget (a hard 30% ceiling) rejects once priced at the drifted
 	// rebalance close.
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Strategy:        "multi",
+		Model:           seedModel(t, "default-multi"),
 		StartingBalance: 100000,
 		SEPAStocks:      []string{"AAA"}, // a stock with no qualifying signal
 		Params: strategyassembly.Params{
@@ -288,19 +298,19 @@ func TestPortfolioGateRejectsOverBudget(t *testing.T) {
 // the gate's approve branch directly (the end-to-end approve path is covered by
 // TestLoneSectorBaselineTopK3Trades / TestSectorRotationEndToEnd).
 func TestPortfolioGateApprovesWithinBudget(t *testing.T) {
-	alloc, err := portfolio.NewAllocator([]portfolio.StrategyAllocation{{StrategyID: "S", CapitalPct: 1.0}})
+	alloc, err := riskgate.NewAllocator([]riskgate.StrategyAllocation{{StrategyID: "S", CapitalPct: 1.0}})
 	require.NoError(t, err)
-	rc, err := portfolio.NewRiskConstraints(portfolio.DefaultRiskConstraintsConfig())
+	rc, err := riskgate.NewRiskConstraints(riskgate.DefaultRiskConstraintsConfig())
 	require.NoError(t, err)
-	pf := portfolio.NewPortfolio(alloc, rc)
+	pf := riskgate.NewGate(alloc, rc)
 
-	snap := domain.NewAccountSnapshot(
+	snap := domain.NewPortfolioSnapshot(
 		domain.MustMoney("100000"), domain.MustMoney("100000"), 0, 0,
 		map[domain.StrategySymbol]domain.Qty{}, map[string]domain.Price{"Z": domain.MustPrice("10")},
 	)
 	approved := pf.Check(
-		portfolio.NewProposedOrder("S", "Z", domain.SideLong, 100, domain.MustPrice("10"), ts(2024, 1, 2)),
-		portfolio.SnapshotFromDomain(snap),
+		riskgate.NewProposedOrder("S", "Z", domain.SideLong, 100, domain.MustPrice("10"), ts(2024, 1, 2)),
+		riskgate.SnapshotFromDomain(snap),
 	)
 	assert.True(t, approved.Approved, "a $1000 (1%% NAV) order must pass the gate: %s %s", approved.RuleName, approved.Reason)
 }
@@ -314,24 +324,24 @@ func TestSEPAContextInjection(t *testing.T) {
 	// 240 steadily-rising SPY closes (bull: above MA200, with a >=31-point MA200
 	// so the 30-bar slope is computable and positive).
 	const n = 240
-	spy := make([]portfolio.SPYBar, 0, n)
+	spy := make([]riskgate.SPYBar, 0, n)
 	day := ts(2023, time.January, 1)
 	for i := 0; i < n; i++ {
-		spy = append(spy, portfolio.SPYBar{Date: day, Close: 100.0 + float64(i)})
+		spy = append(spy, riskgate.SPYBar{Date: day, Close: 100.0 + float64(i)})
 		day = day.AddDate(0, 0, 1)
 	}
 	runDate := spy[len(spy)-1].Date // last SPY date == the in-window SPY bar date
 
 	// One SF1 row giving AAA a qualifying market cap, dated BEFORE the run date
 	// (look-ahead-safe: a filing dated after the bar would be ignored).
-	sf1 := []portfolio.SF1Row{{
+	sf1 := []riskgate.SF1Row{{
 		Ticker: "AAA", DateKey: ts(2023, time.February, 1), MarketCap: 2.5e9,
 		HasMarketCap: true, Dimension: "MRT", HasDimension: true,
 	}}
-	provider := portfolio.NewContextProvider(spy, sf1, nil, []string{"AAA"}, "MRT", 0)
+	provider := riskgate.NewContextProvider(spy, sf1, nil, []string{"AAA"}, "MRT", 0)
 
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Strategy:        "sepa",
+		Model:           seedModel(t, "sepa-only"),
 		StartingBalance: 100000,
 		SEPAStocks:      []string{"AAA"},
 		Params:          strategyassembly.Params{SEPA: sepaParams()},
@@ -359,7 +369,7 @@ func TestSEPAContextInjection(t *testing.T) {
 		StartingBalance:    domain.MustMoney("100000"),
 		Profile:            engine.ProfileNautilusCompat,
 		PrebuiltStrategies: asm.Strategies,
-		Portfolio:          asm.Portfolio,
+		Gate:          asm.Gate,
 		Context:            asm.Context,
 		SPYSymbol:          asm.SPYSymbol,
 	}
@@ -374,7 +384,7 @@ func TestSEPAContextInjection(t *testing.T) {
 	// The SEPA generator must now reflect the injected bull regime + market cap.
 	gen := asm.Strategies[0].(*sepaadapter.Strategy).Generator()
 	sm := gen.StateSummary()
-	assert.Equal(t, portfolio.RegimeBull, sm.Regime, "SPY heartbeat should classify bull and inject it into SEPA")
+	assert.Equal(t, riskgate.RegimeBull, sm.Regime, "SPY heartbeat should classify bull and inject it into SEPA")
 	assert.Equal(t, 2.5e9, sm.MarketCapUSD, "SF1 market cap should be injected into SEPA")
 }
 

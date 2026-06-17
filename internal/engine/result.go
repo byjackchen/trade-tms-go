@@ -11,7 +11,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/accounting"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // FillProfile selects the executor fill model.
@@ -61,18 +61,18 @@ type Config struct {
 	// P3 capability seams (ContextConsumer / StateSummarizer / ...). Exactly one
 	// of Strategies / PrebuiltStrategies must be non-empty.
 	PrebuiltStrategies []Strategy
-	// Portfolio is the optional pre-trade gating pipeline (allocator budget +
+	// Gate is the optional pre-trade gating pipeline (allocator budget +
 	// aggregate risk constraints). When non-nil, every LONG/SHORT signal order
 	// is gated before submission, mirroring src/strategies/_base/runner.py:_gate;
 	// FLAT/close orders and qty<=0 bypass the gate. Rejections are counted and
 	// reported in RejectedOrders (never an error).
-	Portfolio *portfolio.Portfolio
+	Gate *riskgate.Gate
 	// Context, when non-nil, is the look-ahead-safe per-bar context source
 	// (regime / market-cap / earnings). The engine advances it on every
 	// SPYSymbol heartbeat bar and injects the resulting context snapshot into
 	// each ContextConsumer strategy before OnBar (mirroring the Python Context
 	// Actors publishing onto the bus that the SignalGenerators read).
-	Context *portfolio.ContextProvider
+	Context *riskgate.ContextProvider
 	// SPYSymbol is the heartbeat instrument whose bars drive Context refresh
 	// (default "SPY"). Ignored when Context is nil.
 	SPYSymbol string

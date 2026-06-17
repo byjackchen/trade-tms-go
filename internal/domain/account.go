@@ -1,7 +1,7 @@
 package domain
 
-// account.go defines AccountSnapshot, the read-only account view consumed by
-// the risk pipeline, mirroring the frozen Python dataclass
+// account.go defines PortfolioSnapshot, the read-only runtime account-book view
+// consumed by the risk pipeline, mirroring the frozen Python dataclass
 // src/portfolio/types.py:50-94 (spec §2.9 [MUST-MATCH]).
 
 import (
@@ -18,9 +18,9 @@ type StrategySymbol struct {
 	Symbol     string `json:"symbol"`
 }
 
-// AccountSnapshot is a point-in-time, read-only view of account state.
+// PortfolioSnapshot is a point-in-time, read-only view of account state.
 // Treat as immutable: never mutate the maps of a snapshot you received
-// (NewAccountSnapshot and Clone deep-copy them; the Python glue likewise
+// (NewPortfolioSnapshot and Clone deep-copy them; the Python glue likewise
 // copies last_close).
 //
 // Conventions (Python docstring [MUST-MATCH]):
@@ -31,7 +31,7 @@ type StrategySymbol struct {
 //   - RealizedPnLToday/UnrealizedPnLToday default to 0 in backtest, which
 //     keeps the daily-loss-halt rule dormant — also parity-relevant.
 //   - Positions[(strategy_id, symbol)] = signed shares; 0/missing = flat.
-type AccountSnapshot struct {
+type PortfolioSnapshot struct {
 	NAV                Money
 	Cash               Money
 	RealizedPnLToday   Money
@@ -40,14 +40,14 @@ type AccountSnapshot struct {
 	LastClose          map[string]Price
 }
 
-// NewAccountSnapshot builds a snapshot, deep-copying both maps (nil maps are
+// NewPortfolioSnapshot builds a snapshot, deep-copying both maps (nil maps are
 // allowed and become empty maps, like the Python default_factory=dict).
-func NewAccountSnapshot(
+func NewPortfolioSnapshot(
 	nav, cash, realizedToday, unrealizedToday Money,
 	positions map[StrategySymbol]Qty,
 	lastClose map[string]Price,
-) AccountSnapshot {
-	return AccountSnapshot{
+) PortfolioSnapshot {
+	return PortfolioSnapshot{
 		NAV:                nav,
 		Cash:               cash,
 		RealizedPnLToday:   realizedToday,
@@ -58,8 +58,8 @@ func NewAccountSnapshot(
 }
 
 // Clone returns a deep copy.
-func (a AccountSnapshot) Clone() AccountSnapshot {
-	return AccountSnapshot{
+func (a PortfolioSnapshot) Clone() PortfolioSnapshot {
+	return PortfolioSnapshot{
 		NAV:                a.NAV,
 		Cash:               a.Cash,
 		RealizedPnLToday:   a.RealizedPnLToday,
@@ -71,7 +71,7 @@ func (a AccountSnapshot) Clone() AccountSnapshot {
 
 // TotalPnLToday returns realized + unrealized day P&L
 // (types.py:71-72 [MUST-MATCH]).
-func (a AccountSnapshot) TotalPnLToday() (Money, error) {
+func (a PortfolioSnapshot) TotalPnLToday() (Money, error) {
 	v, err := a.RealizedPnLToday.Add(a.UnrealizedPnLToday)
 	if err != nil {
 		return 0, fmt.Errorf("total_pnl_today: %w", err)
@@ -81,13 +81,13 @@ func (a AccountSnapshot) TotalPnLToday() (Money, error) {
 
 // StrategyPosition returns the signed share count for (strategyID, symbol),
 // 0 when absent (types.py:74-75 [MUST-MATCH]).
-func (a AccountSnapshot) StrategyPosition(strategyID, symbol string) Qty {
+func (a PortfolioSnapshot) StrategyPosition(strategyID, symbol string) Qty {
 	return a.Positions[StrategySymbol{StrategyID: strategyID, Symbol: symbol}]
 }
 
 // NetPositionAcrossStrategies sums all strategies' signed positions in the
 // symbol (types.py:77-79 [MUST-MATCH]).
-func (a AccountSnapshot) NetPositionAcrossStrategies(symbol string) (Qty, error) {
+func (a PortfolioSnapshot) NetPositionAcrossStrategies(symbol string) (Qty, error) {
 	var net Qty
 	for key, qty := range a.Positions {
 		if key.Symbol != symbol {
@@ -106,7 +106,7 @@ func (a AccountSnapshot) NetPositionAcrossStrategies(symbol string) (Qty, error)
 // non-zero positions (types.py:81-94 [MUST-MATCH]). Symbols missing from
 // LastClose contribute 0 — positions with unknown price are invisible to the
 // budget, exactly as in the reference.
-func (a AccountSnapshot) GrossExposureForStrategy(strategyID string) (Money, error) {
+func (a PortfolioSnapshot) GrossExposureForStrategy(strategyID string) (Money, error) {
 	var total Money
 	for key, qty := range a.Positions {
 		if key.StrategyID != strategyID || qty == 0 {
@@ -148,7 +148,7 @@ type positionEntryJSON struct {
 	Qty        Qty    `json:"qty"`
 }
 
-type accountSnapshotJSON struct {
+type portfolioSnapshotJSON struct {
 	NAV                Money               `json:"nav"`
 	Cash               Money               `json:"cash"`
 	RealizedPnLToday   Money               `json:"realized_pnl_today"`
@@ -159,7 +159,7 @@ type accountSnapshotJSON struct {
 
 // MarshalJSON encodes the snapshot with positions as a deterministic array
 // sorted by (strategy_id, symbol).
-func (a AccountSnapshot) MarshalJSON() ([]byte, error) {
+func (a PortfolioSnapshot) MarshalJSON() ([]byte, error) {
 	entries := make([]positionEntryJSON, 0, len(a.Positions))
 	for key, qty := range a.Positions {
 		entries = append(entries, positionEntryJSON{StrategyID: key.StrategyID, Symbol: key.Symbol, Qty: qty})
@@ -174,7 +174,7 @@ func (a AccountSnapshot) MarshalJSON() ([]byte, error) {
 	if lastClose == nil {
 		lastClose = map[string]Price{}
 	}
-	return json.Marshal(accountSnapshotJSON{
+	return json.Marshal(portfolioSnapshotJSON{
 		NAV:                a.NAV,
 		Cash:               a.Cash,
 		RealizedPnLToday:   a.RealizedPnLToday,
@@ -186,11 +186,11 @@ func (a AccountSnapshot) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON decodes the canonical encoding produced by MarshalJSON.
 // Duplicate (strategy_id, symbol) entries are rejected.
-func (a *AccountSnapshot) UnmarshalJSON(b []byte) error {
+func (a *PortfolioSnapshot) UnmarshalJSON(b []byte) error {
 	if string(bytes.TrimSpace(b)) == "null" {
 		return nil
 	}
-	var raw accountSnapshotJSON
+	var raw portfolioSnapshotJSON
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return fmt.Errorf("decoding account snapshot: %w", err)
 	}
@@ -206,7 +206,7 @@ func (a *AccountSnapshot) UnmarshalJSON(b []byte) error {
 	if lastClose == nil {
 		lastClose = map[string]Price{}
 	}
-	*a = AccountSnapshot{
+	*a = PortfolioSnapshot{
 		NAV:                raw.NAV,
 		Cash:               raw.Cash,
 		RealizedPnLToday:   raw.RealizedPnLToday,

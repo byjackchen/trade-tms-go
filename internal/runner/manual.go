@@ -25,7 +25,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/livetrade"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // ConnectManualSession establishes (or re-binds) the manual trade desk in the
@@ -39,12 +39,12 @@ import (
 // MANUAL positions are tracked separately from the auto strategies' books and
 // reconcile cleanly under the MANUAL pseudo-strategy id.
 func (l *Live) ConnectManualSession(ctx context.Context, mode string, paperTradePassword string) (*livetrade.ManualController, error) {
-	switch domain.Mode(mode) {
-	case domain.ModePaper:
+	switch mode {
+	case modePaper:
 		if l.cfg.PaperAccID == 0 {
 			return nil, fmt.Errorf("manual connect: paper desk requires a SIMULATE acc id (TMS_MOOMOO_PAPER_ACC_ID)")
 		}
-	case domain.ModeLive:
+	case modeLive:
 		// SAFETY: identical up-front gate as the strategy live path. The executor
 		// constructor re-asserts the full 4-factor activation below.
 		if l.cfg.LiveAccID == 0 {
@@ -181,15 +181,15 @@ func (l *Live) ConnectManualSession(ctx context.Context, mode string, paperTrade
 // active without depending on the auto-strategy allocation. A construction error
 // (it cannot happen with these static inputs) disables the gate rather than
 // crashing the node — the per-order confirm + the daily-loss halt still apply.
-func (l *Live) manualGate() *portfolio.Portfolio {
-	alloc, err := portfolio.NewAllocator([]portfolio.StrategyAllocation{
+func (l *Live) manualGate() *riskgate.Gate {
+	alloc, err := riskgate.NewAllocator([]riskgate.StrategyAllocation{
 		{StrategyID: livetrade.ManualStrategyID, CapitalPct: 1.0},
 	})
 	if err != nil {
 		l.log.Error().Err(err).Msg("manual gate: allocator build failed (gate disabled)")
 		return nil
 	}
-	rc, err := portfolio.NewRiskConstraints(portfolio.RiskConstraintsConfig{
+	rc, err := riskgate.NewRiskConstraints(riskgate.RiskConstraintsConfig{
 		DailyLossHaltPct: 0.10,
 		MaxSingleNamePct: 0.50,
 		ConcentrationPct: 0.40,
@@ -198,7 +198,7 @@ func (l *Live) manualGate() *portfolio.Portfolio {
 		l.log.Error().Err(err).Msg("manual gate: risk constraints build failed (gate disabled)")
 		return nil
 	}
-	return portfolio.NewPortfolio(alloc, rc)
+	return riskgate.NewGate(alloc, rc)
 }
 
 // ManualController returns the connected manual desk (nil until
@@ -215,7 +215,7 @@ func (l *Live) ManualController() *livetrade.ManualController {
 // mode, or between sessions). It is read live on every manual reconcile so the
 // whole-system books reflect the strategies' CURRENT holdings (finding 6). The trade
 // session's account is itself mutex-guarded, so this is safe to read concurrently.
-func (l *Live) strategyBookPositions() map[portfolio.PositionKey]int64 {
+func (l *Live) strategyBookPositions() map[riskgate.PositionKey]int64 {
 	l.mu.RLock()
 	ts := l.tradeSession
 	l.mu.RUnlock()
@@ -285,7 +285,7 @@ func (b *brokerPriceSource) LastPrice(ctx context.Context, symbol string) (domai
 // alerter would let an operator's sync click take the whole node down on false
 // drift — exactly the bug finding 6 describes.
 func (l *Live) manualReconcileAlerter() livetrade.MismatchAlerter {
-	return reconcileAlerterFunc(func(_ context.Context, r portfolio.ReconciliationReport) {
+	return reconcileAlerterFunc(func(_ context.Context, r riskgate.ReconciliationReport) {
 		l.log.Warn().Str("summary", r.Summary()).
 			Msg("MANUAL sync reconciliation found drift (reported, node NOT halted — sync is read-only/safe in all modes)")
 	})

@@ -22,7 +22,7 @@ import (
 
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // Halter is the live node's halt latch the gate consults + sets. It is satisfied
@@ -64,7 +64,7 @@ type GateDecision struct {
 // GatedSubmitter runs the portfolio gate ahead of the MoomooExecutor.
 type GatedSubmitter struct {
 	exec    *moexec.MoomooExecutor
-	gate    *portfolio.Portfolio
+	gate    *riskgate.Gate
 	account *AccountAdapter
 	halt    Halter
 	risk    RiskRecorder
@@ -88,7 +88,7 @@ type GatedSubmitterConfig struct {
 	Executor *moexec.MoomooExecutor
 	// Gate is the portfolio gating pipeline (allocator + risk). May be nil (no
 	// gate => every order submits; not used in production, only ungated tests).
-	Gate *portfolio.Portfolio
+	Gate *riskgate.Gate
 	// Account is the accounting adapter (required: the gate reads the book + the
 	// executor settles into it).
 	Account *AccountAdapter
@@ -133,7 +133,7 @@ func (g *GatedSubmitter) SubmitMarket(strategyID, symbol string, side domain.Ord
 //     (closes always proceed). Submit unconditionally.
 //   - daily-loss halt active (or latched now): reject the NEW opening order. The
 //     existing positions stay open; FLAT (above) is unaffected.
-//   - otherwise: run portfolio.Check (allocator budget + risk constraints). The
+//   - otherwise: run riskgate.Check (allocator budget + risk constraints). The
 //     FIRST rejection wins; a rejection records a risk event + audit and returns
 //     submitted=false WITHOUT placing an order.
 func (g *GatedSubmitter) SubmitMarketSignal(strategyID, symbol string, signalSide domain.SignalSide, orderSide domain.OrderSide, qty domain.Qty, reason string, ts time.Time) (string, bool, error) {
@@ -162,7 +162,7 @@ func (g *GatedSubmitter) SubmitMarketSignal(strategyID, symbol string, signalSid
 	}
 
 	// Portfolio gate (allocator budget + aggregate risk constraints), via the
-	// SHARED portfolio.GateSignal wrapper (E1): identical Check + rejection-record
+	// SHARED riskgate.GateSignal wrapper (E1): identical Check + rejection-record
 	// flow as the backtest engine. The live-only daily-loss halt above is the only
 	// extra pre-check; the sink here persists a live.risk_events row.
 	if g.gate != nil {
@@ -170,8 +170,8 @@ func (g *GatedSubmitter) SubmitMarketSignal(strategyID, symbol string, signalSid
 		if err != nil {
 			return "", false, err
 		}
-		proposed := portfolio.NewProposedOrder(strategyID, symbol, signalSide, qty, price, ts)
-		decision := portfolio.GateSignal(g.gate, proposed, portfolio.SnapshotFromDomain(snap), price,
+		proposed := riskgate.NewProposedOrder(strategyID, symbol, signalSide, qty, price, ts)
+		decision := riskgate.GateSignal(g.gate, proposed, riskgate.SnapshotFromDomain(snap), price,
 			gateRejectionSink{g: g, ctx: ctx})
 		if !decision.Approved {
 			return "", false, nil
@@ -234,11 +234,11 @@ func (g *GatedSubmitter) dailyLossThresholdBreached() bool {
 	if err != nil {
 		return false
 	}
-	health := g.gate.HealthSnapshot(portfolio.SnapshotFromDomain(snap))
+	health := g.gate.HealthSnapshot(riskgate.SnapshotFromDomain(snap))
 	return health.IsDailyLossHalt()
 }
 
-// gateRejectionSink is the GatedSubmitter's portfolio.RejectionRecorder: it
+// gateRejectionSink is the GatedSubmitter's riskgate.RejectionRecorder: it
 // routes a portfolio-gate rejection through the existing recordRejection path
 // (live.risk_events row + audit + rejected counter), preserving the Price the
 // risk-events row keeps. ctx is the per-submit context captured at call time.
@@ -247,7 +247,7 @@ type gateRejectionSink struct {
 	ctx context.Context
 }
 
-func (s gateRejectionSink) RecordRejection(r portfolio.Rejection) {
+func (s gateRejectionSink) RecordRejection(r riskgate.Rejection) {
 	s.g.recordRejection(s.ctx, r.RuleName, r.Reason,
 		r.StrategyID, r.Symbol, r.Side, r.Qty, r.Price, r.TS)
 }

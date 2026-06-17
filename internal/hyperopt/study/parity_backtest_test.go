@@ -45,6 +45,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
+	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 )
 
@@ -220,7 +221,9 @@ func parityCurveLen(t *testing.T, ctx context.Context, ds *Dataset, defaults map
 	t.Helper()
 	pp, err := params.PairsFromMap(defaults)
 	require.NoError(t, err)
-	in := strategyassembly.Input{Strategy: "pairs", StartingBalance: 100000.0, MultiStrategyGate: true}
+	mdl, err := model.Seed("pairs-only")
+	require.NoError(t, err)
+	in := strategyassembly.Input{Model: mdl, StartingBalance: 100000.0}
 	in.Params.Pairs = pp
 	asm, err := strategyassembly.Assemble(in)
 	require.NoError(t, err)
@@ -228,7 +231,7 @@ func parityCurveLen(t *testing.T, ctx context.Context, ds *Dataset, defaults map
 	require.NoError(t, err)
 	cfg := engine.Config{
 		Start: start, End: end, StartingBalance: sb, Profile: engine.ProfileNautilusCompat,
-		Portfolio: asm.Portfolio, PrebuiltStrategies: asm.Strategies, Tickers: asm.ExtraTickers,
+		Gate: asm.Gate, PrebuiltStrategies: asm.Strategies, Tickers: asm.ExtraTickers,
 	}
 	eng, err := engine.New(ctx, cfg, ds.WindowFeed())
 	require.NoError(t, err)

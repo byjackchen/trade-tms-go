@@ -65,21 +65,23 @@ func TestHandleLivePreflight_NotConfigured(t *testing.T) {
 
 func TestHandleLivePreflight_OK(t *testing.T) {
 	pf := &stubPreflight{report: PreflightReport{
-		Mode: "paper", Strategy: "multi", OK: true,
+		ExecPolicy: "auto", Env: "simulate", RunWord: "paper", Strategy: "multi", OK: true,
 		Checks: []PreflightResult{{Check: "DATA_CURRENT", Status: "pass", Severity: "blocker", Detail: "fresh"}},
 	}}
 	srv := newPreflightServer(t, pf)
-	rec := getPreflight(t, srv, "/api/v1/trade/preflight?mode=paper&strategy=multi&tickers=AAPL,MSFT&check_opend=1&max_stale_days=2")
+	rec := getPreflight(t, srv, "/api/v1/trade/preflight?exec_policy=auto&env=simulate&strategy=multi&tickers=AAPL,MSFT&check_opend=1&max_stale_days=2")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var body PreflightReport
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.True(t, body.OK)
-	require.Equal(t, "paper", body.Mode)
+	require.Equal(t, "auto", body.ExecPolicy)
+	require.Equal(t, "paper", body.RunWord)
 	require.Len(t, body.Checks, 1)
 
 	// The handler parsed the query into params.
-	require.Equal(t, "paper", pf.got.Mode)
+	require.Equal(t, "auto", pf.got.ExecPolicy)
+	require.Equal(t, "simulate", pf.got.Env)
 	require.Equal(t, "multi", pf.got.Strategy)
 	require.Equal(t, []string{"AAPL", "MSFT"}, pf.got.Tickers)
 	require.True(t, pf.got.CheckOpenD)
@@ -91,7 +93,7 @@ func TestHandleLivePreflight_Defaults(t *testing.T) {
 	srv := newPreflightServer(t, pf)
 	rec := getPreflight(t, srv, "/api/v1/trade/preflight")
 	require.Equal(t, http.StatusOK, rec.Code) // failing preflight is still HTTP 200
-	require.Equal(t, "signal", pf.got.Mode)
+	require.Equal(t, "signal", pf.got.ExecPolicy)
 	require.Equal(t, "multi", pf.got.Strategy)
 	require.Equal(t, 1, pf.got.MaxStaleTradingDays)
 	require.False(t, pf.got.CheckOpenD)
@@ -101,7 +103,9 @@ func TestHandleLivePreflight_BadParams(t *testing.T) {
 	pf := &stubPreflight{}
 	srv := newPreflightServer(t, pf)
 	for _, target := range []string{
-		"/api/v1/trade/preflight?mode=bogus",
+		"/api/v1/trade/preflight?exec_policy=bogus",
+		"/api/v1/trade/preflight?exec_policy=auto",           // auto requires an account selector
+		"/api/v1/trade/preflight?exec_policy=auto&env=bogus", // bad env
 		"/api/v1/trade/preflight?strategy=bogus",
 		"/api/v1/trade/preflight?max_stale_days=-3",
 		"/api/v1/trade/preflight?max_stale_days=abc",

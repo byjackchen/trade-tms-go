@@ -41,15 +41,15 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // canonicalMultiGate builds the canonical multi-strategy portfolio gate (SEPA 40
 // / Sector 30 / Pairs 20; single-name 50%, concentration 40%, daily-loss 10%) —
 // the exact gate run_backtest installs for the objective path.
-func canonicalMultiGate(t *testing.T) *portfolio.Portfolio {
+func canonicalMultiGate(t *testing.T) *riskgate.Gate {
 	t.Helper()
-	alloc, err := portfolio.NewAllocator([]portfolio.StrategyAllocation{
+	alloc, err := riskgate.NewAllocator([]riskgate.StrategyAllocation{
 		{StrategyID: strategyassembly.IDSEPA, CapitalPct: 0.40},
 		{StrategyID: strategyassembly.IDSector, CapitalPct: 0.30},
 		{StrategyID: strategyassembly.IDPairs, CapitalPct: 0.20},
@@ -57,13 +57,13 @@ func canonicalMultiGate(t *testing.T) *portfolio.Portfolio {
 	if err != nil {
 		t.Fatalf("NewAllocator: %v", err)
 	}
-	rc, err := portfolio.NewRiskConstraints(portfolio.RiskConstraintsConfig{
+	rc, err := riskgate.NewRiskConstraints(riskgate.RiskConstraintsConfig{
 		MaxSingleNamePct: 0.50, ConcentrationPct: 0.40, DailyLossHaltPct: 0.10,
 	})
 	if err != nil {
 		t.Fatalf("NewRiskConstraints: %v", err)
 	}
-	return portfolio.NewPortfolio(alloc, rc)
+	return riskgate.NewGate(alloc, rc)
 }
 
 // TestGateNAVUsesCashNotEquity proves finding 1's gate half at the VALUE level,
@@ -125,9 +125,9 @@ func TestGateNAVUsesCashNotEquity(t *testing.T) {
 
 	// Drive the REAL multi-strategy gate with the proposed 110 PEP @ $100 entry.
 	gate := canonicalMultiGate(t)
-	proposed := portfolio.NewProposedOrder(strategyassembly.IDPairs, "PEP",
+	proposed := riskgate.NewProposedOrder(strategyassembly.IDPairs, "PEP",
 		domain.SideLong, 110, domain.MustPrice("100.00"), ts)
-	dec := gate.Check(proposed, portfolio.SnapshotFromDomain(snap))
+	dec := gate.Check(proposed, riskgate.SnapshotFromDomain(snap))
 
 	// Python golden (cash NAV branch): REJECT allocator.budget_exceeded.
 	if dec.Approved {
@@ -141,9 +141,9 @@ func TestGateNAVUsesCashNotEquity(t *testing.T) {
 	// Load-bearing check: had the snapshot fed EQUITY (the old bug), the same gate
 	// would have APPROVED (0.20*120000 = 24000 budget > 21000) — proving the NAV
 	// source is what flips the decision, exactly the cross-language golden.
-	equitySnap := domain.NewAccountSnapshot(domain.MustMoney("120000"), domain.MustMoney("120000"),
+	equitySnap := domain.NewPortfolioSnapshot(domain.MustMoney("120000"), domain.MustMoney("120000"),
 		0, 0, snap.Positions, snap.LastClose)
-	equityDec := gate.Check(proposed, portfolio.SnapshotFromDomain(equitySnap))
+	equityDec := gate.Check(proposed, riskgate.SnapshotFromDomain(equitySnap))
 	if !equityDec.Approved {
 		t.Fatalf("control: equity-NAV(120000) gate should APPROVE (Python golden) "+
 			"but got reject %q — test is not load-bearing", equityDec.RuleName)
@@ -240,24 +240,25 @@ func TestObjectiveSizingAndGateUseCashEndToEnd(t *testing.T) {
 			got.FinalBalanceUSD, startBal+got.TotalPnLUSD)
 	}
 
-	// Cross-check against the engine driven directly with the multi gate: the
-	// Evaluator must use that gate (round-2 invariant) and the engine's final
-	// balance must be the settled cash balance too.
-	multiRes := runPairsEngineWithGate(t, ds, defaults, start, end, true, startBal)
-	if multiRes.FinalBalance.Float64() != got.FinalBalanceUSD {
-		t.Fatalf("evaluator final %.6f != multi-gate engine final %.6f",
-			got.FinalBalanceUSD, multiRes.FinalBalance.Float64())
+	// Cross-check against the engine driven directly with the lone gate: the
+	// Evaluator now uses the pairs-only Model's gate (parity abandoned —
+	// docs/concept-alignment.md §3.2, D1) and the engine's final balance must be
+	// the settled cash balance too.
+	loneRes := runPairsEngineLoneGate(t, ds, defaults, start, end, startBal)
+	if loneRes.FinalBalance.Float64() != got.FinalBalanceUSD {
+		t.Fatalf("evaluator final %.6f != lone-gate engine final %.6f",
+			got.FinalBalanceUSD, loneRes.FinalBalance.Float64())
 	}
 	// Engine FinalBalance == last AccountState.Total (cash), proving no unrealized
 	// leaked into the result's final balance.
-	states := multiRes.AccountStates
+	states := loneRes.AccountStates
 	if len(states) == 0 {
 		t.Fatalf("no account states recorded")
 	}
 	lastCash := states[len(states)-1].BalanceUSD
-	if multiRes.FinalBalance.Cmp(lastCash) != 0 {
+	if loneRes.FinalBalance.Cmp(lastCash) != 0 {
 		t.Fatalf("engine FinalBalance %s != last AccountState cash %s (unrealized leaked into final balance)",
-			multiRes.FinalBalance, lastCash)
+			loneRes.FinalBalance, lastCash)
 	}
 	t.Logf("end-to-end: final_balance=%.4f total_pnl=%.4f sharpe=%.6f calmar=%.6f positions=%d",
 		got.FinalBalanceUSD, got.TotalPnLUSD, got.Sharpe, got.Calmar, got.NumPositions)

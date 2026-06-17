@@ -317,20 +317,118 @@ export type RealisticParams = {
   commission_per_share?: number;
 };
 
+/**
+ * POST /api/v1/backtests body. A backtest's object is ALWAYS a Model
+ * (docs/concept-alignment.md §3.3, A3): the request carries `model_id` (the
+ * legacy `strategy=` selector is GONE) and the server resolves + drops in the
+ * blueprint. A single-strategy backtest is just a single-member Model id (e.g.
+ * "sepa-only"). The scripted-intents path is the only one that omits `model_id`
+ * (it bypasses strategy assembly entirely). Mirrors `backtestRequest` in
+ * internal/api/handlers_backtests.go.
+ */
 export type CreateBacktestRequest = {
   start: string;
   end: string;
+  /** A single-member Model is a single-strategy backtest (e.g. "sepa-only"). */
+  model_id?: string;
   tickers?: string[];
   universe?: BacktestUniverseSpec;
   starting_balance?: number;
   fill_profile?: FillProfile;
-  strategy?: string;
+  /** Required when the Model has an ORB member (or pass exactly one ticker). */
   orb_symbol?: string;
+  /** Scripted-strategy path only (mutually exclusive with model_id). */
   intents?: BacktestIntent[];
   kind?: string;
   seed?: number;
   run_ts?: string;
   realistic?: RealisticParams;
+  actor?: string;
+  max_attempts?: number;
+  dedupe_key?: string;
+};
+
+// ---- Models (named, persistable portfolio blueprints) ----
+//
+// A Model is the single source of truth the engine drops in for backtest /
+// optimize / paper / live: which strategies, each weight + param ref + on/off, a
+// cash reserve, and composite portfolio-level risk (docs/concept-alignment.md §0,
+// §1.2). Mirrors the Go `model.Model` / `model.Member` / `model.Risk` JSON shapes
+// (internal/model/model.go) and the /api/v1/models CRUD handlers.
+
+/** The four canonical strategy ids a Model member may reference. */
+export const MODEL_STRATEGY_IDS = [
+  "sepa",
+  "sector_rotation",
+  "pairs",
+  "intraday_breakout",
+] as const;
+export type ModelStrategyID = (typeof MODEL_STRATEGY_IDS)[number];
+
+/** One strategy's slot in a Model: capital weight, on/off, and its params ref. */
+export type ModelMember = {
+  strategy_id: ModelStrategyID | string;
+  /** capital_pct in (0,1]. */
+  weight: number;
+  active: boolean;
+  /** null/omitted ⇒ the strategy's active params. */
+  param_set_id?: number | null;
+};
+
+/** Composite, portfolio-level risk of a Model. The three *_pct caps are (0,1]. */
+export type ModelRisk = {
+  single_name_pct: number;
+  concentration_pct: number;
+  daily_loss_halt_pct: number;
+  max_gross_pct?: number | null;
+  max_positions?: number | null;
+};
+
+/** A named portfolio blueprint. Σ(active weights) + cash_pct must be ≤ 1. */
+export type Model = {
+  id: string;
+  name: string;
+  description: string;
+  cash_pct: number;
+  risk: ModelRisk;
+  members: ModelMember[];
+  version: number;
+};
+
+export type ModelsResponse = { models: Model[] };
+export type ModelResponse = { model: Model };
+
+/** POST/PUT /api/v1/models body (the blueprint + the audit actor). */
+export type ModelRequest = {
+  id: string;
+  name: string;
+  description?: string;
+  cash_pct?: number;
+  risk: ModelRisk;
+  members: ModelMember[];
+  version?: number;
+  actor?: string;
+};
+
+/** POST /api/v1/models/{id}/optimize body — the Models-module "Optimize" (joint
+ * tuning). The Model's members define the joint search, so there is NO strategy
+ * selector here (mirrors `modelOptimizeRequest` in handlers_models.go). */
+export type OptimizeModelRequest = {
+  start: string;
+  end: string;
+  population?: number;
+  generations?: number;
+  seed?: number;
+  workers?: number;
+  walk_forward?: boolean;
+  folds?: number;
+  embargo_days?: number;
+  tickers?: string[];
+  universe?: BacktestUniverseSpec;
+  starting_balance?: number;
+  study_ts?: string;
+  trial_timeout_sec?: number;
+  resume?: boolean;
   actor?: string;
   max_attempts?: number;
   dedupe_key?: string;
@@ -355,14 +453,16 @@ export type ParamSchema = {
  * `backtest_id` is the token POST /backtests accepts (the only difference is ORB:
  * id "intraday_breakout" -> backtest_id "orb"). The list page links by `id` and
  * launches a run with `backtest_id`.
+ *
+ * NOTE (docs/concept-alignment.md §3.3, C3): `capital_pct` and `active` were
+ * REMOVED from GET /strategies — weight + on/off are Model-member properties now,
+ * served by the /models endpoints, NOT strategy metadata.
  */
 export type StrategyMeta = {
   id: string;
   backtest_id: string;
   label: string;
   description: string;
-  capital_pct: number | null;
-  active: boolean;
   params_source: "db" | "file" | "baseline" | string;
   schema_version: number;
   parameters_count: number;
@@ -435,14 +535,25 @@ export type Dataset = (typeof DATASETS)[number];
 
 // ---- Hyperopt (NSGA-II walk-forward studies) ----
 
-/** Strategies a study can optimize (handlers_hyperopt.go validation). */
+/**
+ * Strategies a NEW study can tune. POST /api/v1/hyperopt is single-strategy ONLY
+ * now (docs/concept-alignment.md §3.3, A2): joint (multi-strategy) optimisation
+ * moved to POST /api/v1/models/{id}/optimize. Mirrors the handlers_hyperopt.go
+ * validation switch ({sepa, sector_rotation, pairs}).
+ */
 export const HYPEROPT_STRATEGIES = [
   "sepa",
   "sector_rotation",
   "pairs",
-  "joint",
 ] as const;
 export type HyperoptStrategy = (typeof HYPEROPT_STRATEGIES)[number];
+
+/**
+ * The strategy label a study row may CARRY. A historical study may still read
+ * "joint" (the legacy multi-strategy studies, now produced via /models/{id}/
+ * optimize), so the display vocabulary is wider than what a new study can request.
+ */
+export type StudyStrategyLabel = HyperoptStrategy | "joint" | string;
 
 /** Lifecycle status of a study (DB source of truth; mirrors progress.json). */
 export type StudyStatus = "RUNNING" | "COMPLETE" | "INTERRUPTED" | "FAIL";
@@ -622,10 +733,24 @@ export type LiveHalt = {
   triggered_at: string;
 };
 
+/**
+ * Execution policy — the execution axis of the 2D session model that REPLACED
+ * the legacy three-valued `mode` (docs/concept-alignment.md §1.3, C6): "signal"
+ * (emit-only) | "auto" (auto-submit). The environment axis (sim/simulate/real)
+ * comes from the bound account's `account_env`.
+ */
+export type ExecPolicy = "signal" | "auto" | string;
+
 export type LiveSession = {
   id: number;
   trader_id: string;
-  mode: LiveMode;
+  /**
+   * Execution policy (signal|auto) — the authoritative field the backend's
+   * TradeSession now exposes INSTEAD of `mode` (internal/api/trade.go).
+   */
+  exec_policy: ExecPolicy;
+  /** Bound account's env: sim|simulate|real (empty when no account is bound). */
+  account_env: string;
   status: LiveStatus;
   started_at: string;
   ended_at: string | null;
@@ -926,6 +1051,21 @@ export type TradeFillsResponse = LiveFillsResponse;
 export type TradePosition = LiveTradePosition;
 export type TradePositionsResponse = LivePositionsResponse;
 export type TradeAccountFunds = LiveAccount;
+
+// ---- Account Portfolio (GET /api/v1/trade/portfolio?account_id=) ----
+//
+// An Account's runtime Portfolio (its ledger) composed in ONE read —
+// {account snapshot, positions, health} — so the Portfolio view fetches the whole
+// ledger atomically instead of fanning out to /trade/account + /trade/positions +
+// /trade/health (docs/concept-alignment.md §3.3). Mirrors handleTradePortfolio in
+// internal/api/trade_trading.go. `health` is the process-wide PortfolioHealth
+// snapshot (null when no trade producer is running).
+export type TradePortfolioResponse = {
+  account_id: string;
+  account: TradeAccountFunds;
+  positions: TradePosition[];
+  health: LiveHealth | null;
+};
 
 /** One reconciliation mismatch row (diff = broker_net − strategy_books_sum). */
 export type ReconMismatch = {

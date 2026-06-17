@@ -15,6 +15,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt/study"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
+	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
 )
 
@@ -100,6 +101,38 @@ type HyperoptPromoter interface {
 	Promote(ctx context.Context, in study.PromoteInput) ([]study.PromotedStrategy, error)
 }
 
+// ModelStore is the persistence seam for the Model CRUD (satisfied by
+// *model.Store). It backs the GET/POST/PUT/DELETE /api/v1/models endpoints and is
+// the resolver POST /api/v1/backtests + POST /api/v1/models/{id}/optimize reach
+// for to turn a model_id into the blueprint the engine drops in. Get returns
+// model.ErrNotFound for an unknown id; Create/Update reject an invalid Model
+// (model.Model.Validate) before touching the DB.
+type ModelStore interface {
+	List(ctx context.Context) ([]model.Model, error)
+	Get(ctx context.Context, id string) (*model.Model, error)
+	Create(ctx context.Context, m model.Model) error
+	Update(ctx context.Context, m model.Model) error
+	Delete(ctx context.Context, id string) error
+}
+
+// AuditWriter appends one row to the append-only tms.audit_log (satisfied by
+// *apistore.PGStore). It is how the Model mutation endpoints (create/update/delete
+// /api/v1/models) record their writes, matching the audit trail the job queue and
+// command consumer keep for their own mutations.
+type AuditWriter interface {
+	WriteAudit(ctx context.Context, rec AuditRecord) error
+}
+
+// AuditRecord is one audit row to append (the write twin of AuditEntry). Details
+// is an optional JSON blob (nil = no details).
+type AuditRecord struct {
+	Actor    string
+	Action   string
+	Entity   string
+	EntityID string
+	Details  map[string]any
+}
+
 // ParamSchema is one parameter's wire schema: default value + optional search
 // bounds + type + description, in file order.
 type ParamSchema struct {
@@ -119,8 +152,6 @@ type StrategyMeta struct {
 	BacktestID      string         `json:"backtest_id"`   // strategy token the backtest enqueue accepts (sepa|sector_rotation|pairs|orb)
 	Label           string         `json:"label"`         // short display label
 	Description     string         `json:"description"`   // display.description
-	CapitalPct      *float64       `json:"capital_pct"`   // allocation.capital_pct (nil = unallocated)
-	Active          bool           `json:"active"`        // allocation.active (default true)
 	ParamsSource    string         `json:"params_source"` // db|file|baseline
 	SchemaVersion   int            `json:"schema_version"`
 	ParametersCount int            `json:"parameters_count"`
@@ -131,8 +162,10 @@ type StrategyMeta struct {
 	Error string `json:"error,omitempty"`
 
 	// RawDoc is the full resolved parameter document (strategy, schema_version,
-	// display, allocation, metadata, parameters{name:{default,...}}, constraints)
-	// verbatim. It is NOT serialized inline; the detail handler emits it under a
+	// display, metadata, parameters{name:{default,...}}, constraints) verbatim.
+	// (An "allocation" block may still physically be present in the source bytes
+	// but is no longer parsed/exposed — the Model owns allocation.) It is NOT
+	// serialized inline; the detail handler emits it under a
 	// top-level "payload" key so ground-truth tooling can read the canonical
 	// document shape. Empty on the list path / on a resolution error.
 	RawDoc json.RawMessage `json:"-"`

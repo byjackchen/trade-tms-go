@@ -271,7 +271,7 @@ func (a *Account) AllPositions() []domain.Position {
 	return out
 }
 
-// Snapshot builds a domain.AccountSnapshot for the risk pipeline. Per the
+// Snapshot builds a domain.PortfolioSnapshot for the risk pipeline. Per the
 // reference glue (runner/portfolio_glue.py:build_snapshot_from_nautilus), NAV is
 // the venue account's balance_total(USD) — the SETTLED cash balance (starting +
 // realized), NOT the mark-to-market equity. Nautilus's balance_total does not
@@ -283,10 +283,10 @@ func (a *Account) AllPositions() []domain.Position {
 // (the glue sets cash == nav) and the today P&L fields default to 0 (daily-loss-
 // halt dormant in backtest). The positions map carries signed quantities;
 // last_close carries the last seen price per symbol.
-func (a *Account) Snapshot() (domain.AccountSnapshot, error) {
+func (a *Account) Snapshot() (domain.PortfolioSnapshot, error) {
 	nav, err := a.Cash()
 	if err != nil {
-		return domain.AccountSnapshot{}, err
+		return domain.PortfolioSnapshot{}, err
 	}
 	positions := make(map[domain.StrategySymbol]domain.Qty, len(a.positions))
 	for key, p := range a.positions {
@@ -299,5 +299,5 @@ func (a *Account) Snapshot() (domain.AccountSnapshot, error) {
 	for k, v := range a.lastPrice {
 		lastClose[k] = v
 	}
-	return domain.NewAccountSnapshot(nav, nav, 0, 0, positions, lastClose), nil
+	return domain.NewPortfolioSnapshot(nav, nav, 0, 0, positions, lastClose), nil
 }

@@ -6,8 +6,13 @@ import {
   useQueryClient,
   type UseQueryResult,
 } from "@tanstack/react-query";
-import { apiGet, apiPost } from "./client";
+import { apiGet, apiPost, apiPut, apiDelete } from "./client";
 import type {
+  ModelsResponse,
+  ModelResponse,
+  ModelRequest,
+  OptimizeModelRequest,
+  TradePortfolioResponse,
   CoverageResponse,
   TickerGapDetail,
   SyncRunsResponse,
@@ -218,6 +223,102 @@ export function useCreateBacktest() {
       apiPost<EnqueueResponse>("backtests", body),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["backtests"] });
+      void qc.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
+}
+
+// ---- Models (named portfolio blueprints; the Models module) ----
+//
+// A Model is the engine drop-in for backtest / optimize / paper / live: which
+// strategies, each weight + param ref + on/off, a cash reserve, composite risk
+// (docs/concept-alignment.md §0, §1.2). These hooks back the Models module's
+// Composer + the model_id selector the backtest dialog now uses. The CRUD routes
+// are /api/v1/models{,/{id}}; "Optimize" (joint tuning) is a separate POST.
+
+/** List every Model (with members) — GET /api/v1/models. */
+export function useModels(): UseQueryResult<ModelsResponse, Error> {
+  return useQuery({
+    queryKey: ["models"],
+    queryFn: () => apiGet<ModelsResponse>("models"),
+    retry: (count, err) => {
+      // 503 (no model store wired) is an expected degraded state, not a retry.
+      const status = err instanceof ApiError ? err.status : undefined;
+      if (status === 503 || (status !== undefined && status < 500)) return false;
+      return count < 2;
+    },
+  });
+}
+
+/** One Model — GET /api/v1/models/{id}. */
+export function useModel(
+  id: string | null,
+): UseQueryResult<ModelResponse, Error> {
+  return useQuery({
+    queryKey: ["model", id],
+    queryFn: () => apiGet<ModelResponse>(`models/${id}`),
+    enabled: id != null && id !== "",
+    retry: (count, err) => {
+      // 404 (unknown id) is a terminal empty state, not a retry case.
+      const status = err instanceof ApiError ? err.status : undefined;
+      return status !== 404 && status !== 503 && count < 2;
+    },
+  });
+}
+
+/** Create a Model — POST /api/v1/models (audited). Busts the list. */
+export function useCreateModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ModelRequest) =>
+      apiPost<ModelResponse>("models", body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+/** Replace a Model — PUT /api/v1/models/{id} (audited). Busts list + that model. */
+export function useUpdateModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; body: ModelRequest }) =>
+      apiPut<ModelResponse>(`models/${args.id}`, args.body),
+    onSuccess: (_data, args) => {
+      void qc.invalidateQueries({ queryKey: ["models"] });
+      void qc.invalidateQueries({ queryKey: ["model", args.id] });
+    },
+  });
+}
+
+/** Delete a Model — DELETE /api/v1/models/{id}?actor= (audited). Busts the list. */
+export function useDeleteModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; actor?: string }) =>
+      apiDelete<{ deleted: string }>(`models/${args.id}`, {
+        actor: args.actor,
+      }),
+    onSuccess: (_data, args) => {
+      void qc.invalidateQueries({ queryKey: ["models"] });
+      void qc.invalidateQueries({ queryKey: ["model", args.id] });
+    },
+  });
+}
+
+/**
+ * Enqueue a JOINT (multi-strategy) optimisation for a Model — the Models-module
+ * "Optimize" (POST /api/v1/models/{id}/optimize). The Model's members define the
+ * joint search, so the body carries no strategy selector. On success busts the
+ * study list + the job queue so the new study surfaces.
+ */
+export function useOptimizeModel(id: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: OptimizeModelRequest) =>
+      apiPost<EnqueueResponse>(`models/${id}/optimize`, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["hyperopt", "studies"] });
       void qc.invalidateQueries({ queryKey: ["jobs"] });
     },
   });
@@ -665,6 +766,31 @@ export function useAccounts(): UseQueryResult<TradeAccountsResponse, Error> {
     // The registry rarely changes; refresh occasionally so a freshly-attached
     // account appears without a reload.
     refetchInterval: 60000,
+    retry: liveRetry,
+  });
+}
+
+/**
+ * An Account's runtime Portfolio (its ledger) in ONE read — GET
+ * /api/v1/trade/portfolio?account_id= → {account, positions, health}. The
+ * Portfolio view (Paper/Live) fetches the whole ledger atomically instead of
+ * fanning out to /trade/account + /trade/positions + /trade/health
+ * (docs/concept-alignment.md §3.3). `health` is process-wide (null when no trade
+ * producer is running). A 503 means the trade reader is unconfigured — an
+ * expected degraded state, surfaced rather than retried.
+ */
+export function useTradePortfolio(
+  accountId?: string,
+): UseQueryResult<TradePortfolioResponse, Error> {
+  return useQuery({
+    queryKey: ["trade", "portfolio", accountId ?? "all"],
+    queryFn: () =>
+      apiGet<TradePortfolioResponse>("trade/portfolio", {
+        account_id: accountId,
+      }),
+    // The WS push (live_position / account_update) layers deltas on top; this
+    // poll is the reconnect-reconciliation backstop and the initial hydrate.
+    refetchInterval: 15000,
     retry: liveRetry,
   });
 }

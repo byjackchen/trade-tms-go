@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/byjackchen/trade-tms-go/internal/api"
+	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/preflight"
 )
 
@@ -26,7 +27,8 @@ var _ api.PreflightRunner = (*preflightAdapter)(nil)
 // internal report onto the api wire shape.
 func (a *preflightAdapter) RunPreflight(ctx context.Context, p api.PreflightParams) api.PreflightReport {
 	rep := preflight.Run(ctx, preflight.Config{
-		Mode:                p.Mode,
+		ExecPolicy:          domain.ExecutionPolicy(p.ExecPolicy),
+		Env:                 domain.BrokerEnv(p.Env),
 		Strategy:            p.Strategy,
 		Tickers:             p.Tickers,
 		ORBSymbol:           p.ORBSymbol,
@@ -35,11 +37,13 @@ func (a *preflightAdapter) RunPreflight(ctx context.Context, p api.PreflightPara
 	}, a.probes)
 
 	out := api.PreflightReport{
-		Mode:     rep.Mode,
-		Strategy: rep.Strategy,
-		TS:       rep.TS.Format("2006-01-02T15:04:05Z07:00"),
-		OK:       rep.OK,
-		Checks:   make([]api.PreflightResult, 0, len(rep.Checks)),
+		ExecPolicy: string(rep.ExecPolicy),
+		Env:        string(rep.Env),
+		RunWord:    rep.RunWord,
+		Strategy:   rep.Strategy,
+		TS:         rep.TS.Format("2006-01-02T15:04:05Z07:00"),
+		OK:         rep.OK,
+		Checks:     make([]api.PreflightResult, 0, len(rep.Checks)),
 	}
 	for _, c := range rep.Checks {
 		out.Checks = append(out.Checks, api.PreflightResult{

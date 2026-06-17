@@ -27,6 +27,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt/study"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
+	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 	"github.com/byjackchen/trade-tms-go/internal/params/paramsdb"
 )
@@ -97,7 +98,15 @@ type hyperoptUniverseJSON struct {
 }
 
 type hyperoptParams struct {
-	Strategy        string                `json:"strategy"`
+	Strategy string `json:"strategy"`
+	// ModelID records the Model the study targets (joint); ModelID/Model are set by
+	// the Models-module "Optimize" enqueue (POST /models/{id}/optimize). For a joint
+	// study Model carries the resolved blueprint whose ACTIVE members + weights +
+	// risk drive assembly and the universe (docs/concept-alignment.md §3.3). They
+	// are absent for a single-strategy tune and for older queued joint payloads
+	// (which fall back to the default-multi seed Model).
+	ModelID         string                `json:"model_id"`
+	Model           *model.Model          `json:"model"`
 	Start           string                `json:"start"`
 	End             string                `json:"end"`
 	Population      int                   `json:"population"`
@@ -235,8 +244,19 @@ func (h *Hyperopt) buildConfig(_ context.Context, p hyperoptParams) (study.Confi
 	if gens == 0 {
 		gens = 5
 	}
+	// A joint study targets a concrete Model: the resolved blueprint the API
+	// enqueues drives assembly + universe (its ACTIVE members + weights + risk),
+	// replacing the old static default-multi seed (docs/concept-alignment.md §3.3).
+	// Validate it up front so a malformed Model FAILs the job cleanly instead of
+	// surfacing deep inside assembly. ModelID without Model (older queued payloads)
+	// is accepted and falls back to the seed Model downstream.
+	mdl, err := resolveStudyModel(p)
+	if err != nil {
+		return study.Config{}, err
+	}
 	return study.Config{
 		Strategy:        p.Strategy,
+		Model:           mdl,
 		Start:           start,
 		End:             end,
 		Population:      p.Population,
@@ -251,6 +271,19 @@ func (h *Hyperopt) buildConfig(_ context.Context, p hyperoptParams) (study.Confi
 		TrialTimeout:    trialTimeoutFromPayload(p.TrialTimeoutSec),
 		Resume:          p.Resume,
 	}, nil
+}
+
+// resolveStudyModel returns the resolved Model a joint study targets, or nil when
+// none was enqueued (single-strategy tunes carry no Model; the joint objective
+// then falls back to the default-multi seed). A present Model is validated.
+func resolveStudyModel(p hyperoptParams) (*model.Model, error) {
+	if p.Model == nil {
+		return nil, nil
+	}
+	if err := p.Model.Validate(); err != nil {
+		return nil, fmt.Errorf("hyperopt.run: invalid model: %w", err)
+	}
+	return p.Model, nil
 }
 
 // trialTimeoutFromPayload maps the payload's *int seconds to a study.Config
@@ -296,20 +329,37 @@ func (h *Hyperopt) resolveUniverse(ctx context.Context, p hyperoptParams, strate
 			extra = append(extra, pr.LongLeg, pr.ShortLeg)
 		}
 	case "joint":
-		if len(stocks) == 0 {
+		// The universe reflects the Model's ACTIVE members: a SEPA member needs a
+		// stock universe, a sector member adds its ETFs, a pairs member adds its
+		// legs (docs/concept-alignment.md §3.3). Older queued payloads carry no
+		// Model; they fall back to the canonical 3-strategy blend (all of SEPA +
+		// sector + pairs), matching the prior default-multi behaviour.
+		wantSEPA := jointMemberActive(p.Model, model.StrategySEPA)
+		wantSector := jointMemberActive(p.Model, model.StrategySectorRotation)
+		wantPairs := jointMemberActive(p.Model, model.StrategyPairs)
+		if wantSEPA && len(stocks) == 0 {
 			return nil, nil, errors.New("hyperopt.run: joint study needs a stock universe (\"tickers\" or \"universe\")")
 		}
-		srp, _, e := h.loader.SectorRotation(ctx)
-		if e != nil {
-			return nil, nil, fmt.Errorf("hyperopt.run: resolve sector params: %w", e)
+		if wantSector {
+			srp, _, e := h.loader.SectorRotation(ctx)
+			if e != nil {
+				return nil, nil, fmt.Errorf("hyperopt.run: resolve sector params: %w", e)
+			}
+			extra = append(extra, srp.Universe...)
 		}
-		extra = append(extra, srp.Universe...)
-		pp, _, e := h.loader.Pairs(ctx)
-		if e != nil {
-			return nil, nil, fmt.Errorf("hyperopt.run: resolve pairs params: %w", e)
+		if wantPairs {
+			pp, _, e := h.loader.Pairs(ctx)
+			if e != nil {
+				return nil, nil, fmt.Errorf("hyperopt.run: resolve pairs params: %w", e)
+			}
+			for _, pr := range pp.Pairs {
+				extra = append(extra, pr.LongLeg, pr.ShortLeg)
+			}
 		}
-		for _, pr := range pp.Pairs {
-			extra = append(extra, pr.LongLeg, pr.ShortLeg)
+		if !wantSEPA {
+			// No SEPA member: the stock universe is not a trading universe; drop it
+			// so it is not registered (and not loaded for market caps below).
+			stocks = nil
 		}
 	}
 	tickers = dedupKeepOrder(append(extra, stocks...))
@@ -352,6 +402,22 @@ func (h *Hyperopt) studyRunsDir(p hyperoptParams) string {
 		return p.RunsDir
 	}
 	return h.runsDir + "/hyperopt"
+}
+
+// jointMemberActive reports whether a joint study's Model has the given strategy
+// as an ACTIVE member. A nil Model (older queued payloads with no enqueued
+// blueprint) is treated as the canonical 3-strategy default-multi blend, so every
+// strategy is active — preserving the prior behaviour.
+func jointMemberActive(m *model.Model, strategyID string) bool {
+	if m == nil {
+		return true
+	}
+	for _, mem := range m.Members {
+		if mem.StrategyID == strategyID {
+			return mem.Active
+		}
+	}
+	return false
 }
 
 // dedupKeepOrder dedupes preserving first-seen order, dropping empties.

@@ -14,7 +14,7 @@
 // persistence layers.
 //
 // May import: internal/domain, internal/core, internal/params,
-// internal/portfolio, internal/accounting, internal/engine,
+// internal/riskgate, internal/accounting, internal/engine,
 // internal/engine/strategyassembly, internal/livengine, internal/livetrade,
 // internal/commands, internal/publish, internal/data/calendar,
 // internal/data/universe, internal/adapters/moomoo (+ its pb/* messages),

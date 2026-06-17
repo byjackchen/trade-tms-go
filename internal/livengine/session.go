@@ -26,7 +26,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/core"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // Config assembles a live Session. It mirrors the relevant fields of
@@ -41,13 +41,13 @@ type Config struct {
 	// Strategies are the already-constructed engine.Strategy adapters (SEPA /
 	// Sector / Pairs / ORB), the SAME instances a backtest would run.
 	Strategies []engine.Strategy
-	// Portfolio is the optional pre-trade gate. In signal mode its decisions are
+	// Gate is the optional pre-trade gate. In signal mode its decisions are
 	// informational (recorded as risk events for audit, never blocking — there
 	// are no orders to block). May be nil.
-	Portfolio *portfolio.Portfolio
+	Gate *riskgate.Gate
 	// Context is the optional look-ahead-safe per-bar context provider, advanced
 	// on the SPY heartbeat exactly as in backtest. May be nil.
-	Context *portfolio.ContextProvider
+	Context *riskgate.ContextProvider
 	// SPYSymbol is the context heartbeat instrument (default "SPY").
 	SPYSymbol string
 	// Warmup, when non-nil, primes WarmupConsumer strategies (SEPA) from
@@ -113,7 +113,7 @@ type Session struct {
 	sub     engine.OrderSubmitter
 	sink    IntentSink
 	spySym  string
-	ctxStat *portfolio.SharedContextState
+	ctxStat *riskgate.SharedContextState
 	ctxCons []engine.ContextConsumer
 	evals   []intentEval
 	states  []stateEval
@@ -192,7 +192,7 @@ func NewSession(cfg Config) (*Session, error) {
 		s.sub = cfg.Submitter
 	}
 	if cfg.Context != nil {
-		s.ctxStat = portfolio.NewSharedContextState()
+		s.ctxStat = riskgate.NewSharedContextState()
 	}
 	for _, st := range cfg.Strategies {
 		if st == nil || st.ID() == "" {
@@ -454,7 +454,7 @@ func (s *Session) flushTimestamp(ctx context.Context) error {
 // the starting NAV (day P&L 0, no halt — decision 6). When no gate is configured
 // the snapshot is skipped (HealthSnapshot needs the risk config).
 func (s *Session) emitHealth(ctx context.Context, asOf time.Time) error {
-	if s.cfg.Portfolio == nil {
+	if s.cfg.Gate == nil {
 		return nil
 	}
 	// In paper/live the trade session's PostTimestamp emits the REAL health
@@ -467,11 +467,11 @@ func (s *Session) emitHealth(ctx context.Context, asOf time.Time) error {
 	// last-close marks. The reference PortfolioHealthActor reads the venue
 	// account; in signal mode that account is flat, so this is the faithful
 	// informational snapshot.
-	snap := domain.NewAccountSnapshot(
+	snap := domain.NewPortfolioSnapshot(
 		s.cfg.StartingBalance, s.cfg.StartingBalance, 0, 0,
 		map[domain.StrategySymbol]domain.Qty{}, map[string]domain.Price{},
 	)
-	health := s.cfg.Portfolio.HealthSnapshot(portfolio.SnapshotFromDomain(snap))
+	health := s.cfg.Gate.HealthSnapshot(riskgate.SnapshotFromDomain(snap))
 	if err := s.sink.EmitHealth(ctx, HealthRecord{AsOf: asOf, Snapshot: health}); err != nil {
 		return fmt.Errorf("livengine: emit health@%s: %w", asOf, err)
 	}

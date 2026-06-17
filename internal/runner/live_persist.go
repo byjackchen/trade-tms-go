@@ -24,7 +24,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/livetrade"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 	"github.com/byjackchen/trade-tms-go/internal/publish"
 )
 
@@ -303,7 +303,7 @@ func (p *LivePersist) insertRiskEvent(ctx context.Context, approved bool, rule, 
 // --- reconciler ReportSink (tms.reconciliation_reports) ---
 
 // SaveReconciliation persists a reconciliation report (-> tms.reconciliation_reports).
-func (p *LivePersist) SaveReconciliation(ctx context.Context, r portfolio.ReconciliationReport, tolerance int64) error {
+func (p *LivePersist) SaveReconciliation(ctx context.Context, r riskgate.ReconciliationReport, tolerance int64) error {
 	if p.pool == nil {
 		return nil
 	}

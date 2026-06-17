@@ -8,10 +8,10 @@ package sepa
 // look-ahead guards, and string formats BYTE-FOR-BYTE.
 //
 // Layering [MUST-MATCH spec §0]: this package imports only internal/indicators
-// (the numerical foundation) and the stdlib — never broker/engine/portfolio.
+// (the numerical foundation) and the stdlib — never broker/engine/riskgate.
 // External context (regime / market cap / earnings / catalyst) arrives via
 // setters exactly as the reference's set_* methods; the engine adapter feeds
-// them from internal/portfolio's look-ahead-safe providers.
+// them from internal/riskgate's look-ahead-safe providers.
 
 import (
 	"time"

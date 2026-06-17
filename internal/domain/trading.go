@@ -2,15 +2,11 @@ package domain
 
 // trading.go defines the two ORTHOGONAL axes the platform's run configuration
 // splits into, plus the first-class Account entity — replacing the conflated
-// Mode {signal,paper,live} enum (see docs/design/trade-refactor.md).
+// Mode {signal,paper,live} enum (now removed; see docs/concept-alignment.md §1.3).
 //
 //   - ExecutionPolicy: what happens to a strategy signal (emit-only vs auto-submit).
 //   - Account (with BrokerEnv): WHERE orders settle (a specific sim/paper/real
 //     broker account). "paper vs live" is a property of the account, not a mode.
-//
-// Legacy Mode maps onto these via Mode.ExecutionPolicy()/Mode.AccountEnv() during
-// the migration; once all call sites carry (ExecutionPolicy, Account) the Mode
-// enum is removed.
 
 import "fmt"
 
@@ -38,6 +34,25 @@ func ParseExecutionPolicy(s string) (ExecutionPolicy, error) {
 		return "", fmt.Errorf("%w: unknown ExecutionPolicy %q", ErrInvalidArgument, s)
 	}
 	return v, nil
+}
+
+// RunWord derives the operator-facing convenience word for a run from the two
+// orthogonal axes (exec policy + account env). It is NOT a stored type — the
+// legacy three-valued Mode {signal,paper,live} enum is gone (docs §1.3); this
+// is the read-only label some surfaces still display, ALWAYS derived from
+// (exec_policy, account.env), never an independent enum:
+//
+//	exec=signal            -> "signal" (emit-only; env irrelevant)
+//	exec=auto, env=real    -> "live"   (auto-submit against a real-money account)
+//	exec=auto, env=*else*  -> "paper"  (auto-submit against a sim/simulate account)
+func RunWord(exec ExecutionPolicy, env BrokerEnv) string {
+	if exec != ExecAuto {
+		return "signal"
+	}
+	if env == EnvReal {
+		return "live"
+	}
+	return "paper"
 }
 
 // BrokerEnv is the environment an Account lives in.
@@ -126,28 +141,4 @@ func (a Account) Validate() error {
 		return fmt.Errorf("%w: broker account %q requires a broker_acc_id", ErrInvalidArgument, a.ID)
 	}
 	return nil
-}
-
-// ---- legacy Mode bridge (removed once all call sites carry the two axes) ----
-
-// ExecutionPolicy maps the legacy Mode onto the execution axis: signal → emit-only,
-// paper/live → auto-submit.
-func (m Mode) ExecutionPolicy() ExecutionPolicy {
-	if m == ModeSignal {
-		return ExecSignal
-	}
-	return ExecAuto
-}
-
-// AccountEnv maps the legacy Mode onto the account-environment axis: paper →
-// simulate, live → real, signal → sim (informational; signal holds no account).
-func (m Mode) AccountEnv() BrokerEnv {
-	switch m {
-	case ModePaper:
-		return EnvSimulate
-	case ModeLive:
-		return EnvReal
-	default:
-		return EnvSim
-	}
 }

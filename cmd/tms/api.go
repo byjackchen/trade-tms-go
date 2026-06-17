@@ -26,6 +26,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/db"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt/study"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
+	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params/paramsdb"
 	"github.com/byjackchen/trade-tms-go/internal/preflight"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
@@ -177,10 +178,16 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		Strategies:  api.NewStrategyReader(paramsdb.NewReader(pool), env.cfg.StrategyParamsDir),
 		Hyperopt:    study.NewStore(pool),
 		Promoter:    study.NewPromoter(pool),
-		Calendar:    cal,
-		PingPG:      pool.Ping,
-		PingRedis:   func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },
-		Trade:       apistore.NewTradeStore(pool),
+		// Models backs the /api/v1/models CRUD + the model_id resolution the
+		// backtest and optimize endpoints do (docs/concept-alignment.md §3.3).
+		Models: model.NewStore(pool),
+		// AuditLog appends tms.audit_log rows for the Model mutation endpoints
+		// (the same PGStore that serves GET /api/v1/audit).
+		AuditLog:  pgStore,
+		Calendar:  cal,
+		PingPG:    pool.Ping,
+		PingRedis: func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },
+		Trade:     apistore.NewTradeStore(pool),
 		// SystemReader backs GET /api/v1/system (queue depth, active sessions,
 		// data freshness); the same PGStore satisfies it.
 		System: pgStore,

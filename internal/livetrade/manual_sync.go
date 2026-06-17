@@ -32,7 +32,7 @@ import (
 
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // SyncReport is what a SyncFromBroker observed + changed. Counts come from the
@@ -53,7 +53,7 @@ type SyncReport struct {
 	HasReconciliation bool
 	// Reconciliation is the drift report (broker truth vs strategy books). Valid only
 	// when HasReconciliation. Its HasIssues()/Summary() surface any drift.
-	Reconciliation portfolio.ReconciliationReport
+	Reconciliation riskgate.ReconciliationReport
 	// TS is the sync timestamp.
 	TS time.Time
 }

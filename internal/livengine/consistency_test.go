@@ -25,6 +25,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
+	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 )
 
@@ -62,12 +63,21 @@ func sectorInstruments() []engine.InstrumentBars {
 	return out
 }
 
+// mustSeed resolves a seed Model for the assembly Input (replacing the old
+// strategy string selector).
+func mustSeed(t *testing.T, id string) model.Model {
+	t.Helper()
+	mdl, err := model.Seed(id)
+	require.NoError(t, err)
+	return mdl
+}
+
 // buildSectorSession assembles a signal-mode live Session over a fresh
 // SectorRotation assembly writing into sink.
 func buildSectorSession(t *testing.T, sink livengine.IntentSink) *livengine.Session {
 	t.Helper()
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Strategy:        "sector_rotation",
+		Model:           mustSeed(t, "sector-only"),
 		StartingBalance: 100000,
 		Params:          strategyassembly.Params{Sector: wideSectorParams()},
 	})
@@ -75,7 +85,7 @@ func buildSectorSession(t *testing.T, sink livengine.IntentSink) *livengine.Sess
 	sess, err := livengine.NewSession(livengine.Config{
 		Exec:            domain.ExecSignal,
 		Strategies:      asm.Strategies,
-		Portfolio:       asm.Portfolio,
+		Gate:            asm.Gate,
 		StartingBalance: domain.MustMoney("100000"),
 		Sink:            sink,
 	})
@@ -171,7 +181,7 @@ func sepaParams() params.SEPAParams {
 func buildSEPASession(t *testing.T, sink livengine.IntentSink, warmup livengine.WarmupProvider, warmupSyms []string) *livengine.Session {
 	t.Helper()
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Strategy:        "sepa",
+		Model:           mustSeed(t, "sepa-only"),
 		StartingBalance: 100000,
 		SEPAStocks:      []string{"AAA"},
 		Params:          strategyassembly.Params{SEPA: sepaParams()},
@@ -180,7 +190,7 @@ func buildSEPASession(t *testing.T, sink livengine.IntentSink, warmup livengine.
 	sess, err := livengine.NewSession(livengine.Config{
 		Exec:            domain.ExecSignal,
 		Strategies:      asm.Strategies,
-		Portfolio:       asm.Portfolio,
+		Gate:            asm.Gate,
 		StartingBalance: domain.MustMoney("100000"),
 		Warmup:          warmup,
 		WarmupSymbols:   warmupSyms,
@@ -249,7 +259,7 @@ func TestLiveWarmupConsistency(t *testing.T) {
 // TestLiveSignalModeRejectsPaper confirms paper/live modes are not wired in P5.
 func TestLiveSignalModeRejectsPaper(t *testing.T) {
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Strategy:        "sector_rotation",
+		Model:           mustSeed(t, "sector-only"),
 		StartingBalance: 100000,
 		Params:          strategyassembly.Params{Sector: wideSectorParams()},
 	})

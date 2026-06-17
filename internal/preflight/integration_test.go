@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
+	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/preflight"
 	"github.com/byjackchen/trade-tms-go/internal/testutil/pgtest"
 )
@@ -92,7 +93,7 @@ func newProbes(t *testing.T, pool *pgxpool.Pool) *preflight.PGProbes {
 
 func signalCfg(tickers []string) preflight.Config {
 	return preflight.Config{
-		Mode:                "signal",
+		ExecPolicy:          domain.ExecSignal,
 		Strategy:            "sepa",
 		Tickers:             tickers,
 		MaxStaleTradingDays: 1,
@@ -136,7 +137,8 @@ func TestIntegration_Preflight(t *testing.T) {
 
 		// In PAPER mode the same staleness is a BLOCKER.
 		paper := signalCfg(universe)
-		paper.Mode = "paper"
+		paper.ExecPolicy = domain.ExecAuto
+		paper.Env = domain.EnvSimulate
 		prep := preflight.Run(ctx, paper, probes)
 		pdc := findCheck(t, prep, preflight.CheckDataCurrent)
 		require.Equal(t, preflight.StatusFail, pdc.Status)

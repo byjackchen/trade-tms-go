@@ -21,7 +21,6 @@ func TestEnumValues(t *testing.T) {
 		{string(SessionPre), "pre"}, {string(SessionRegular), "regular"},
 		{string(SessionPost), "post"}, {string(SessionClosed), "closed"},
 		{string(LegLong), "long"}, {string(LegShort), "short"},
-		{string(ModeSignal), "signal"}, {string(ModePaper), "paper"}, {string(ModeLive), "live"},
 		{string(OrderSideBuy), "BUY"}, {string(OrderSideSell), "SELL"},
 		{string(OrderTypeMarket), "MARKET"}, {string(TIFGTC), "GTC"},
 		{StrategyIDSEPA, "sepa"}, {StrategyIDPairs, "pairs"},
@@ -60,12 +59,6 @@ func TestEnumParseValidate(t *testing.T) {
 	if v, err := ParseTimeInForce("GTC"); err != nil || v != TIFGTC {
 		t.Errorf("ParseTimeInForce: %v, %v", v, err)
 	}
-	if v, err := ParseMode("paper"); err != nil || v != ModePaper {
-		t.Errorf("ParseMode: %v, %v", v, err)
-	}
-	if _, err := ParseMode("backtest"); err == nil {
-		t.Error("unknown Mode must be rejected")
-	}
 	if v, err := ParseSignalState("stop_hit"); err != nil || v != StateStopHit {
 		t.Errorf("ParseSignalState: %v, %v", v, err)
 	}
@@ -96,14 +89,13 @@ func TestEnumJSON(t *testing.T) {
 	type wrapper struct {
 		Side  SignalSide  `json:"side"`
 		State SignalState `json:"state"`
-		Mode  Mode        `json:"mode"`
 	}
-	w := wrapper{Side: SideShort, State: StateForming, Mode: ModeLive}
+	w := wrapper{Side: SideShort, State: StateForming}
 	b, err := json.Marshal(w)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	want := `{"side":"SHORT","state":"forming","mode":"live"}`
+	want := `{"side":"SHORT","state":"forming"}`
 	if string(b) != want {
 		t.Errorf("marshal = %s, want %s", b, want)
 	}
@@ -114,9 +106,6 @@ func TestEnumJSON(t *testing.T) {
 	// Unknown values are rejected at decode time.
 	if err := json.Unmarshal([]byte(`{"side":"SIDEWAYS"}`), &back); err == nil {
 		t.Error("decoding an unknown enum value must fail")
-	}
-	if err := json.Unmarshal([]byte(`{"mode":"production"}`), &back); err == nil {
-		t.Error("decoding an unknown Mode must fail")
 	}
 }
 

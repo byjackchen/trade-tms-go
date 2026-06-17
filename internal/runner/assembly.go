@@ -28,9 +28,10 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
+	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 	"github.com/byjackchen/trade-tms-go/internal/params/paramsdb"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // sepaWarmupCalendarDays mirrors the backtest handler: 400 calendar days of
@@ -197,8 +198,16 @@ func (a *Assembler) Assemble(ctx context.Context, in AssemblyInput, start, end c
 		in.Tickers = capped
 	}
 
+	// Resolve the SEED Model the legacy strategy selector maps to (multi ->
+	// default-multi; the singles -> their *-only single-member Model). The
+	// assembler is Model-driven: weights + risk come from this Model, not
+	// hardcoded constants (docs/concept-alignment.md §3.2).
+	mdl, err := seedModelForStrategy(in.Strategy)
+	if err != nil {
+		return nil, fmt.Errorf("runner: %w", err)
+	}
 	asmIn := strategyassembly.Input{
-		Strategy:        in.Strategy,
+		Model:           mdl,
 		StartingBalance: in.StartingBalance,
 		SEPAStocks:      in.Tickers,
 		ORBSymbol:       in.ORBSymbol,
@@ -213,7 +222,6 @@ func (a *Assembler) Assemble(ctx context.Context, in AssemblyInput, start, end c
 		// multi-symbol BatchWarmupConsumer strategies (sector / pairs) is loaded over
 		// it by the live path; 0 means no batch warmup (sepa-only / orb).
 		batchDays int
-		err       error
 	)
 	switch in.Strategy {
 	case "sepa":
@@ -299,6 +307,25 @@ func (a *Assembler) Assemble(ctx context.Context, in AssemblyInput, start, end c
 		WarmupCalendarDays: batchDays,
 		SPYSymbol:          asm.SPYSymbol,
 	}, nil
+}
+
+// seedModelForStrategy maps a legacy strategy selector
+// (sepa|sector_rotation|pairs|orb|multi) to its backward-compatible SEED Model
+// (multi -> default-multi; the singles -> their *-only single-member Model),
+// resolved in-process from model.SeedModels (no DB pool). The Model carries the
+// weights + risk the assembler used to hardcode (docs/concept-alignment.md §3.2).
+func seedModelForStrategy(strategy string) (model.Model, error) {
+	id := map[string]string{
+		"multi":           "default-multi",
+		"sepa":            "sepa-only",
+		"sector_rotation": "sector-only",
+		"pairs":           "pairs-only",
+		"orb":             "orb-only",
+	}[strategy]
+	if id == "" {
+		return model.Model{}, fmt.Errorf("no seed model for strategy %q", strategy)
+	}
+	return model.Seed(id)
 }
 
 // resolveFixedBaskets returns the always-subscribed instruments the live cap MUST
@@ -447,7 +474,7 @@ func (a *Assembler) BuildWarmupBatch(ctx context.Context, as *Assembled, provide
 // buildContext mirrors the backtest handler's buildContext exactly (SPY-driven
 // regime + as-of market caps; empty earnings blackout). Returns nil when SPY
 // bars are unavailable (cold-start defaults).
-func (a *Assembler) buildContext(ctx context.Context, start, end calendar.Date, stocks []string) (*portfolio.ContextProvider, error) {
+func (a *Assembler) buildContext(ctx context.Context, start, end calendar.Date, stocks []string) (*riskgate.ContextProvider, error) {
 	warmupStart := calendar.NewDate(start.Year-2, start.Month, start.Day)
 	spyRows, err := a.uni.GetBars(ctx, "SPY", warmupStart, end)
 	if err != nil {
@@ -456,24 +483,24 @@ func (a *Assembler) buildContext(ctx context.Context, start, end calendar.Date, 
 	if len(spyRows) == 0 {
 		return nil, nil
 	}
-	spy := make([]portfolio.SPYBar, 0, len(spyRows))
+	spy := make([]riskgate.SPYBar, 0, len(spyRows))
 	for _, r := range spyRows {
-		spy = append(spy, portfolio.SPYBar{Date: r.TS.UTC(), Close: r.Close})
+		spy = append(spy, riskgate.SPYBar{Date: r.TS.UTC(), Close: r.Close})
 	}
 	caps, err := a.uni.MarketCaps(ctx, stocks)
 	if err != nil {
 		return nil, fmt.Errorf("runner: loading market caps for context: %w", err)
 	}
 	asOf := time.Date(start.Year, start.Month, start.Day, 0, 0, 0, 0, time.UTC)
-	sf1 := make([]portfolio.SF1Row, 0, len(caps))
+	sf1 := make([]riskgate.SF1Row, 0, len(caps))
 	for _, t := range stocks {
 		mc := caps[t]
-		sf1 = append(sf1, portfolio.SF1Row{
+		sf1 = append(sf1, riskgate.SF1Row{
 			Ticker: t, DateKey: asOf, MarketCap: mc, HasMarketCap: mc != 0,
 			Dimension: "MRT", HasDimension: true,
 		})
 	}
-	return portfolio.NewContextProvider(spy, sf1, nil, stocks, "MRT", 0), nil
+	return riskgate.NewContextProvider(spy, sf1, nil, stocks, "MRT", 0), nil
 }
 
 // buildWarmup mirrors the backtest handler's buildWarmup: the 400-calendar-day

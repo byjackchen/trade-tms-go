@@ -60,8 +60,46 @@ export async function apiPost<T>(
   path: string,
   body: unknown,
 ): Promise<T> {
+  return apiBody<T>("POST", path, body);
+}
+
+/** PUT a JSON body to `<proxy>/<path>` (full-replace mutations, e.g. Model update). */
+export async function apiPut<T>(path: string, body: unknown): Promise<T> {
+  return apiBody<T>("PUT", path, body);
+}
+
+/**
+ * DELETE `<proxy>/<path>` (optionally with query params, e.g. ?actor= which the
+ * DELETE handlers read in lieu of a JSON body).
+ */
+export async function apiDelete<T>(
+  path: string,
+  params?: Record<string, string | number | undefined>,
+): Promise<T> {
+  const qs = new URLSearchParams();
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== "") qs.set(k, String(v));
+    }
+  }
+  const query = qs.toString();
+  const url = `${PROXY_BASE}/${path}${query ? `?${query}` : ""}`;
+  const resp = await fetch(url, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  if (!resp.ok) throw await parseError(resp);
+  return (await resp.json()) as T;
+}
+
+/** Shared body-method (POST/PUT) sender. */
+async function apiBody<T>(
+  method: "POST" | "PUT",
+  path: string,
+  body: unknown,
+): Promise<T> {
   const resp = await fetch(`${PROXY_BASE}/${path}`, {
-    method: "POST",
+    method,
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(body ?? {}),
   });

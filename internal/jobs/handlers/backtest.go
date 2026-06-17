@@ -28,9 +28,10 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
+	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 	"github.com/byjackchen/trade-tms-go/internal/params/paramsdb"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
 )
 
@@ -59,7 +60,9 @@ const sepaWarmupCalendarDays = 400
 //	  "end":              "YYYY-MM-DD",         // required (bar window end)
 //	  "starting_balance": 100000.0,             // USD; default 100000
 //	  "fill_profile":     "nautilus-compat",    // or "realistic"; default nautilus-compat
-//	  "strategy":         "scripted",           // scripted | sepa | sector_rotation | pairs | orb | multi
+//	  "model_id":         "sepa-only",          // the Model the backtest runs (API resolves it)
+//	  "model":            { ... model.Model ... }, // the resolved blueprint (enqueued by the API)
+//	  "strategy":         "scripted",           // legacy selector (back-compat for old queued payloads)
 //	  "intents": [ {"date":"YYYY-MM-DD","ticker":"AAPL","side":"LONG","qty":100}, ... ], // scripted only
 //	  "orb_symbol":       "AAPL",                // orb strategy: the single intraday instrument
 //	  "kind":             "multi-strategy",     // run kind badge; optional
@@ -135,6 +138,12 @@ type realisticJSON struct {
 }
 
 // backtestParams is the payload wire shape.
+//
+// A Model-driven run carries Model (the resolved blueprint the API enqueues,
+// docs/concept-alignment.md §3.3) and optionally ModelID (for logging/history);
+// a scripted run carries Intents and no Model. Strategy is the legacy selector,
+// kept only as a fallback for older queued payloads (multi/sepa/... mapping to a
+// seed Model); new enqueues set Model directly.
 type backtestParams struct {
 	Tickers         []string       `json:"tickers"`
 	Universe        *universeJSON  `json:"universe"`
@@ -142,6 +151,8 @@ type backtestParams struct {
 	End             string         `json:"end"`
 	StartingBalance *float64       `json:"starting_balance"`
 	FillProfile     string         `json:"fill_profile"`
+	ModelID         string         `json:"model_id"`
+	Model           *model.Model   `json:"model"`
 	Strategy        string         `json:"strategy"`
 	ORBSymbol       string         `json:"orb_symbol"`
 	Intents         []intentJSON   `json:"intents"`
@@ -269,14 +280,14 @@ func (h *Backtest) Run(ctx context.Context, job *jobs.Job, report jobs.ProgressF
 // late-bind the equity provider after engine.New) and the run_ts (idempotency
 // key).
 func (h *Backtest) buildConfig(ctx context.Context, p backtestParams) (engine.Config, *strategyassembly.Assembly, string, error) {
-	strategy := p.Strategy
-	if strategy == "" {
-		strategy = "scripted"
-	}
-	switch strategy {
-	case "scripted", "sepa", "sector_rotation", "pairs", "orb", "multi":
-	default:
-		return engine.Config{}, nil, "", fmt.Errorf("backtest.run: unsupported strategy %q (want scripted|sepa|sector_rotation|pairs|orb|multi)", p.Strategy)
+	// Resolve the Model the backtest drops in. New payloads carry the resolved
+	// blueprint (p.Model, enqueued by the API after it looked the model_id up);
+	// older queued payloads carry only a legacy strategy= selector, which maps to
+	// its seed Model in-process. A "scripted" run (intents, no Model) bypasses
+	// strategy assembly entirely.
+	mdl, scripted, err := h.resolveModel(p)
+	if err != nil {
+		return engine.Config{}, nil, "", err
 	}
 
 	start, err := calendar.ParseDate(p.Start)
@@ -292,7 +303,7 @@ func (h *Backtest) buildConfig(ctx context.Context, p backtestParams) (engine.Co
 	if err != nil {
 		return engine.Config{}, nil, "", err
 	}
-	if strategy == "scripted" && len(tickers) == 0 {
+	if scripted && len(tickers) == 0 {
 		return engine.Config{}, nil, "", errors.New("backtest.run: no tickers resolved (supply \"tickers\" or a \"universe\" window)")
 	}
 
@@ -331,7 +342,7 @@ func (h *Backtest) buildConfig(ctx context.Context, p backtestParams) (engine.Co
 	}
 
 	var asm *strategyassembly.Assembly
-	if strategy == "scripted" {
+	if scripted {
 		intents, ierr := buildIntents(p.Intents)
 		if ierr != nil {
 			return engine.Config{}, nil, "", ierr
@@ -339,7 +350,7 @@ func (h *Backtest) buildConfig(ctx context.Context, p backtestParams) (engine.Co
 		cfg.Tickers = tickers
 		cfg.Strategies = []engine.StrategySpec{{ID: "Scripted-000", Intents: intents}}
 	} else {
-		cfg, asm, err = h.assembleRealStrategy(ctx, strategy, cfg, tickers, p)
+		cfg, asm, err = h.assembleFromModel(ctx, mdl, cfg, tickers, p)
 		if err != nil {
 			return engine.Config{}, nil, "", err
 		}
@@ -359,70 +370,111 @@ func (h *Backtest) buildConfig(ctx context.Context, p backtestParams) (engine.Co
 	return cfg, asm, runTS, nil
 }
 
-// assembleRealStrategy resolves the selected real strategy's params, builds its
-// adapters + portfolio gate + context via strategyassembly, and unions the
-// strategy's required instruments (ETFs / pair legs / SPY heartbeat) into the
-// engine ticker registration — SPY FIRST so its bar dispatches before same-date
-// stock bars (look-ahead-safe context). Mirrors multi_strategy_backtest.py.
-func (h *Backtest) assembleRealStrategy(ctx context.Context, strategy string, cfg engine.Config, tickers []string, p backtestParams) (engine.Config, *strategyassembly.Assembly, error) {
+// resolveModel decides which blueprint the backtest drops in and whether it is a
+// scripted (intent-driven) run. Precedence: an explicit p.Model (the resolved
+// blueprint the API now enqueues) wins; otherwise the legacy p.Strategy selector
+// is honoured (mapping multi/sepa/... to its seed Model, or "scripted"/"" to the
+// scripted path). It returns (model, scripted, err).
+func (h *Backtest) resolveModel(p backtestParams) (model.Model, bool, error) {
+	if p.Model != nil {
+		if err := p.Model.Validate(); err != nil {
+			return model.Model{}, false, fmt.Errorf("backtest.run: invalid model: %w", err)
+		}
+		return *p.Model, false, nil
+	}
+	strategy := p.Strategy
+	if strategy == "" || strategy == "scripted" {
+		// No Model selector: the scripted (intent-driven) path, which bypasses
+		// strategy assembly. The API enforces model_id; this default keeps older
+		// queued payloads (tickers + no strategy) running.
+		return model.Model{}, true, nil
+	}
+	mdl, err := seedModelForStrategy(strategy)
+	if err != nil {
+		return model.Model{}, false, fmt.Errorf("backtest.run: %w", err)
+	}
+	return mdl, false, nil
+}
+
+// seedModelForStrategy maps a legacy strategy selector
+// (sepa|sector_rotation|pairs|orb|multi) to its backward-compatible SEED Model
+// (multi -> default-multi; the singles -> their *-only single-member Model),
+// resolved in-process from model.SeedModels (no DB pool). Kept for older queued
+// payloads that predate the model_id hard-cut (docs/concept-alignment.md §3.2).
+func seedModelForStrategy(strategy string) (model.Model, error) {
+	id := map[string]string{
+		"multi":           "default-multi",
+		"sepa":            "sepa-only",
+		"sector_rotation": "sector-only",
+		"pairs":           "pairs-only",
+		"orb":             "orb-only",
+	}[strategy]
+	if id == "" {
+		return model.Model{}, fmt.Errorf("no seed model for strategy %q", strategy)
+	}
+	return model.Seed(id)
+}
+
+// assembleFromModel builds the strategy adapters + gate + context for the given
+// Model via strategyassembly, and unions the strategies' required instruments
+// (ETFs / pair legs / SPY heartbeat) into the engine ticker registration — SPY
+// FIRST so its bar dispatches before same-date stock bars (look-ahead-safe
+// context). Mirrors multi_strategy_backtest.py.
+func (h *Backtest) assembleFromModel(ctx context.Context, mdl model.Model, cfg engine.Config, tickers []string, p backtestParams) (engine.Config, *strategyassembly.Assembly, error) {
 	in := strategyassembly.Input{
-		Strategy:        strategy,
+		Model:           mdl,
 		StartingBalance: cfg.StartingBalance.Float64(),
 		SEPAStocks:      tickers,
 		ORBSymbol:       p.ORBSymbol,
 		SPYSymbol:       "SPY",
 	}
 
-	// Resolve only the params the selected path needs (db active_params ->
-	// param_sets -> file dir -> embedded baseline).
-	var err error
-	switch strategy {
-	case "sepa":
-		if in.Params.SEPA, _, err = h.loader.SEPA(ctx); err != nil {
-			return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve sepa params: %w", err)
+	// Resolve only the params each ACTIVE member needs (db active_params ->
+	// param_sets -> file dir -> embedded baseline). A SEPA member additionally
+	// pulls the look-ahead-safe context + warmup tail. This is the Model-driven
+	// twin of the old per-strategy switch (docs/concept-alignment.md §3.2).
+	var (
+		hasSEPA, hasORB bool
+		err2            error
+	)
+	for _, mem := range mdl.Members {
+		if !mem.Active {
+			continue
 		}
-		in.Context, err = h.buildContext(ctx, cfg, tickers)
-		if err != nil {
-			return engine.Config{}, nil, err
-		}
-		if cfg.Warmup, err = h.buildWarmup(ctx, cfg, tickers); err != nil {
-			return engine.Config{}, nil, err
-		}
-	case "sector_rotation":
-		if in.Params.Sector, _, err = h.loader.SectorRotation(ctx); err != nil {
-			return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve sector params: %w", err)
-		}
-	case "pairs":
-		if in.Params.Pairs, _, err = h.loader.Pairs(ctx); err != nil {
-			return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve pairs params: %w", err)
-		}
-	case "orb":
-		if in.ORBSymbol == "" {
-			if len(tickers) == 1 {
-				in.ORBSymbol = tickers[0]
-			} else {
-				return engine.Config{}, nil, errors.New("backtest.run: orb strategy requires \"orb_symbol\" (or exactly one ticker)")
+		switch mem.StrategyID {
+		case model.StrategySEPA:
+			hasSEPA = true
+			if in.Params.SEPA, _, err2 = h.loader.SEPA(ctx); err2 != nil {
+				return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve sepa params: %w", err2)
+			}
+		case model.StrategySectorRotation:
+			if in.Params.Sector, _, err2 = h.loader.SectorRotation(ctx); err2 != nil {
+				return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve sector params: %w", err2)
+			}
+		case model.StrategyPairs:
+			if in.Params.Pairs, _, err2 = h.loader.Pairs(ctx); err2 != nil {
+				return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve pairs params: %w", err2)
+			}
+		case model.StrategyIntradayBreakout:
+			hasORB = true
+			if in.Params.ORB, _, err2 = h.loader.IntradayBreakout(ctx); err2 != nil {
+				return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve orb params: %w", err2)
 			}
 		}
-		if in.Params.ORB, _, err = h.loader.IntradayBreakout(ctx); err != nil {
-			return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve orb params: %w", err)
+	}
+	if hasORB && in.ORBSymbol == "" {
+		if len(tickers) == 1 {
+			in.ORBSymbol = tickers[0]
+		} else {
+			return engine.Config{}, nil, errors.New("backtest.run: orb member requires \"orb_symbol\" (or exactly one ticker)")
 		}
-	case "multi":
-		if in.Params.SEPA, _, err = h.loader.SEPA(ctx); err != nil {
-			return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve sepa params: %w", err)
+	}
+	if hasSEPA {
+		if in.Context, err2 = h.buildContext(ctx, cfg, tickers); err2 != nil {
+			return engine.Config{}, nil, err2
 		}
-		if in.Params.Sector, _, err = h.loader.SectorRotation(ctx); err != nil {
-			return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve sector params: %w", err)
-		}
-		if in.Params.Pairs, _, err = h.loader.Pairs(ctx); err != nil {
-			return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve pairs params: %w", err)
-		}
-		in.Context, err = h.buildContext(ctx, cfg, tickers)
-		if err != nil {
-			return engine.Config{}, nil, err
-		}
-		if cfg.Warmup, err = h.buildWarmup(ctx, cfg, tickers); err != nil {
-			return engine.Config{}, nil, err
+		if cfg.Warmup, err2 = h.buildWarmup(ctx, cfg, tickers); err2 != nil {
+			return engine.Config{}, nil, err2
 		}
 	}
 
@@ -436,7 +488,7 @@ func (h *Backtest) assembleRealStrategy(ctx context.Context, strategy string, cf
 	// sector/pairs/orb runs `tickers` may be empty; the extras carry the full
 	// universe.
 	cfg.Tickers = unionTickers(asm.ExtraTickers, tickers)
-	cfg.Portfolio = asm.Portfolio
+	cfg.Gate = asm.Gate
 	cfg.Context = asm.Context
 	cfg.SPYSymbol = asm.SPYSymbol
 	cfg.PrebuiltStrategies = asm.Strategies
@@ -450,7 +502,7 @@ func (h *Backtest) assembleRealStrategy(ctx context.Context, strategy string, cf
 // (events feed not yet surfaced in the Go store) — SEPA treats absent blackout
 // as false, the safe default. Returns nil when SPY bars are unavailable (the
 // strategies then run with the cold-start regime/market-cap defaults).
-func (h *Backtest) buildContext(ctx context.Context, cfg engine.Config, stocks []string) (*portfolio.ContextProvider, error) {
+func (h *Backtest) buildContext(ctx context.Context, cfg engine.Config, stocks []string) (*riskgate.ContextProvider, error) {
 	// SPY history for regime: pull a generous warmup window before the run so
 	// the 200-bar MA is ready on day 1 (mirrors _load_spy's 500-day warmup).
 	warmupStart := calendar.NewDate(cfg.Start.Year-2, cfg.Start.Month, cfg.Start.Day)
@@ -461,9 +513,9 @@ func (h *Backtest) buildContext(ctx context.Context, cfg engine.Config, stocks [
 	if len(spyRows) == 0 {
 		return nil, nil // no SPY -> cold-start defaults (regime neutral)
 	}
-	spy := make([]portfolio.SPYBar, 0, len(spyRows))
+	spy := make([]riskgate.SPYBar, 0, len(spyRows))
 	for _, r := range spyRows {
-		spy = append(spy, portfolio.SPYBar{Date: r.TS.UTC(), Close: r.Close})
+		spy = append(spy, riskgate.SPYBar{Date: r.TS.UTC(), Close: r.Close})
 	}
 
 	caps, err := h.uni.MarketCaps(ctx, stocks)
@@ -471,15 +523,15 @@ func (h *Backtest) buildContext(ctx context.Context, cfg engine.Config, stocks [
 		return nil, fmt.Errorf("backtest.run: loading market caps for context: %w", err)
 	}
 	asOf := time.Date(cfg.Start.Year, cfg.Start.Month, cfg.Start.Day, 0, 0, 0, 0, time.UTC)
-	sf1 := make([]portfolio.SF1Row, 0, len(caps))
+	sf1 := make([]riskgate.SF1Row, 0, len(caps))
 	for _, t := range stocks {
 		mc := caps[t]
-		sf1 = append(sf1, portfolio.SF1Row{
+		sf1 = append(sf1, riskgate.SF1Row{
 			Ticker: t, DateKey: asOf, MarketCap: mc, HasMarketCap: mc != 0,
 			Dimension: "MRT", HasDimension: true,
 		})
 	}
-	return portfolio.NewContextProvider(spy, sf1, nil, stocks, "MRT", 0), nil
+	return riskgate.NewContextProvider(spy, sf1, nil, stocks, "MRT", 0), nil
 }
 
 // buildWarmup loads the out-of-band SEPA warmup tail (the 400 calendar days

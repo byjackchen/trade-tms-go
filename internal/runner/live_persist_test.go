@@ -20,7 +20,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/commands"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/livetrade"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 	"github.com/byjackchen/trade-tms-go/internal/runner"
 )
 
@@ -80,8 +80,8 @@ func TestLivePersistRoundTrip(t *testing.T) {
 	assert.Equal(t, int64(1), riskCount)
 
 	// Reconciliation report -> reconciliation_reports.
-	report := portfolio.Reconcile(time.Now().UTC(),
-		map[portfolio.PositionKey]int64{{StrategyID: "TEST-001", Symbol: "AAPL"}: 100},
+	report := riskgate.Reconcile(time.Now().UTC(),
+		map[riskgate.PositionKey]int64{{StrategyID: "TEST-001", Symbol: "AAPL"}: 100},
 		map[string]int64{"AAPL": 95}, 0)
 	require.True(t, report.HasIssues())
 	require.NoError(t, p.SaveReconciliation(ctx, report, 0))

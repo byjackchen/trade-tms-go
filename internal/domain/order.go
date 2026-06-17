@@ -185,7 +185,7 @@ func (f Fill) Validate() error {
 // OMS semantics (§7.4 [MUST-MATCH]) there is exactly one position per
 // (strategy, instrument); two strategies trading the same symbol hold two
 // separate Position values, and cross-strategy netting is computed over them
-// (AccountSnapshot.NetPositionAcrossStrategies).
+// (PortfolioSnapshot.NetPositionAcrossStrategies).
 //
 // SignedQty: positive = long, negative = short, 0 = flat. The Python
 // platform truncates Nautilus's float signed_qty toward zero; Go positions

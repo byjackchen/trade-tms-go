@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-func snapshotFixture() AccountSnapshot {
-	return NewAccountSnapshot(
+func snapshotFixture() PortfolioSnapshot {
+	return NewPortfolioSnapshot(
 		MustMoney("100000"), MustMoney("100000"), 0, 0,
 		map[StrategySymbol]Qty{
 			{"SEPARunner-000", "AAPL"}:  150,
@@ -27,7 +27,7 @@ func snapshotFixture() AccountSnapshot {
 	)
 }
 
-func TestAccountSnapshotDerived(t *testing.T) {
+func TestPortfolioSnapshotDerived(t *testing.T) {
 	a := snapshotFixture()
 
 	// strategy_position: positions.get((sid, sym), 0) [MUST-MATCH].
@@ -75,13 +75,13 @@ func TestAccountSnapshotDerived(t *testing.T) {
 	}
 }
 
-func TestAccountSnapshotOverflow(t *testing.T) {
-	a := NewAccountSnapshot(0, 0, math.MaxInt64, math.MaxInt64, nil, nil)
+func TestPortfolioSnapshotOverflow(t *testing.T) {
+	a := NewPortfolioSnapshot(0, 0, math.MaxInt64, math.MaxInt64, nil, nil)
 	if _, err := a.TotalPnLToday(); !errors.Is(err, ErrOverflow) {
 		t.Error("TotalPnLToday overflow not detected")
 	}
 
-	b := NewAccountSnapshot(0, 0, 0, 0,
+	b := NewPortfolioSnapshot(0, 0, 0, 0,
 		map[StrategySymbol]Qty{
 			{"S", "X"}:  math.MaxInt64,
 			{"S2", "X"}: 1,
@@ -95,7 +95,7 @@ func TestAccountSnapshotOverflow(t *testing.T) {
 		t.Error("GrossExposureForStrategy overflow not detected")
 	}
 
-	c := NewAccountSnapshot(0, 0, 0, 0,
+	c := NewPortfolioSnapshot(0, 0, 0, 0,
 		map[StrategySymbol]Qty{{"S", "X"}: math.MinInt64},
 		map[string]Price{"X": MustPrice("1")},
 	)
@@ -104,10 +104,10 @@ func TestAccountSnapshotOverflow(t *testing.T) {
 	}
 }
 
-func TestAccountSnapshotImmutability(t *testing.T) {
+func TestPortfolioSnapshotImmutability(t *testing.T) {
 	src := map[StrategySymbol]Qty{{"S", "AAPL"}: 100}
 	lc := map[string]Price{"AAPL": MustPrice("100")}
-	a := NewAccountSnapshot(1, 1, 0, 0, src, lc)
+	a := NewPortfolioSnapshot(1, 1, 0, 0, src, lc)
 
 	// Mutating the source maps must not affect the snapshot (the Python glue
 	// copies last_close; the constructor deep-copies both).
@@ -126,13 +126,13 @@ func TestAccountSnapshotImmutability(t *testing.T) {
 	}
 
 	// Nil maps become empty maps (Python default_factory=dict).
-	empty := NewAccountSnapshot(0, 0, 0, 0, nil, nil)
+	empty := NewPortfolioSnapshot(0, 0, 0, 0, nil, nil)
 	if empty.Positions == nil || empty.LastClose == nil {
 		t.Error("nil maps must become empty maps")
 	}
 }
 
-func TestAccountSnapshotJSON(t *testing.T) {
+func TestPortfolioSnapshotJSON(t *testing.T) {
 	a := snapshotFixture()
 	a.RealizedPnLToday = MustMoney("-12.5")
 
@@ -140,7 +140,7 @@ func TestAccountSnapshotJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	var back AccountSnapshot
+	var back PortfolioSnapshot
 	if err := json.Unmarshal(raw, &back); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestAccountSnapshotJSON(t *testing.T) {
 	dup := []byte(`{"nav":"0","cash":"0","realized_pnl_today":"0","unrealized_pnl_today":"0",` +
 		`"positions":[{"strategy_id":"S","symbol":"A","qty":1},{"strategy_id":"S","symbol":"A","qty":2}],` +
 		`"last_close":{}}`)
-	var d AccountSnapshot
+	var d PortfolioSnapshot
 	if err := json.Unmarshal(dup, &d); !errors.Is(err, ErrInvalidArgument) {
 		t.Errorf("duplicate entries error = %v, want ErrInvalidArgument", err)
 	}

@@ -32,6 +32,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt/nsga2"
+	"github.com/byjackchen/trade-tms-go/internal/model"
 )
 
 func numCPU() int { return runtime.NumCPU() }
@@ -56,7 +57,12 @@ type Sink interface {
 
 // Config parameterizes a study run (spec §6.1).
 type Config struct {
-	Strategy        string        // sepa|sector_rotation|pairs|joint
+	Strategy string // sepa|sector_rotation|pairs|joint
+	// Model, when set, is the concrete blueprint a JOINT study targets: its ACTIVE
+	// members + weights + risk drive assembly (replacing the static default-multi
+	// seed). nil for a single-strategy tune or an older queued joint payload, which
+	// falls back to the strategy's seed Model (docs/concept-alignment.md §3.3).
+	Model           *model.Model
 	Start, End      calendar.Date // study window (inclusive)
 	Population      int           // NSGA-II generation size (default 50)
 	Generations     int           // number of generations (>=1)
@@ -219,6 +225,7 @@ func NewCoordinator(cfg Config, sink Sink) (*Coordinator, error) {
 
 	eval, err := NewEvaluator(EvaluatorConfig{
 		Strategy:        cfg.Strategy,
+		Model:           cfg.Model,
 		Dataset:         cfg.Dataset,
 		Start:           cfg.Start,
 		End:             cfg.End,

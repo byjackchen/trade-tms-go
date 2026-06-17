@@ -1,139 +1,173 @@
 "use client";
 
-import Link from "next/link";
-import { Boxes } from "lucide-react";
+import { Suspense, useState } from "react";
+import { Zap } from "lucide-react";
 import { PageHeader } from "@/components/shell/page-header";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
+import { useSelectedAccount } from "@/components/portfolio/account-selector";
+import { StrategyLiveCard } from "@/components/strategies/strategy-live-card";
+import { StrategyDetails } from "@/components/strategies/strategy-details";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { ErrorState, EmptyState, LoadingRows } from "@/components/shell/states";
-import { useStrategies } from "@/lib/api/hooks";
-import type { StrategyMeta } from "@/lib/api/types";
+  StrategyWatchlist,
+  type WatchlistStrategy,
+} from "@/components/strategies/strategy-watchlist";
+import { TunePanel } from "@/components/strategies/tune-panel";
+import type { HyperoptStrategy } from "@/lib/api/types";
 
-/** Render allocation.capital_pct (a 0..1 fraction) as an integer percent. */
-function allocLabel(m: StrategyMeta): string {
-  if (m.capital_pct == null) return "—";
-  return `${(m.capital_pct * 100).toFixed(0)}%`;
-}
+/**
+ * One per-strategy tab.
+ *
+ * `id` is the canonical strategy id (GET /strategies/{id}, the strategy_state
+ * stream). `watchlist` / `tune` are present only for the EOD strategies — ORB is
+ * intraday, so it shows DETAILS only (no watchlist, no hyperopt;
+ * docs/concept-alignment.md §3.4 A4).
+ */
+type StrategyTab = {
+  id: string;
+  label: string;
+  testid: string;
+  watchlist?: WatchlistStrategy;
+  tune?: HyperoptStrategy;
+  intraday?: boolean;
+};
 
-function sourceVariant(
-  source: string,
-): "default" | "secondary" | "muted" {
-  if (source === "db") return "default";
-  if (source === "file") return "secondary";
-  return "muted";
-}
+const TABS: StrategyTab[] = [
+  { id: "sepa", label: "SEPA", testid: "strategy-tab-sepa", watchlist: "sepa", tune: "sepa" },
+  {
+    id: "sector_rotation",
+    label: "Sector Rotation",
+    testid: "strategy-tab-sector",
+    watchlist: "sector",
+    tune: "sector_rotation",
+  },
+  { id: "pairs", label: "Pairs", testid: "strategy-tab-pairs", watchlist: "pairs", tune: "pairs" },
+  {
+    id: "intraday_breakout",
+    label: "Intraday Breakout (ORB)",
+    testid: "strategy-tab-orb",
+    intraday: true,
+  },
+];
 
+// TABS is statically non-empty; `!` documents that to the type checker so the
+// fallback below is a real value, not `T | undefined`.
+const FIRST_TAB: StrategyTab = TABS[0]!;
+
+/**
+ * The Strategies module (docs/concept-alignment.md §3.4 ②, the TUNE stage). A tab
+ * per production strategy; each tab shows that strategy's DETAILS (resolved
+ * params + schema/source), its WATCHLIST, live status, and the Tune (hyperopt)
+ * panel. ORB is intraday: details only.
+ */
 export default function StrategiesPage() {
-  const query = useStrategies();
-  const strategies = query.data?.strategies ?? [];
+  return (
+    <Suspense fallback={null}>
+      <StrategiesInner />
+    </Suspense>
+  );
+}
+
+function StrategiesInner() {
+  const { accountId } = useSelectedAccount();
+  return <StrategiesBody accountId={accountId} />;
+}
+
+function StrategiesBody({ accountId }: { accountId: string | undefined }) {
+  const [tabId, setTabId] = useState<string>(FIRST_TAB.id);
+  const tab = TABS.find((t) => t.id === tabId) ?? FIRST_TAB;
 
   return (
     <>
       <PageHeader
         title="Strategies"
-        subtitle="The four production strategies, their active params and allocations."
+        subtitle="The four production strategies — details, watchlist, live status and tuning."
         data-testid="strategies-header"
       />
 
-      <main
-        className="mx-auto w-full max-w-7xl flex-1 space-y-4 p-6"
-        data-testid="strategies-page"
+      {/* Strategy tab switcher. */}
+      <nav
+        className="flex items-center gap-1 border-b border-border px-6"
+        data-testid="strategy-tabs"
+        role="tablist"
       >
-        {query.isLoading ? (
-          <LoadingRows rows={4} data-testid="strategies-loading" />
-        ) : query.isError ? (
-          <ErrorState
-            error={query.error}
-            onRetry={() => query.refetch()}
-            data-testid="strategies-error"
-          />
-        ) : strategies.length === 0 ? (
-          <EmptyState
-            title="No strategies registered"
-            hint="The engine ships SEPA, Sector Rotation, Pairs and ORB baselines."
-            data-testid="strategies-empty"
-          />
+        {TABS.map((t) => {
+          const active = t.id === tabId;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              data-testid={t.testid}
+              data-active={active ? "true" : "false"}
+              onClick={() => setTabId(t.id)}
+              className={cn(
+                "border-b-2 px-3 py-2.5 text-sm font-medium transition-colors",
+                active
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </nav>
+
+      <main
+        className="mx-auto w-full max-w-7xl flex-1 space-y-6 p-6"
+        data-testid="strategies-page"
+        data-active-tab={tab.id}
+      >
+        {/* DETAILS — every tab, ORB included. */}
+        <section data-testid="strategy-section-details">
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Details
+          </h2>
+          <StrategyDetails strategyId={tab.id} />
+        </section>
+
+        {tab.intraday ? (
+          <Alert data-testid="strategy-intraday-note">
+            <Zap className="size-4" />
+            <AlertTitle>Intraday strategy</AlertTitle>
+            <AlertDescription>
+              Intraday Breakout (ORB) trades opening-range breakouts within the
+              session — it has no end-of-day watchlist and no hyperopt tuning
+              here. Backtest it as a single-member Model from the Models module.
+            </AlertDescription>
+          </Alert>
         ) : (
-          <div
-            className="overflow-hidden rounded-lg border border-border"
-            data-testid="strategies-table"
-          >
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Strategy</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead className="text-right">Allocation</TableHead>
-                  <TableHead className="text-center">Enabled</TableHead>
-                  <TableHead className="text-right">Params</TableHead>
-                  <TableHead>Source</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {strategies.map((m) => (
-                  <TableRow
-                    key={m.id}
-                    data-testid={`strategy-row-${m.id}`}
-                    data-param-count={m.parameters_count}
-                    data-source={m.params_source}
-                  >
-                    <TableCell>
-                      <Link
-                        href={`/strategies/${encodeURIComponent(m.id)}`}
-                        className="flex items-center gap-2 font-medium hover:underline"
-                        data-testid={`strategy-link-${m.id}`}
-                      >
-                        <Boxes className="size-4 text-muted-foreground" />
-                        {m.label}
-                      </Link>
-                      <span className="ml-6 font-mono text-xs text-muted-foreground">
-                        {m.id}
-                      </span>
-                    </TableCell>
-                    <TableCell className="max-w-md text-sm text-muted-foreground">
-                      {m.error ? (
-                        <span className="text-destructive">
-                          params error: {m.error}
-                        </span>
-                      ) : (
-                        (m.description || "—")
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-sm">
-                      {allocLabel(m)}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {m.active ? (
-                        <Badge
-                          variant="success"
-                          data-testid={`strategy-enabled-${m.id}`}
-                        >
-                          enabled
-                        </Badge>
-                      ) : (
-                        <Badge variant="muted">disabled</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-sm">
-                      {m.parameters_count}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={sourceVariant(m.params_source)}>
-                        {m.params_source}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <>
+            {/* Live status. */}
+            <section data-testid="strategy-section-live">
+              <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Live status
+              </h2>
+              <StrategyLiveCard strategyId={tab.id} label={tab.label} />
+            </section>
+
+            {/* Watchlist. */}
+            {tab.watchlist ? (
+              <section data-testid="strategy-section-watchlist">
+                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Watchlist
+                </h2>
+                <StrategyWatchlist
+                  strategy={tab.watchlist}
+                  accountId={accountId}
+                />
+              </section>
+            ) : null}
+
+            {/* Tune (hyperopt). */}
+            {tab.tune ? (
+              <section data-testid="strategy-section-tune">
+                <TunePanel strategy={tab.tune} />
+              </section>
+            ) : null}
+          </>
         )}
       </main>
     </>

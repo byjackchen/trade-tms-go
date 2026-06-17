@@ -29,7 +29,7 @@ func TestTradeStoreTradingReads(t *testing.T) {
 
 	var sessionID int64
 	require.NoError(t, itestPool.QueryRow(ctx,
-		`INSERT INTO tms.sessions (trader_id, mode, status) VALUES ('PAPER-READ-001','paper','RUNNING') RETURNING id`).
+		`INSERT INTO tms.sessions (trader_id, exec_policy, status) VALUES ('PAPER-READ-001','auto','RUNNING') RETURNING id`).
 		Scan(&sessionID))
 
 	// One filled order + its fill + position.
@@ -95,7 +95,7 @@ func TestSessionRealizedPnLIncludesClosed(t *testing.T) {
 
 	var sessionID int64
 	require.NoError(t, itestPool.QueryRow(ctx,
-		`INSERT INTO tms.sessions (trader_id, mode, status) VALUES ('PAPER-PNL-001','paper','RUNNING') RETURNING id`).
+		`INSERT INTO tms.sessions (trader_id, exec_policy, status) VALUES ('PAPER-PNL-001','auto','RUNNING') RETURNING id`).
 		Scan(&sessionID))
 
 	// An OPEN position with +$120.00 realized and a CLOSED (flat) position with

@@ -3,11 +3,11 @@ package livetrade
 // reconcile.go is the position reconciler (P6 locked decision 5): periodically +
 // on demand it compares the broker's positions (Trd_GetPositionList) against the
 // strategy books (the accounting.Account net positions) and produces a
-// portfolio.ReconciliationReport. On a mismatch it ALERTS — surfaces the report
+// riskgate.ReconciliationReport. On a mismatch it ALERTS — surfaces the report
 // (cockpit + a tms.halts row when configured to halt) — but NEVER auto-trades to
 // correct (the spec forbids self-healing trades; a human resolves drift).
 //
-// The reconcile algorithm itself lives in internal/portfolio.Reconcile (the
+// The reconcile algorithm itself lives in internal/riskgate.Reconcile (the
 // faithful port of reconciliation.py, spec §6). This module only sources the two
 // sides from the live system and routes the report to its sinks.
 
@@ -17,7 +17,7 @@ import (
 	"time"
 
 	mo "github.com/byjackchen/trade-tms-go/internal/adapters/moomoo"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // BrokerPositionsSource yields the broker's current positions (the real venue or
@@ -32,20 +32,20 @@ type BrokerPositionsSource interface {
 type StrategyBooks interface {
 	// BookPositions returns the signed share count per (strategy, symbol),
 	// skipping flat entries (the reconcile algorithm also skips qty==0).
-	BookPositions() map[portfolio.PositionKey]int64
+	BookPositions() map[riskgate.PositionKey]int64
 }
 
 // ReportSink persists + surfaces a reconciliation report (-> live.reconciliation_reports
 // + cockpit). May be nil (tests / Redis-less).
 type ReportSink interface {
-	SaveReconciliation(ctx context.Context, r portfolio.ReconciliationReport, toleranceShares int64) error
+	SaveReconciliation(ctx context.Context, r riskgate.ReconciliationReport, toleranceShares int64) error
 }
 
 // MismatchAlerter is invoked when a report HasIssues (drift detected). The live
 // node wires this to halt-on-reconciliation-mismatch + a cockpit alert. It must
 // NOT place any order (no auto-correct). May be nil.
 type MismatchAlerter interface {
-	OnReconciliationMismatch(ctx context.Context, r portfolio.ReconciliationReport)
+	OnReconciliationMismatch(ctx context.Context, r riskgate.ReconciliationReport)
 }
 
 // Reconciler runs reconciliation on demand or on a ticker.
@@ -106,13 +106,13 @@ func NewReconciler(cfg ReconcilerConfig) (*Reconciler, error) {
 }
 
 // Reconcile runs ONE reconciliation: pull the broker positions, aggregate the
-// strategy books, compute the report (portfolio.Reconcile), persist + surface it.
+// strategy books, compute the report (riskgate.Reconcile), persist + surface it.
 // On a mismatch it fires the alerter (halt + cockpit) but NEVER auto-trades. The
 // report is returned so the caller (CLI / endpoint) can render it.
-func (r *Reconciler) Reconcile(ctx context.Context) (portfolio.ReconciliationReport, error) {
+func (r *Reconciler) Reconcile(ctx context.Context) (riskgate.ReconciliationReport, error) {
 	brokerPositions, err := r.broker.GetPositionList(ctx, r.accID, r.env)
 	if err != nil {
-		return portfolio.ReconciliationReport{}, fmt.Errorf("reconcile: GetPositionList: %w", err)
+		return riskgate.ReconciliationReport{}, fmt.Errorf("reconcile: GetPositionList: %w", err)
 	}
 	broker := make(map[string]int64, len(brokerPositions))
 	for _, p := range brokerPositions {
@@ -124,7 +124,7 @@ func (r *Reconciler) Reconcile(ctx context.Context) (portfolio.ReconciliationRep
 
 	books := r.books.BookPositions()
 
-	report := portfolio.Reconcile(r.now().UTC(), books, broker, r.tolerance)
+	report := riskgate.Reconcile(r.now().UTC(), books, broker, r.tolerance)
 	r.runs++
 
 	if r.sink != nil {
@@ -166,15 +166,15 @@ func (r *Reconciler) RunPeriodic(ctx context.Context, interval time.Duration, on
 
 // BookPositions returns the account's signed per-(strategy, symbol) positions,
 // skipping flat entries — the StrategyBooks source for reconciliation.
-func (a *AccountAdapter) BookPositions() map[portfolio.PositionKey]int64 {
+func (a *AccountAdapter) BookPositions() map[riskgate.PositionKey]int64 {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	out := make(map[portfolio.PositionKey]int64)
+	out := make(map[riskgate.PositionKey]int64)
 	for _, p := range a.acct.AllPositions() {
 		if p.SignedQty == 0 {
 			continue
 		}
-		out[portfolio.PositionKey{StrategyID: p.StrategyID, Symbol: p.Symbol}] = int64(p.SignedQty)
+		out[riskgate.PositionKey{StrategyID: p.StrategyID, Symbol: p.Symbol}] = int64(p.SignedQty)
 	}
 	return out
 }
@@ -195,14 +195,14 @@ var _ StrategyBooks = (*AccountAdapter)(nil)
 // stays clean; the reconcile algorithm aggregates per SYMBOL across strategies, so a
 // strategy-held symbol now appears on BOTH sides and no longer reads as drift.
 type CombinedBooks struct {
-	sources []func() map[portfolio.PositionKey]int64
+	sources []func() map[riskgate.PositionKey]int64
 }
 
 // CombineBooks builds a CombinedBooks over the given live sources. Each source is a
 // thunk so a nil/absent source (e.g. signal mode has no strategy session) is simply
 // skipped at read time without capturing a stale snapshot. The manual book source is
 // required (the desk always has one); the strategy source is optional.
-func CombineBooks(sources ...func() map[portfolio.PositionKey]int64) *CombinedBooks {
+func CombineBooks(sources ...func() map[riskgate.PositionKey]int64) *CombinedBooks {
 	return &CombinedBooks{sources: sources}
 }
 
@@ -210,8 +210,8 @@ func CombineBooks(sources ...func() map[portfolio.PositionKey]int64) *CombinedBo
 // non-nil source. Keys collide only if two sources share a (strategy, symbol) pair —
 // which never happens here (the MANUAL pseudo-strategy is disjoint from the auto
 // strategy ids) — but if it did, the counts SUM (the correct whole-system net).
-func (c *CombinedBooks) BookPositions() map[portfolio.PositionKey]int64 {
-	out := make(map[portfolio.PositionKey]int64)
+func (c *CombinedBooks) BookPositions() map[riskgate.PositionKey]int64 {
+	out := make(map[riskgate.PositionKey]int64)
 	for _, src := range c.sources {
 		if src == nil {
 			continue

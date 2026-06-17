@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/byjackchen/trade-tms-go/internal/commands"
+	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
 // TradeReader is the trade cockpit read surface (PG-backed; satisfied by
@@ -63,15 +64,22 @@ type CommandEnqueuer interface {
 	Enqueue(ctx context.Context, p commands.EnqueueParams) (int64, error)
 }
 
-// TradeSession is the wire shape of a trade session.
+// TradeSession is the wire shape of a trade session. The legacy three-valued
+// "mode" is replaced by the 2D model (docs/concept-alignment.md §1.3): ExecPolicy
+// (signal/auto) on the execution axis + AccountEnv (sim/simulate/real, from the
+// bound account) on the environment axis.
 type TradeSession struct {
-	ID        int64           `json:"id"`
-	TraderID  string          `json:"trader_id"`
-	Mode      string          `json:"mode"`
-	Status    string          `json:"status"`
-	StartedAt time.Time       `json:"started_at"`
-	EndedAt   *time.Time      `json:"ended_at"`
-	Config    json.RawMessage `json:"config"`
+	ID       int64  `json:"id"`
+	TraderID string `json:"trader_id"`
+	// ExecPolicy is the execution policy: "signal" (emit-only) | "auto" (auto-submit).
+	ExecPolicy string `json:"exec_policy"`
+	// AccountEnv is the bound account's env: "sim" | "simulate" | "real" (empty
+	// when the session has no bound account).
+	AccountEnv string          `json:"account_env"`
+	Status     string          `json:"status"`
+	StartedAt  time.Time       `json:"started_at"`
+	EndedAt    *time.Time      `json:"ended_at"`
+	Config     json.RawMessage `json:"config"`
 	// Halt is the active halt (nil when none active).
 	Halt *TradeHalt `json:"halt"`
 }
@@ -212,10 +220,18 @@ func (s *Server) handleTradeAccounts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"accounts": accounts})
 }
 
-// tradeCommandBody is the POST /api/v1/trade/commands request shape.
+// tradeCommandBody is the POST /api/v1/trade/commands request shape. The legacy
+// three-valued mode is replaced by the 2D model (docs §1.3): set_mode now takes
+// exec_policy (signal|auto) + an account selector (env: sim|simulate|real). "go
+// paper" = exec_policy=auto + env=simulate; "go live" = auto + env=real; "signal"
+// = exec_policy=signal (env ignored).
 type tradeCommandBody struct {
-	Name         string `json:"name"`
-	Mode         string `json:"mode,omitempty"`
+	Name string `json:"name"`
+	// ExecPolicy is the execution policy for set_mode ("signal" | "auto").
+	ExecPolicy string `json:"exec_policy,omitempty"`
+	// Env is the bound account env for set_mode with exec_policy=auto
+	// ("sim" | "simulate" | "real"). Ignored for exec_policy=signal.
+	Env          string `json:"env,omitempty"`
 	Reason       string `json:"reason,omitempty"`
 	ConfirmToken string `json:"confirm_token,omitempty"`
 }
@@ -241,12 +257,22 @@ func (s *Server) handleTradeCommand(w http.ResponseWriter, r *http.Request) {
 			"unknown command (want start|stop|set_mode|halt|resume|kill|flatten|emergency_kill|reconcile)")
 		return
 	}
+	// set_mode's control input is (exec_policy, env); derive the convenience word
+	// the command queue still carries as its restart vocabulary.
+	mode := ""
+	if name == commands.NameSetMode {
+		m, ok := deriveSetModeWord(w, body.ExecPolicy, body.Env)
+		if !ok {
+			return
+		}
+		mode = m
+	}
 	actor := actorFromRequest(r)
 	id, err := s.commands.Enqueue(r.Context(), commands.EnqueueParams{
 		Source: "api",
 		Name:   name,
 		Args: commands.CommandArgs{
-			Mode:         strings.TrimSpace(body.Mode),
+			Mode:         mode,
 			Reason:       body.Reason,
 			ConfirmToken: body.ConfirmToken,
 		},
@@ -254,7 +280,7 @@ func (s *Server) handleTradeCommand(w http.ResponseWriter, r *http.Request) {
 	})
 	if errors.Is(err, commands.ErrConfirmationRequired) {
 		writeError(w, http.StatusPreconditionFailed, "confirmation_required",
-			"this command requires a confirm_token (paper/live mode switch, flatten, or emergency_kill)")
+			"this command requires a confirm_token (auto/live exec switch, flatten, or emergency_kill)")
 		return
 	}
 	if err != nil {
@@ -267,6 +293,33 @@ func (s *Server) handleTradeCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"command_id": id, "status": "pending"})
+}
+
+// deriveSetModeWord validates a set_mode control input (exec_policy + env) and
+// derives the convenience word (signal|paper|live) the command queue carries.
+// exec_policy=signal needs no account (env ignored); exec_policy=auto requires an
+// env (simulate => "paper", real => "live"). Returns ok=false after writing an
+// error response.
+func deriveSetModeWord(w http.ResponseWriter, execPolicy, env string) (string, bool) {
+	exec, err := domain.ParseExecutionPolicy(strings.TrimSpace(execPolicy))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_exec_policy", "exec_policy must be signal|auto")
+		return "", false
+	}
+	if exec == domain.ExecSignal {
+		return domain.RunWord(exec, ""), true
+	}
+	e := domain.BrokerEnv(strings.TrimSpace(env))
+	if e == "" {
+		writeError(w, http.StatusBadRequest, "missing_account",
+			"set_mode with exec_policy=auto requires env (simulate for paper, real for live)")
+		return "", false
+	}
+	if !e.IsValid() {
+		writeError(w, http.StatusBadRequest, "bad_env", "env must be sim|simulate|real")
+		return "", false
+	}
+	return domain.RunWord(exec, e), true
 }
 
 // actorFromRequest derives an audit actor from the request (the bearer-auth'd

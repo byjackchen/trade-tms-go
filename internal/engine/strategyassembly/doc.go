@@ -23,7 +23,7 @@
 // fan-in point for every strategy adapter; the live and backtest paths both go
 // through it so they assemble identical strategy state.
 //
-// May import: internal/engine, internal/params, internal/portfolio, the pure
+// May import: internal/engine, internal/params, internal/riskgate, the pure
 // strategy packages (internal/strategy/orb, .../pairs, .../sepa,
 // .../sectorrotation) and their adapters (.../orbadapter, .../pairsadapter,
 // .../sepaadapter, .../sectoradapter), plus the standard library. It must NOT

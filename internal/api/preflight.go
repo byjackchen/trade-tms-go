@@ -5,7 +5,7 @@ package api
 // market caps, universe, OpenD, PG/Redis) without an operator shelling into the
 // node. Read-only + bearer-guarded like the rest of /api/v1.
 //
-//	GET /api/v1/trade/preflight?mode=&strategy=&tickers=&orb_symbol=&check_opend=&max_stale_days=
+//	GET /api/v1/trade/preflight?exec_policy=&env=&strategy=&tickers=&orb_symbol=&check_opend=&max_stale_days=
 //
 // The Server holds a PreflightRunner (wired in cmd to the real PG/sharadar/moomoo
 // probes); when nil the endpoint returns 503 (preflight not configured for this
@@ -14,6 +14,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -30,16 +31,27 @@ type PreflightResult struct {
 
 // PreflightReport is the wire shape of the preflight outcome.
 type PreflightReport struct {
-	Mode     string            `json:"mode"`
+	// ExecPolicy is the execution policy validated (signal|auto).
+	ExecPolicy string `json:"exec_policy"`
+	// Env is the bound account env validated (sim|simulate|real; empty when none).
+	Env string `json:"env"`
+	// RunWord is the derived convenience label (signal|paper|live), always
+	// derived from (exec_policy, env) — display-only, never an input.
+	RunWord  string            `json:"run_word"`
 	Strategy string            `json:"strategy"`
 	TS       string            `json:"ts"`
 	OK       bool              `json:"ok"`
 	Checks   []PreflightResult `json:"checks"`
 }
 
-// PreflightParams selects the session the preflight validates.
+// PreflightParams selects the session the preflight validates. The legacy
+// three-valued mode is replaced by the 2D model (docs §1.3): ExecPolicy on the
+// execution axis + Env (the bound account's env) on the environment axis.
 type PreflightParams struct {
-	Mode                string
+	// ExecPolicy is "signal" | "auto".
+	ExecPolicy string
+	// Env is the bound account env ("sim" | "simulate" | "real"; "" when none).
+	Env                 string
 	Strategy            string
 	Tickers             []string
 	ORBSymbol           string
@@ -63,14 +75,21 @@ func (s *Server) handleTradePreflight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	mode := strings.TrimSpace(q.Get("mode"))
-	if mode == "" {
-		mode = "signal"
+	execPolicy := strings.TrimSpace(q.Get("exec_policy"))
+	if execPolicy == "" {
+		execPolicy = "signal"
 	}
-	switch mode {
-	case "signal", "paper", "live":
+	switch execPolicy {
+	case "signal", "auto":
 	default:
-		writeError(w, http.StatusBadRequest, "bad_mode", "mode must be signal|paper|live")
+		writeError(w, http.StatusBadRequest, "bad_exec_policy", "exec_policy must be signal|auto")
+		return
+	}
+	// Env selects WHERE auto orders settle (a "go paper" = auto on a sim/simulate
+	// account; "go live" = auto on a real account). Either pass env= directly or
+	// account_id= to resolve it from the accounts registry. Signal has no account.
+	env, ok := s.resolvePreflightEnv(w, r, q, execPolicy)
+	if !ok {
 		return
 	}
 	strategy := strings.TrimSpace(q.Get("strategy"))
@@ -103,7 +122,8 @@ func (s *Server) handleTradePreflight(w http.ResponseWriter, r *http.Request) {
 	checkOpenD := parseBoolQuery(q.Get("check_opend"))
 
 	report := s.preflight.RunPreflight(r.Context(), PreflightParams{
-		Mode:                mode,
+		ExecPolicy:          execPolicy,
+		Env:                 env,
 		Strategy:            strategy,
 		Tickers:             tickers,
 		ORBSymbol:           strings.TrimSpace(q.Get("orb_symbol")),
@@ -111,6 +131,58 @@ func (s *Server) handleTradePreflight(w http.ResponseWriter, r *http.Request) {
 		CheckOpenD:          checkOpenD,
 	})
 	writeJSON(w, http.StatusOK, report)
+}
+
+// resolvePreflightEnv resolves the bound-account env for a preflight request.
+// signal runs settle nowhere (env is irrelevant; "" is returned). For auto, the
+// caller selects the account either by env= directly or by account_id= (resolved
+// from the accounts registry). Returns ok=false after writing an error response.
+func (s *Server) resolvePreflightEnv(w http.ResponseWriter, r *http.Request, q url.Values, execPolicy string) (string, bool) {
+	if execPolicy == "signal" {
+		return "", true
+	}
+	env := strings.TrimSpace(q.Get("env"))
+	if accID := strings.TrimSpace(q.Get("account_id")); accID != "" {
+		if s.trade == nil {
+			writeError(w, http.StatusServiceUnavailable, "unavailable", "account registry not configured")
+			return "", false
+		}
+		accounts, err := s.trade.ListAccounts(r.Context())
+		if err != nil {
+			internalError(w, s.log, "preflight accounts", err)
+			return "", false
+		}
+		found := ""
+		for _, a := range accounts {
+			if a.ID == accID {
+				found = a.Env
+				break
+			}
+		}
+		if found == "" {
+			writeError(w, http.StatusBadRequest, "unknown_account", "account_id not found in the accounts registry: "+accID)
+			return "", false
+		}
+		if env != "" && env != found {
+			writeError(w, http.StatusBadRequest, "env_conflict", "env does not match the selected account's env")
+			return "", false
+		}
+		env = found
+	}
+	switch env {
+	case "simulate", "real":
+		return env, true
+	case "sim":
+		// A synthetic sim account auto-fills against no broker — treat as paper.
+		return env, true
+	case "":
+		writeError(w, http.StatusBadRequest, "missing_account",
+			"exec_policy=auto requires an account selector (account_id or env=simulate|real)")
+		return "", false
+	default:
+		writeError(w, http.StatusBadRequest, "bad_env", "env must be sim|simulate|real")
+		return "", false
+	}
 }
 
 // parseBoolQuery treats "1"/"true"/"yes" (case-insensitive) as true.

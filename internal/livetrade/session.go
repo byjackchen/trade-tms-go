@@ -20,7 +20,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // StatePersister snapshots + restores per-strategy SG state for crash recovery
@@ -48,7 +48,7 @@ type HealthSink interface {
 // the account/buying-power view, and whether a daily-loss halt latched this tick.
 type LiveSnapshot struct {
 	AsOf            time.Time
-	Health          portfolio.PortfolioHealthSnapshot
+	Health          riskgate.PortfolioHealthSnapshot
 	Positions       []domain.Position
 	DailyLossHalted bool
 	// HaltLatchedNow is true on the tick the daily-loss halt first latched.
@@ -82,9 +82,9 @@ type TradeSessionConfig struct {
 	Strategies []engine.Strategy
 	// Gate is the portfolio gating pipeline (allocator + risk). Required for
 	// production; nil disables gating (tests only).
-	Gate *portfolio.Portfolio
+	Gate *riskgate.Gate
 	// Context is the look-ahead-safe per-bar context provider (may be nil).
-	Context *portfolio.ContextProvider
+	Context *riskgate.ContextProvider
 	// SPYSymbol is the context heartbeat instrument (default "SPY").
 	SPYSymbol string
 	// Warmup primes WarmupConsumer strategies before the loop (may be nil).
@@ -166,7 +166,7 @@ func NewTradeSession(cfg TradeSessionConfig) (*TradeSession, error) {
 	sess, err := livengine.NewSession(livengine.Config{
 		Exec:            domain.ExecAuto,
 		Strategies:      cfg.Strategies,
-		Portfolio:       cfg.Gate,
+		Gate:       cfg.Gate,
 		Context:         cfg.Context,
 		SPYSymbol:       cfg.SPYSymbol,
 		Warmup:          cfg.Warmup,
@@ -226,9 +226,9 @@ func (t *TradeSession) postTimestamp(ctx context.Context, asOf time.Time) error 
 	if err != nil {
 		return fmt.Errorf("livetrade: post-timestamp account snapshot: %w", err)
 	}
-	var health portfolio.PortfolioHealthSnapshot
+	var health riskgate.PortfolioHealthSnapshot
 	if t.cfg.Gate != nil {
-		health = t.cfg.Gate.HealthSnapshot(portfolio.SnapshotFromDomain(snap))
+		health = t.cfg.Gate.HealthSnapshot(riskgate.SnapshotFromDomain(snap))
 	}
 	if t.cfg.HealthSink != nil {
 		if herr := t.cfg.HealthSink.EmitLiveHealth(ctx, LiveSnapshot{
@@ -305,7 +305,7 @@ func (t *TradeSession) RestoreStrategyState(ctx context.Context) (map[string]boo
 // ENTIRE account (strategy + manual positions), so reconciling it against the
 // manual-only book alone would mis-classify every strategy-held symbol as drift
 // (finding 6). Satisfies the StrategyBooks interface.
-func (t *TradeSession) BookPositions() map[portfolio.PositionKey]int64 {
+func (t *TradeSession) BookPositions() map[riskgate.PositionKey]int64 {
 	return t.account.BookPositions()
 }
 

@@ -182,10 +182,15 @@ func (s *Server) inferFeed(ctx context.Context, now time.Time, metrics *SystemMe
 	if sess == nil {
 		return SystemComponent{Status: "idle", Detail: "no live session"}, sessions
 	}
-	metrics.LiveMode = sess.Mode
+	// Informational run label from the 2D model: exec policy + bound account env.
+	mode := sess.ExecPolicy
+	if sess.AccountEnv != "" {
+		mode += "/" + sess.AccountEnv
+	}
+	metrics.LiveMode = mode
 	id := sess.ID
 	metrics.LiveSessionID = &id
-	sessions.Detail = pluralSessions(metrics.ActiveSessions) + " · latest " + sess.Status + " (" + sess.Mode + ")"
+	sessions.Detail = pluralSessions(metrics.ActiveSessions) + " · latest " + sess.Status + " (" + mode + ")"
 
 	if sess.Status != "RUNNING" {
 		return SystemComponent{Status: "idle", Detail: "session " + sess.Status}, sessions

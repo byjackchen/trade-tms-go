@@ -41,7 +41,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/exec"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // Engine is one assembled, runnable backtest. Build with New, then Run once.
@@ -74,9 +74,9 @@ type Engine struct {
 	broadcast []int
 
 	// pre-trade gating + look-ahead-safe context (multi-strategy path).
-	gate    *portfolio.Portfolio
-	ctxProv *portfolio.ContextProvider
-	ctxStat *portfolio.SharedContextState
+	gate    *riskgate.Gate
+	ctxProv *riskgate.ContextProvider
+	ctxStat *riskgate.SharedContextState
 	spySym  string
 	ctxCons []ContextConsumer // strategies implementing ContextConsumer
 
@@ -132,12 +132,12 @@ func New(ctx context.Context, cfg Config, feed BarFeed) (*Engine, error) {
 		rec:            rec,
 		registrationIx: make(map[string]int),
 		lastBar:        make(map[string]domain.Bar),
-		gate:           cfg.Portfolio,
+		gate:           cfg.Gate,
 		ctxProv:        cfg.Context,
 		spySym:         spySym,
 	}
 	if cfg.Context != nil {
-		eng.ctxStat = portfolio.NewSharedContextState()
+		eng.ctxStat = riskgate.NewSharedContextState()
 	}
 	// Fill sink routes executor fills into the loop as FillEvents.
 	sink := fillSink{eng: eng}
@@ -664,7 +664,7 @@ func (s orderSubmitter) SubmitMarket(strategyID, symbol string, side domain.Orde
 // FLAT-close by reading the venue book (engine.PositionReader). The real
 // strategy adapters (SEPA / Pairs) translate a FLAT signal into a closing market
 // order sized from the venue net position — the Python runners read
-// self.portfolio.net_position(instrument_id) (a NETTING-OMS venue net across
+// self.riskgate.net_position(instrument_id) (a NETTING-OMS venue net across
 // strategies), so the engine submitter must net across strategies too. WITHOUT
 // this, sub.(engine.PositionReader) failed the type assertion and FLAT closes
 // silently sized to 0 (a no-op), so a Pairs/SEPA position once opened never
@@ -687,7 +687,7 @@ func (s orderSubmitter) NetPosition(_ string, symbol string) domain.Qty {
 // strategy signal before submitting. It mirrors src/strategies/_base/runner.py
 // :_gate + maybe_check_portfolio: build a ProposedOrder (strategy id, symbol,
 // signalSide, abs qty, estimated price = the symbol's last close), snapshot the
-// account, and run portfolio.Check. FLAT and qty<=0 bypass the gate inside the
+// account, and run riskgate.Check. FLAT and qty<=0 bypass the gate inside the
 // pipeline (closes always proceed, even during a daily-loss halt). On a
 // rejection it records the rejection and returns submitted=false WITHOUT
 // placing an order (the runner skips the submit). A nil gate always submits.
@@ -705,8 +705,8 @@ func (s orderSubmitter) SubmitMarketSignal(strategyID, symbol string, signalSide
 		}
 		// Shared portfolio-side gate wrapper (E1); the engine's sink appends to
 		// its in-memory RejectedOrder slice. FLAT/qty<=0 are bypassed above.
-		proposed := portfolio.NewProposedOrder(strategyID, symbol, signalSide, qty, price, ts)
-		decision := portfolio.GateSignal(s.eng.gate, proposed, portfolio.SnapshotFromDomain(snap), price, engineRejectionSink{eng: s.eng})
+		proposed := riskgate.NewProposedOrder(strategyID, symbol, signalSide, qty, price, ts)
+		decision := riskgate.GateSignal(s.eng.gate, proposed, riskgate.SnapshotFromDomain(snap), price, engineRejectionSink{eng: s.eng})
 		if !decision.Approved {
 			return "", false, nil
 		}
@@ -718,13 +718,13 @@ func (s orderSubmitter) SubmitMarketSignal(strategyID, symbol string, signalSide
 	return coid, true, nil
 }
 
-// engineRejectionSink is the engine's portfolio.RejectionRecorder: it appends a
+// engineRejectionSink is the engine's riskgate.RejectionRecorder: it appends a
 // gate rejection to the engine's in-memory RejectedOrder slice (which feeds
 // Result.RejectedOrders / num_rejected_orders). Price is dropped (the backtest
 // result does not carry the estimated price), preserving the exact pre-E1 shape.
 type engineRejectionSink struct{ eng *Engine }
 
-func (s engineRejectionSink) RecordRejection(r portfolio.Rejection) {
+func (s engineRejectionSink) RecordRejection(r riskgate.Rejection) {
 	s.eng.rejected = append(s.eng.rejected, RejectedOrder{
 		StrategyID: r.StrategyID,
 		Symbol:     r.Symbol,

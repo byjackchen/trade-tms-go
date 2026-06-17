@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/byjackchen/trade-tms-go/internal/domain"
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // StrategyContextFrom builds the per-bar StrategyContext from the shared context
@@ -28,7 +28,7 @@ import (
 // (modularization-review.md §E2). The snapshot maps carry ONLY symbols with a
 // published value, so a consumer for a symbol without context keeps its prior
 // value (matching the Actors only calling set_* on transitions).
-func StrategyContextFrom(asOf time.Time, st *portfolio.SharedContextState) StrategyContext {
+func StrategyContextFrom(asOf time.Time, st *riskgate.SharedContextState) StrategyContext {
 	return StrategyContext{
 		Regime:           st.Regime(),
 		AsOf:             asOf,
@@ -41,7 +41,7 @@ func StrategyContextFrom(asOf time.Time, st *portfolio.SharedContextState) Strat
 // and pushes it into every ContextConsumer. It is the shared context-injection
 // seam both dispatch drivers call on the SPY heartbeat; a nil state or empty
 // consumer set is a no-op. asOf is the heartbeat bar's timestamp.
-func InjectContextInto(cons []ContextConsumer, asOf time.Time, st *portfolio.SharedContextState) {
+func InjectContextInto(cons []ContextConsumer, asOf time.Time, st *riskgate.SharedContextState) {
 	if len(cons) == 0 || st == nil {
 		return
 	}

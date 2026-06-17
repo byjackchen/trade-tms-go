@@ -12,7 +12,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/byjackchen/trade-tms-go/internal/portfolio"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // IntentRecord is one emitted strategy signal: the raw JSON-serializable intent
@@ -40,7 +40,7 @@ type IntentRecord struct {
 // emitted so the cockpit health panel has continuity.
 type HealthRecord struct {
 	AsOf     time.Time
-	Snapshot portfolio.PortfolioHealthSnapshot
+	Snapshot riskgate.PortfolioHealthSnapshot
 }
 
 // IntentSink receives the live engine's emissions. The session calls EmitIntent

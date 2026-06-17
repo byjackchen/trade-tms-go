@@ -1,7 +1,7 @@
 package runner
 
 // resolve_account_test.go is the DB-free unit coverage for the account-attribution
-// core of phase 3: (*Live).resolveAccount maps the legacy mode onto the ONE
+// core of phase 3: (*Live).resolveAccount maps the control-plane mode onto the ONE
 // domain.Account a node binds (signal -> synthetic sim, paper -> moomoo SIMULATE
 // @ PaperAccID, live -> moomoo REAL @ LiveAccID). This is the single highest-risk
 // surface (real-money account selection), so it is pinned independently of any
@@ -33,7 +33,7 @@ func TestResolveAccount(t *testing.T) {
 	}{
 		{
 			name:       "signal -> synthetic sim account (no broker, no real money)",
-			mode:       string(domain.ModeSignal),
+			mode:       modeSignal,
 			wantID:     "sim:signal",
 			wantVenue:  "sim",
 			wantEnv:    domain.EnvSim,
@@ -42,7 +42,7 @@ func TestResolveAccount(t *testing.T) {
 		},
 		{
 			name:       "paper -> moomoo SIMULATE @ PaperAccID",
-			mode:       string(domain.ModePaper),
+			mode:       modePaper,
 			wantID:     domain.NewBrokerAccount("moomoo", domain.EnvSimulate, paperAccID, "").ID,
 			wantVenue:  "moomoo",
 			wantEnv:    domain.EnvSimulate,
@@ -51,7 +51,7 @@ func TestResolveAccount(t *testing.T) {
 		},
 		{
 			name:       "live -> moomoo REAL @ LiveAccID (the real-money mapping)",
-			mode:       string(domain.ModeLive),
+			mode:       modeLive,
 			wantID:     domain.NewBrokerAccount("moomoo", domain.EnvReal, liveAccID, "").ID,
 			wantVenue:  "moomoo",
 			wantEnv:    domain.EnvReal,

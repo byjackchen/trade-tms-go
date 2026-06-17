@@ -17,7 +17,9 @@ import { apiTarget } from "@/lib/server/api";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const ALLOWED_METHODS = new Set(["GET", "POST"]);
+// GET reads; POST enqueues / mutates; PUT + DELETE back the Models CRUD
+// (full-replace + delete — docs/concept-alignment.md §3.3).
+const ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "DELETE"]);
 
 async function forward(req: NextRequest, segments: string[]): Promise<Response> {
   if (!ALLOWED_METHODS.has(req.method)) {
@@ -43,7 +45,7 @@ async function forward(req: NextRequest, segments: string[]): Promise<Response> 
   };
 
   let body: string | undefined;
-  if (req.method === "POST") {
+  if (req.method === "POST" || req.method === "PUT") {
     body = await req.text();
     headers["Content-Type"] = "application/json";
   }
@@ -91,6 +93,16 @@ export async function GET(req: NextRequest, ctx: Ctx): Promise<Response> {
 }
 
 export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
+  const { path } = await ctx.params;
+  return forward(req, path);
+}
+
+export async function PUT(req: NextRequest, ctx: Ctx): Promise<Response> {
+  const { path } = await ctx.params;
+  return forward(req, path);
+}
+
+export async function DELETE(req: NextRequest, ctx: Ctx): Promise<Response> {
   const { path } = await ctx.params;
   return forward(req, path);
 }

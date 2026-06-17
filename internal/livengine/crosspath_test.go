@@ -133,7 +133,7 @@ func canonicalIntentStream(t *testing.T, recs []livengine.IntentRecord) []string
 func assembleSector(t *testing.T) *strategyassembly.Assembly {
 	t.Helper()
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Strategy:        "sector_rotation",
+		Model:           mustSeed(t, "sector-only"),
 		StartingBalance: 100000,
 		Params:          strategyassembly.Params{Sector: wideSectorParams()},
 	})
@@ -173,7 +173,7 @@ func TestBatchEqualsStreamingIntents(t *testing.T) {
 		StartingBalance:    domain.MustMoney("100000"),
 		Profile:            engine.ProfileNautilusCompat,
 		PrebuiltStrategies: proxies,
-		Portfolio:          batchAsm.Portfolio,
+		Gate:               batchAsm.Gate,
 		Context:            batchAsm.Context,
 		SPYSymbol:          batchAsm.SPYSymbol,
 	}, engine.SliceFeed{Instruments: instruments})

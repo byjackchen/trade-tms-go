@@ -32,15 +32,19 @@ func NewTradeStore(pool *pgxpool.Pool) *TradeStore { return &TradeStore{pool: po
 // LatestSession returns the most recent session with its active halt (if any).
 func (s *TradeStore) LatestSession(ctx context.Context) (*api.TradeSession, error) {
 	var (
-		sess    api.TradeSession
-		ended   *time.Time
-		cfgText string
+		sess       api.TradeSession
+		ended      *time.Time
+		cfgText    string
+		accountEnv *string
 	)
+	// The 2D model (docs/concept-alignment.md §1.3): exec_policy on the session +
+	// the bound account's env (NULL when the session carries no account_id).
 	err := s.pool.QueryRow(ctx, `
-		SELECT id, trader_id, mode, status, started_at, ended_at, config::text
-		  FROM tms.sessions
-		 ORDER BY started_at DESC, id DESC
-		 LIMIT 1`).Scan(&sess.ID, &sess.TraderID, &sess.Mode, &sess.Status,
+		SELECT s.id, s.trader_id, s.exec_policy, a.env, s.status, s.started_at, s.ended_at, s.config::text
+		  FROM tms.sessions s
+		  LEFT JOIN tms.accounts a ON a.id = s.account_id
+		 ORDER BY s.started_at DESC, s.id DESC
+		 LIMIT 1`).Scan(&sess.ID, &sess.TraderID, &sess.ExecPolicy, &accountEnv, &sess.Status,
 		&sess.StartedAt, &ended, &cfgText)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -50,6 +54,9 @@ func (s *TradeStore) LatestSession(ctx context.Context) (*api.TradeSession, erro
 	}
 	sess.EndedAt = ended
 	sess.Config = json.RawMessage(cfgText)
+	if accountEnv != nil {
+		sess.AccountEnv = *accountEnv
+	}
 
 	// Active halt (cleared_at IS NULL), most recent.
 	var halt api.TradeHalt
