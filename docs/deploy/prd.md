@@ -52,7 +52,7 @@ TMS_API_TOKEN=<strong-random>                 # REQUIRED — api won't start wit
 TMS_API_CORS_ORIGINS=https://<your-ui-host>   # or http://<host>:13000 if internal
 TMS_LOG_LEVEL=info
 # --- data / scheduler ---
-TMS_NASDAQ_DATA_LINK_API_KEY=<key>            # required for `sync` (API->DB) + daily refresh
+NASDAQ_DATA_LINK_API_KEY=<key>                # required for `sync` (API->DB) + daily refresh
 TMS_SHARADAR_CACHE_DIR=/srv/tms/sharadar      # only used by the parquet `import` path
 TMS_RUNS_DIR=/srv/tms/runs
 TMS_SCHEDULER_DAILY_AT=18:30
@@ -97,7 +97,7 @@ EVENTS→events). Two independent ingest paths feed the DB:
 
 **Option A — pull from the Nasdaq Data Link API (recommended; no cache needed):**
 
-Prereqs: ① `TMS_NASDAQ_DATA_LINK_API_KEY` in `.env` (get one at
+Prereqs: ① `NASDAQ_DATA_LINK_API_KEY` in `.env` (get one at
 https://data.nasdaq.com/account/profile); ② the key's account is **subscribed to
 the SHARADAR tables** (paid datasets — otherwise the API returns empty); ③
 outbound HTTPS to `data.nasdaq.com`.
