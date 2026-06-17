@@ -61,6 +61,15 @@ type Evaluator struct {
 	sepaStock   []string // SEPA stock universe (the trading symbols)
 	startBal    float64
 	spy         string
+	// compositionKind selects the COMPOSITION-tuning eval mode (BE-Space): the
+	// decoded Decoded.Composition is the blueprint, member SIGNAL params are FIXED
+	// (fixedParams), and only weights/cash/risk vary per trial. false => the
+	// strategy-tuning path (signal params searched, blueprint fixed).
+	compositionKind bool
+	// fixedParams are the resolved, typed per-member signal params a COMPOSITION
+	// study runs with (decision 4: member active params, never tuned here). Unused
+	// on the strategy path.
+	fixedParams strategyassembly.Params
 }
 
 // EvaluatorConfig parameterizes a new Evaluator.
@@ -74,16 +83,29 @@ type EvaluatorConfig struct {
 	Start, End      calendar.Date          // study window (inclusive)
 	Folds           []hyperopt.EvalSegment // nil => single full-window backtest
 	Defaults        map[string]map[string]any
-	SEPAStocks      []string // SEPA stock universe (sepa/joint paths)
+	SEPAStocks      []string // SEPA stock universe (sepa/joint/composition paths)
 	StartingBalance float64
 	SPYSymbol       string
+	// CompositionKind selects the COMPOSITION-tuning eval mode (BE-Space): the
+	// decoded blueprint varies, member signal params are FIXED (FixedParams).
+	CompositionKind bool
+	// FixedParams are the resolved typed per-member signal params a COMPOSITION
+	// study runs with (decision 4). Required (and only used) when CompositionKind.
+	FixedParams strategyassembly.Params
 }
 
 // NewEvaluator validates the config and returns a ready Evaluator.
 func NewEvaluator(cfg EvaluatorConfig) (*Evaluator, error) {
-	order, err := strategyOrder(cfg.Strategy)
-	if err != nil {
-		return nil, err
+	// The composition path samples the blueprint, not a strategy's signal params,
+	// so it carries no strategy "order" — its order is derived from the decoded
+	// Composition's members at assembly time.
+	var order []string
+	if !cfg.CompositionKind {
+		var err error
+		order, err = strategyOrder(cfg.Strategy)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if cfg.Dataset == nil {
 		return nil, fmt.Errorf("hyperopt: evaluator needs a dataset")
@@ -97,18 +119,36 @@ func NewEvaluator(cfg EvaluatorConfig) (*Evaluator, error) {
 		bal = 100000.0
 	}
 	return &Evaluator{
-		strategy:    cfg.Strategy,
-		composition: cfg.Composition,
-		order:       order,
-		ds:          cfg.Dataset,
-		start:       cfg.Start,
-		end:         cfg.End,
-		folds:       cfg.Folds,
-		defaults:    cfg.Defaults,
-		sepaStock:   append([]string(nil), cfg.SEPAStocks...),
-		startBal:    bal,
-		spy:         spy,
+		strategy:        cfg.Strategy,
+		composition:     cfg.Composition,
+		order:           order,
+		ds:              cfg.Dataset,
+		start:           cfg.Start,
+		end:             cfg.End,
+		folds:           cfg.Folds,
+		defaults:        cfg.Defaults,
+		sepaStock:       append([]string(nil), cfg.SEPAStocks...),
+		startBal:        bal,
+		spy:             spy,
+		compositionKind: cfg.CompositionKind,
+		fixedParams:     cfg.FixedParams,
 	}, nil
+}
+
+// wantsSEPA reports whether this evaluation's strategy set includes SEPA — the
+// driver for the SEPA warmup tail and the look-ahead-safe context provider. For a
+// strategy study it is the sepa/joint selector; for a composition study it is an
+// ACTIVE sepa member in the decoded blueprint.
+func (e *Evaluator) wantsSEPA(comp composition.Composition) bool {
+	if e.compositionKind {
+		for _, m := range comp.Members {
+			if m.Active && m.StrategyID == composition.StrategySEPA {
+				return true
+			}
+		}
+		return false
+	}
+	return e.strategy == "sepa" || e.strategy == "joint"
 }
 
 // Evaluate runs the backtest objective for one decoded candidate. The decoded
@@ -154,6 +194,23 @@ func (e *Evaluator) Evaluate(ctx context.Context, dec Decoded) (EvalResult, erro
 // strategyassembly.Input (minus context, which is built per-run since it depends
 // on the fold window). A validation failure here FAILs the trial.
 func (e *Evaluator) buildAssemblyInput(dec Decoded) (strategyassembly.Input, error) {
+	// COMPOSITION-tuning mode (BE-Space): the decoded blueprint IS the assembly
+	// input — its members + normalized weights/cash/risk drive the allocator + gate.
+	// Member SIGNAL params are FIXED at the resolved active params (decision 4);
+	// they were resolved once by the caller and stay constant across every trial.
+	if e.compositionKind {
+		if dec.Composition == nil {
+			return strategyassembly.Input{}, fmt.Errorf("hyperopt: composition trial decoded no blueprint")
+		}
+		return strategyassembly.Input{
+			Composition:     *dec.Composition,
+			Params:          e.fixedParams,
+			StartingBalance: e.startBal,
+			SEPAStocks:      e.sepaStock,
+			SPYSymbol:       e.spy,
+		}, nil
+	}
+
 	comp, err := e.assemblyComposition()
 	if err != nil {
 		return strategyassembly.Input{}, err
@@ -217,7 +274,8 @@ func (e *Evaluator) runFold(ctx context.Context, in strategyassembly.Input, seg 
 // over the SHARED dataset (SPY closes + market caps) so the SEPA regime / cap
 // gate is look-ahead-safe per window, mirroring the backtest handler.
 func (e *Evaluator) run(ctx context.Context, in strategyassembly.Input, start, end calendar.Date) (metrics.BacktestMetrics, []float64, error) {
-	in.Context = e.buildContext(start, end)
+	wantSEPA := e.wantsSEPA(in.Composition)
+	in.Context = e.buildContext(start, end, wantSEPA)
 
 	asm, err := strategyassembly.Assemble(in)
 	if err != nil {
@@ -246,7 +304,7 @@ func (e *Evaluator) run(ctx context.Context, in strategyassembly.Input, start, e
 	// are not WarmupConsumers), mirroring Python's warmup_by_ticker (SEPA stocks
 	// only). SPY regime warmup is carried separately by the ContextProvider's own
 	// full SPY history (buildContext loads SPY from start-500d).
-	if len(e.sepaStock) > 0 && (e.strategy == "sepa" || e.strategy == "joint") {
+	if len(e.sepaStock) > 0 && wantSEPA {
 		cfg.Warmup = &engine.WarmupConfig{
 			Bars: e.ds.WarmupSlices(e.sepaStock, start, warmupDaysDefault),
 		}
@@ -284,8 +342,8 @@ func (e *Evaluator) run(ctx context.Context, in strategyassembly.Input, start, e
 // SEPA cap gate. Returns nil when SPY is absent (cold-start defaults) or the
 // strategy does not consume context. Mirrors the backtest handler's buildContext
 // but reads the SHARED in-memory bars (no DB).
-func (e *Evaluator) buildContext(start, end calendar.Date) *riskgate.ContextProvider {
-	if e.strategy != "sepa" && e.strategy != "joint" {
+func (e *Evaluator) buildContext(start, end calendar.Date, wantSEPA bool) *riskgate.ContextProvider {
+	if !wantSEPA {
 		return nil
 	}
 	spyIB, ok := e.ds.bySym[e.spy]

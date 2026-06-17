@@ -11,6 +11,10 @@ import type {
   CompositionsResponse,
   CompositionResponse,
   CompositionRequest,
+  CompositionHyperoptRequest,
+  CompositionHyperoptResponse,
+  CompositionPromoteRequest,
+  CompositionPromoteResponse,
   TradePortfolioResponse,
   CoverageResponse,
   TickerGapDetail,
@@ -302,6 +306,58 @@ export function useDeleteComposition() {
     onSuccess: (_data, args) => {
       void qc.invalidateQueries({ queryKey: ["compositions"] });
       void qc.invalidateQueries({ queryKey: ["composition", args.id] });
+    },
+  });
+}
+
+// ---- Composition Hyperopt (weights & risk) ----
+//
+// DISTINCT from per-strategy Hyperopt (useCreateStudy / usePromoteTrial below). A
+// COMPOSITION Hyperopt holds every member's strategy params FIXED and searches the
+// composition's WEIGHTS + cash + the three risk caps, reusing the SAME NSGA-II +
+// walk-forward machinery (docs/concept-alignment.md §1.2; LOCKED DECISIONS 1–6). The
+// result is an ordinary hyperopt study, so the study/trials views are SHARED.
+
+/**
+ * Launch a composition-weights+risk hyperopt — POST /api/v1/compositions/{id}/hyperopt.
+ * Returns an enqueued job (tracked like useCreateStudy). On success we bust the
+ * studies list + jobs so the new study/job surfaces. Strategy params stay FIXED at
+ * each member's active set (LOCKED DECISION 4).
+ */
+export function useCompositionHyperopt(id: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CompositionHyperoptRequest) =>
+      apiPost<CompositionHyperoptResponse>(`compositions/${id}/hyperopt`, body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["hyperopt", "studies"] });
+      void qc.invalidateQueries({ queryKey: ["jobs"] });
+    },
+  });
+}
+
+/**
+ * Promote a completed composition-hyperopt trial IN PLACE — POST
+ * /api/v1/compositions/{id}/hyperopt/{study_ts}/promote. The study_ts goes in the
+ * PATH (matching the registered route); only {trial_id, actor} ride the body.
+ * OVERWRITES the composition's risk_* caps + each member's weight + cash_pct (LOCKED
+ * DECISION 3); it does NOT touch any param_set. On success we bust the compositions
+ * list + that composition (its allocation/risk changed) and the study's trials.
+ */
+export function useCompositionPromote(id: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CompositionPromoteRequest) =>
+      apiPost<CompositionPromoteResponse>(
+        `compositions/${id}/hyperopt/${body.study_ts}/promote`,
+        { trial_id: body.trial_id, actor: body.actor },
+      ),
+    onSuccess: (_data, body) => {
+      void qc.invalidateQueries({ queryKey: ["compositions"] });
+      void qc.invalidateQueries({ queryKey: ["composition", id] });
+      void qc.invalidateQueries({
+        queryKey: ["hyperopt", "trials", body.study_ts],
+      });
     },
   });
 }

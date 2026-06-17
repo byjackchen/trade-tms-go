@@ -91,7 +91,7 @@ func TestBuildContextRealMarketCaps(t *testing.T) {
 	ds.SetMarketCaps(map[string]float64{"AAPL": aaplCap, "TINYCO": 0})
 
 	eval := sepaContextEvaluator(t, ds, stocks, start, end)
-	cp := eval.buildContext(start, end)
+	cp := eval.buildContext(start, end, true)
 	if cp == nil {
 		t.Fatal("buildContext returned nil; expected a context provider (SPY bars present)")
 	}
@@ -128,7 +128,7 @@ func TestBuildContextDegenerateWithoutCaps(t *testing.T) {
 	ds := sepaContextDataset(t, stocks, start, end)
 	// Intentionally do NOT call SetMarketCaps.
 	eval := sepaContextEvaluator(t, ds, stocks, start, end)
-	cp := eval.buildContext(start, end)
+	cp := eval.buildContext(start, end, true)
 	if cp == nil {
 		t.Fatal("buildContext returned nil; expected a context provider")
 	}

@@ -11,6 +11,7 @@ import { CompositionComposer } from "@/components/compositions/composition-compo
 import { NewBacktestDialog } from "@/components/compositions/new-backtest-dialog";
 import { RunsTable } from "@/components/compositions/runs-table";
 import { BacktestPanel } from "@/components/compositions/backtest-panel";
+import { CompositionHyperoptPanel } from "@/components/compositions/composition-hyperopt-panel";
 import type { Composition } from "@/lib/api/types";
 
 type Tab = "compositions" | "backtests";
@@ -50,6 +51,8 @@ function CompositionsBody() {
 
   // Action-dialog state (the Composition the dialog targets).
   const [backtestComposition, setBacktestComposition] = useState<Composition | null>(null);
+  // Composition Hyperopt (weights & risk) — the inline panel's target Composition.
+  const [hyperoptComposition, setHyperoptComposition] = useState<Composition | null>(null);
 
   // Inline panels are URL-driven so the redirects' deep-links survive.
   const backtestId = useMemo(() => {
@@ -88,7 +91,7 @@ function CompositionsBody() {
     <>
       <PageHeader
         title="Compositions"
-        subtitle="Compose named portfolio blueprints from tuned strategies, then validate them by backtest."
+        subtitle="Compose named portfolio blueprints from tuned strategies; validate by backtest, then tune weights & risk with Composition Hyperopt."
         data-testid="compositions-header"
         actions={<StreamIndicator />}
       />
@@ -133,6 +136,7 @@ function CompositionsBody() {
             onNew={newComposition}
             onEdit={onEdit}
             onBacktest={(m) => setBacktestComposition(m)}
+            onHyperopt={(m) => setHyperoptComposition(m)}
           />
         ) : (
           <RunsTable
@@ -142,6 +146,22 @@ function CompositionsBody() {
             onSelect={openBacktest}
           />
         )}
+
+        {/* Inline Composition Hyperopt (weights & risk). Distinct from Backtest:
+            it TUNES the blueprint's weights + risk (member signal params stay
+            fixed), reusing the shared study/trials views. */}
+        {hyperoptComposition != null ? (
+          <section data-testid="compositions-hyperopt-section">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <Layers className="size-3.5" />
+              Composition Hyperopt — weights &amp; risk
+            </div>
+            <CompositionHyperoptPanel
+              composition={hyperoptComposition}
+              onClose={() => setHyperoptComposition(null)}
+            />
+          </section>
+        ) : null}
 
         {/* Inline backtest results (deep-linkable via ?backtest=). */}
         {backtestId != null ? (

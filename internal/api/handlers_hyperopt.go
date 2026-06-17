@@ -181,7 +181,7 @@ func (s *Server) handleHyperoptList(w http.ResponseWriter, r *http.Request) {
 	strategy := strings.TrimSpace(r.URL.Query().Get("strategy"))
 	if strategy != "" {
 		switch strategy {
-		case "sepa", "sector_rotation", "pairs", "joint":
+		case "sepa", "sector_rotation", "pairs", "joint", "composition":
 		default:
 			writeError(w, http.StatusBadRequest, CodeValidation,
 				fmt.Sprintf("unknown strategy %q", strategy))
@@ -323,6 +323,7 @@ func studyRowToJSON(r study.StudyRow) map[string]any {
 		"version":      r.Version,
 		"study_name":   r.StudyName,
 		"strategy":     r.Strategy,
+		"kind":         string(r.Kind),
 		"start":        r.Start,
 		"end":          r.End,
 		"directions":   r.Directions,
@@ -333,6 +334,9 @@ func studyRowToJSON(r study.StudyRow) map[string]any {
 		"walk_forward": map[string]any{"enabled": r.WalkForward.Enabled, "folds": r.WalkForward.Folds, "embargo_days": r.WalkForward.EmbargoDays},
 		"created_at":   r.CreatedAt.UTC().Format(time.RFC3339Nano),
 		"updated_at":   r.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}
+	if r.CompositionID != "" {
+		cfg["composition_id"] = r.CompositionID
 	}
 	progress := map[string]any{
 		"status":            string(r.Status),

@@ -26,6 +26,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 	"github.com/byjackchen/trade-tms-go/internal/engine"
+	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt/study"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
 	"github.com/byjackchen/trade-tms-go/internal/params"
@@ -97,8 +98,27 @@ type hyperoptUniverseJSON struct {
 	Table string `json:"table"`
 }
 
+// hyperoptCompositionRanges is the optional per-launch BE-Space range overrides
+// for a composition study (decision 2). Each field is a [low, high] pair; an
+// omitted field defaults to the global default range. Mirrors
+// study.CompositionRanges' five dimensions.
+type hyperoptCompositionRanges struct {
+	Weight        *[2]float64 `json:"weight"`
+	Cash          *[2]float64 `json:"cash"`
+	SingleName    *[2]float64 `json:"single_name"`
+	Concentration *[2]float64 `json:"concentration"`
+	DailyLoss     *[2]float64 `json:"daily_loss"`
+}
+
 type hyperoptParams struct {
-	Strategy string `json:"strategy"`
+	// Kind selects the study flavour: "" / "strategy" = legacy single/joint
+	// strategy-param tune; "composition" = tune a Composition's weights/cash/risk
+	// (BE-Space). For a composition study CompositionID is required and Strategy is
+	// ignored (the strategies come from the target's active members).
+	Kind string `json:"kind"`
+	// Ranges are the optional BE-Space range overrides for a composition study.
+	Ranges   *hyperoptCompositionRanges `json:"ranges"`
+	Strategy string                     `json:"strategy"`
 	// CompositionID/Composition back the DORMANT joint (multi-strategy) study path:
 	// no API surface enqueues them anymore (Composition-level optimize is dropped
 	// from the product), but the worker code stays intact for older queued joint
@@ -160,7 +180,7 @@ func (h *Hyperopt) Run(ctx context.Context, job *jobs.Job, report jobs.ProgressF
 	// gate, and the SEPA hyperopt objective degenerates to 0 (never trades). Caps
 	// come from tms.fundamentals_sf1 (universe.Store.MarketCaps: latest datekey,
 	// dimension DESC tie-break), mirroring the production backtest handler.
-	if len(sepaStocks) > 0 && (cfg.Strategy == "sepa" || cfg.Strategy == "joint") {
+	if len(sepaStocks) > 0 && runWantsSEPA(cfg) {
 		caps, cerr := h.uni.MarketCaps(ctx, sepaStocks)
 		if cerr != nil {
 			return nil, fmt.Errorf("hyperopt.run: loading market caps: %w", cerr)
@@ -217,7 +237,10 @@ func (h *Hyperopt) Run(ctx context.Context, job *jobs.Job, report jobs.ProgressF
 }
 
 // buildConfig validates the payload into a study.Config (sans dataset/universe).
-func (h *Hyperopt) buildConfig(_ context.Context, p hyperoptParams) (study.Config, error) {
+func (h *Hyperopt) buildConfig(ctx context.Context, p hyperoptParams) (study.Config, error) {
+	if studyKindOf(p) == study.KindComposition {
+		return h.buildCompositionConfig(ctx, p)
+	}
 	switch p.Strategy {
 	case "sepa", "sector_rotation", "pairs", "joint":
 	default:
@@ -289,6 +312,146 @@ func resolveStudyComposition(p hyperoptParams) (*composition.Composition, error)
 	return p.Composition, nil
 }
 
+// studyKindOf classifies a payload into a study.StudyKind. An explicit
+// "composition" kind (or a payload carrying a composition_id with no strategy)
+// selects the composition path; everything else is the legacy strategy path.
+func studyKindOf(p hyperoptParams) study.StudyKind {
+	if p.Kind == string(study.KindComposition) {
+		return study.KindComposition
+	}
+	return study.KindStrategy
+}
+
+// buildCompositionConfig validates a composition-study payload and resolves the
+// per-member FIXED signal params (decision 4) into a study.Config. The target
+// Composition (its ACTIVE members + per-member param reference) must be present in
+// the payload (the API resolves it from composition_id and enqueues it). The
+// BE-Space ranges default globally and are overridable from the payload (decision 2).
+func (h *Hyperopt) buildCompositionConfig(ctx context.Context, p hyperoptParams) (study.Config, error) {
+	if p.Composition == nil {
+		return study.Config{}, errors.New("hyperopt.run: composition study requires the resolved \"composition\" blueprint")
+	}
+	if err := p.Composition.Validate(); err != nil {
+		return study.Config{}, fmt.Errorf("hyperopt.run: invalid composition: %w", err)
+	}
+	start, err := calendar.ParseDate(p.Start)
+	if err != nil {
+		return study.Config{}, fmt.Errorf("hyperopt.run: invalid start %q (want YYYY-MM-DD): %w", p.Start, err)
+	}
+	end, err := calendar.ParseDate(p.End)
+	if err != nil {
+		return study.Config{}, fmt.Errorf("hyperopt.run: invalid end %q (want YYYY-MM-DD): %w", p.End, err)
+	}
+	if p.Resume && p.StudyTS == "" {
+		return study.Config{}, errors.New("hyperopt.run: resume requires \"study_ts\" (the study to resume)")
+	}
+	wf := true
+	if p.WalkForward != nil {
+		wf = *p.WalkForward
+	}
+	bal := 0.0
+	if p.StartingBalance != nil {
+		bal = *p.StartingBalance
+	}
+	gens := p.Generations
+	if gens == 0 {
+		gens = 5
+	}
+	// Resolve each ACTIVE member's FIXED signal params (decision 4: member active
+	// params; the SIGNAL params are not tuned here). NULL param_set_id => the
+	// strategy's active params (what the Loader resolves).
+	fixed, err := h.resolveMemberParams(ctx, *p.Composition)
+	if err != nil {
+		return study.Config{}, err
+	}
+	ranges := compositionRangesFromPayload(p.Ranges)
+	return study.Config{
+		Kind:              study.KindComposition,
+		Strategy:          string(study.KindComposition),
+		Composition:       p.Composition,
+		CompositionRanges: ranges,
+		FixedParams:       fixed,
+		Start:             start,
+		End:               end,
+		Population:        p.Population,
+		Generations:       gens,
+		Seed:              p.Seed,
+		Workers:           p.Workers,
+		WalkForward:       wf,
+		Folds:             p.Folds,
+		EmbargoDays:       p.EmbargoDays,
+		StartingBalance:   bal,
+		StudyTS:           p.StudyTS,
+		TrialTimeout:      trialTimeoutFromPayload(p.TrialTimeoutSec),
+		Resume:            p.Resume,
+	}, nil
+}
+
+// resolveMemberParams resolves the typed signal params for each ACTIVE member of
+// the composition into a strategyassembly.Params (decision 4). Inactive members
+// are skipped (they are not assembled). The Loader resolves each strategy's active
+// params (db active_params -> file -> baseline).
+func (h *Hyperopt) resolveMemberParams(ctx context.Context, comp composition.Composition) (strategyassembly.Params, error) {
+	var out strategyassembly.Params
+	for _, m := range comp.Members {
+		if !m.Active {
+			continue
+		}
+		switch m.StrategyID {
+		case composition.StrategySEPA:
+			sp, _, err := h.loader.SEPA(ctx)
+			if err != nil {
+				return out, fmt.Errorf("hyperopt.run: resolve sepa params: %w", err)
+			}
+			out.SEPA = sp
+		case composition.StrategySectorRotation:
+			sp, _, err := h.loader.SectorRotation(ctx)
+			if err != nil {
+				return out, fmt.Errorf("hyperopt.run: resolve sector params: %w", err)
+			}
+			out.Sector = sp
+		case composition.StrategyPairs:
+			sp, _, err := h.loader.Pairs(ctx)
+			if err != nil {
+				return out, fmt.Errorf("hyperopt.run: resolve pairs params: %w", err)
+			}
+			out.Pairs = sp
+		case composition.StrategyIntradayBreakout:
+			sp, _, err := h.loader.IntradayBreakout(ctx)
+			if err != nil {
+				return out, fmt.Errorf("hyperopt.run: resolve orb params: %w", err)
+			}
+			out.ORB = sp
+		}
+	}
+	return out, nil
+}
+
+// compositionRangesFromPayload overlays any payload range overrides onto the
+// global defaults (decision 2). A nil payload (or nil field) keeps the default.
+func compositionRangesFromPayload(r *hyperoptCompositionRanges) *study.CompositionRanges {
+	out := study.DefaultCompositionRanges()
+	if r == nil {
+		return &out
+	}
+	if r.Weight != nil {
+		out.WeightLow, out.WeightHigh = r.Weight[0], r.Weight[1]
+	}
+	if r.Cash != nil {
+		out.CashLow, out.CashHigh = r.Cash[0], r.Cash[1]
+	}
+	if r.SingleName != nil {
+		out.SingleLow, out.SingleHigh = r.SingleName[0], r.SingleName[1]
+	}
+	if r.Concentration != nil {
+		out.ConcLow, out.ConcHigh = r.Concentration[0], r.Concentration[1]
+	}
+	if r.DailyLoss != nil {
+		out.DailyLow, out.DailyHigh = r.DailyLoss[0], r.DailyLoss[1]
+	}
+	return &out
+}
+
 // trialTimeoutFromPayload maps the payload's *int seconds to a study.Config
 // TrialTimeout (§11): nil => 0 (Config defaults to 600s); 0 => a negative
 // sentinel (disabled); N>0 => N seconds.
@@ -331,12 +494,13 @@ func (h *Hyperopt) resolveUniverse(ctx context.Context, p hyperoptParams, strate
 		for _, pr := range sp.Pairs {
 			extra = append(extra, pr.LongLeg, pr.ShortLeg)
 		}
-	case "joint":
+	case "joint", string(study.KindComposition):
 		// The universe reflects the Composition's ACTIVE members: a SEPA member needs
 		// a stock universe, a sector member adds its ETFs, a pairs member adds its
-		// legs (docs/concept-alignment.md §3.3). Older queued payloads carry no
-		// Composition; they fall back to the canonical 3-strategy blend (all of SEPA +
-		// sector + pairs), matching the prior default-multi behaviour.
+		// legs (docs/concept-alignment.md §3.3). A composition study ALWAYS carries a
+		// resolved Composition; older queued joint payloads carry none and fall back to
+		// the canonical 3-strategy blend (all of SEPA + sector + pairs), matching the
+		// prior default-multi behaviour.
 		wantSEPA := jointMemberActive(p.Composition, composition.StrategySEPA)
 		wantSector := jointMemberActive(p.Composition, composition.StrategySectorRotation)
 		wantPairs := jointMemberActive(p.Composition, composition.StrategyPairs)
@@ -407,6 +571,17 @@ func (h *Hyperopt) studyRunsDir(p hyperoptParams) string {
 	return h.runsDir + "/hyperopt"
 }
 
+// runWantsSEPA reports whether a study's strategy set includes SEPA (the driver
+// for the look-ahead-safe market-cap load): the sepa/joint selector on the
+// strategy path, or an ACTIVE sepa member of the target Composition on the
+// composition path.
+func runWantsSEPA(cfg study.Config) bool {
+	if cfg.Kind == study.KindComposition {
+		return jointMemberActive(cfg.Composition, composition.StrategySEPA)
+	}
+	return cfg.Strategy == "sepa" || cfg.Strategy == "joint"
+}
+
 // jointMemberActive reports whether a joint study's Composition has the given
 // strategy as an ACTIVE member. A nil Composition (older queued payloads with no
 // enqueued blueprint) is treated as the canonical 3-strategy default-multi blend,
@@ -448,7 +623,13 @@ func parseHyperoptParams(payload json.RawMessage) (hyperoptParams, error) {
 	if err := dec.Decode(&p); err != nil {
 		return p, fmt.Errorf("hyperopt.run: invalid payload: %w", err)
 	}
-	if p.Strategy == "" {
+	// A composition study carries no strategy (the strategies come from the target's
+	// active members); it requires composition_id / composition instead.
+	if studyKindOf(p) == study.KindComposition {
+		if p.CompositionID == "" && p.Composition == nil {
+			return p, errors.New("hyperopt.run: composition study requires \"composition_id\"")
+		}
+	} else if p.Strategy == "" {
 		return p, errors.New("hyperopt.run: payload requires \"strategy\"")
 	}
 	if p.Start == "" || p.End == "" {

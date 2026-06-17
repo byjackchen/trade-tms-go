@@ -31,6 +31,7 @@ import (
 
 	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
+	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt/nsga2"
 )
@@ -57,7 +58,19 @@ type Sink interface {
 
 // Config parameterizes a study run (spec §6.1).
 type Config struct {
-	Strategy string // sepa|sector_rotation|pairs|joint
+	// Kind selects the study flavour: KindStrategy (default) tunes a strategy's
+	// SIGNAL params (the legacy single/joint space); KindComposition tunes a
+	// Composition's weights/cash/risk (the BE-Space, composition_space.go). The
+	// strategy-tuning path is unchanged when Kind is empty/strategy.
+	Kind StudyKind
+	// CompositionRanges are the per-launch BE-Space search ranges for a composition
+	// study (decision 2: global defaults overridable in the launch body). Zero value
+	// => DefaultCompositionRanges. Ignored for a strategy study.
+	CompositionRanges *CompositionRanges
+	// FixedParams are the resolved typed per-member signal params a COMPOSITION study
+	// runs with (decision 4: member active params, FIXED). Required for KindComposition.
+	FixedParams strategyassembly.Params
+	Strategy    string // sepa|sector_rotation|pairs|joint (strategy kind); "composition" for the composition kind
 	// Composition, when set, is the concrete blueprint a JOINT study targets: its
 	// ACTIVE members + weights + risk drive assembly (replacing the static
 	// default-multi seed). nil for a single-strategy tune or an older queued joint
@@ -132,11 +145,29 @@ type objectiveEvaluator interface {
 	Evaluate(ctx context.Context, dec Decoded) (EvalResult, error)
 }
 
+// studySpace is the seam between the two study KINDs: the strategy SpaceBuilder
+// and the composition CompositionSpace both supply the optimizer search space,
+// the candidate decoder, and the trial-artifact param projection. Branching the
+// coordinator on this interface keeps the strategy-tuning path untouched while
+// the composition path reuses every downstream mechanism (NSGA-II loop,
+// fold evaluation, progress accounting, artifacts).
+type studySpace interface {
+	Space() *nsga2.SearchSpace
+	Decode(cand nsga2.Params) (Decoded, error)
+	RecordedParams(cand nsga2.Params) map[string]any
+}
+
+// compile-time checks: both spaces satisfy studySpace.
+var (
+	_ studySpace = (*SpaceBuilder)(nil)
+	_ studySpace = (*CompositionSpace)(nil)
+)
+
 // Coordinator owns one study run: the optimizer, evaluator, sink, artifact dir
 // and live progress accounting.
 type Coordinator struct {
 	cfg     Config
-	space   *SpaceBuilder
+	space   studySpace
 	eval    objectiveEvaluator
 	opt     *nsga2.Optimizer
 	sink    Sink
@@ -192,31 +223,14 @@ func NewCoordinator(cfg Config, sink Sink) (*Coordinator, error) {
 	if err := validateConfig(&cfg); err != nil {
 		return nil, err
 	}
-	space, err := NewSpaceBuilder(cfg.Strategy)
-	if err != nil {
-		return nil, err
-	}
 	if cfg.Dataset == nil {
 		return nil, errors.New("hyperopt: coordinator needs a pre-loaded Dataset")
 	}
 
-	// Resolve baseline defaults per sub-strategy (for override merging).
-	defaults := make(map[string]map[string]any, len(space.order))
-	for _, sub := range space.order {
-		sp, err := hyperopt.LoadBaselineParams(sub)
-		if err != nil {
-			return nil, err
-		}
-		m, err := hyperopt.DefaultsDict(sp)
-		if err != nil {
-			return nil, fmt.Errorf("hyperopt: defaults for %s: %w", sub, err)
-		}
-		defaults[sub] = m
-	}
-
-	// Walk-forward folds, computed once (§3.2).
+	// Walk-forward folds, computed once (§3.2) — shared by both kinds.
 	var folds []hyperopt.EvalSegment
 	if cfg.WalkForward {
+		var err error
 		folds, err = hyperopt.ExpandingAnchored(
 			midnight(cfg.Start), midnight(cfg.End), cfg.Folds, cfg.EmbargoDays)
 		if err != nil {
@@ -224,20 +238,25 @@ func NewCoordinator(cfg Config, sink Sink) (*Coordinator, error) {
 		}
 	}
 
-	eval, err := NewEvaluator(EvaluatorConfig{
-		Strategy:        cfg.Strategy,
-		Composition:     cfg.Composition,
-		Dataset:         cfg.Dataset,
-		Start:           cfg.Start,
-		End:             cfg.End,
-		Folds:           folds,
-		Defaults:        defaults,
-		SEPAStocks:      cfg.SEPAStocks,
-		StartingBalance: cfg.StartingBalance,
-		SPYSymbol:       cfg.SPYSymbol,
-	})
-	if err != nil {
-		return nil, err
+	// Branch on study kind: build the search space + evaluator. The strategy path
+	// (default) is unchanged; the composition path uses the BE-Space + the
+	// composition eval mode (member signal params FIXED, decision 4).
+	var (
+		space studySpace
+		eval  objectiveEvaluator
+	)
+	if cfg.Kind == KindComposition {
+		sp, ev, err := buildCompositionSpace(cfg, folds)
+		if err != nil {
+			return nil, err
+		}
+		space, eval = sp, ev
+	} else {
+		sp, ev, err := buildStrategySpace(cfg, folds)
+		if err != nil {
+			return nil, err
+		}
+		space, eval = sp, ev
 	}
 
 	opt, err := nsga2.New(nsga2.Config{
@@ -274,6 +293,79 @@ func NewCoordinator(cfg Config, sink Sink) (*Coordinator, error) {
 		pid:              os.Getpid(),
 		trialTimeoutSecs: timeoutSecs,
 	}, nil
+}
+
+// buildStrategySpace builds the legacy strategy search space + evaluator (the
+// unchanged single/joint signal-param tuning path).
+func buildStrategySpace(cfg Config, folds []hyperopt.EvalSegment) (*SpaceBuilder, *Evaluator, error) {
+	space, err := NewSpaceBuilder(cfg.Strategy)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Resolve baseline defaults per sub-strategy (for override merging).
+	defaults := make(map[string]map[string]any, len(space.order))
+	for _, sub := range space.order {
+		sp, err := hyperopt.LoadBaselineParams(sub)
+		if err != nil {
+			return nil, nil, err
+		}
+		m, err := hyperopt.DefaultsDict(sp)
+		if err != nil {
+			return nil, nil, fmt.Errorf("hyperopt: defaults for %s: %w", sub, err)
+		}
+		defaults[sub] = m
+	}
+	eval, err := NewEvaluator(EvaluatorConfig{
+		Strategy:        cfg.Strategy,
+		Composition:     cfg.Composition,
+		Dataset:         cfg.Dataset,
+		Start:           cfg.Start,
+		End:             cfg.End,
+		Folds:           folds,
+		Defaults:        defaults,
+		SEPAStocks:      cfg.SEPAStocks,
+		StartingBalance: cfg.StartingBalance,
+		SPYSymbol:       cfg.SPYSymbol,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return space, eval, nil
+}
+
+// buildCompositionSpace builds the BE-Space + the composition eval mode: the
+// search space spans the target's active-member weights + cash + composite risk
+// (decision 1a, simplex-normalized at decode), and the evaluator runs the SAME
+// folds/engine/metrics as the strategy path with member SIGNAL params FIXED at the
+// resolved active params (decision 4, cfg.FixedParams).
+func buildCompositionSpace(cfg Config, folds []hyperopt.EvalSegment) (*CompositionSpace, *Evaluator, error) {
+	if cfg.Composition == nil {
+		return nil, nil, errors.New("hyperopt: composition study needs a target Composition")
+	}
+	ranges := DefaultCompositionRanges()
+	if cfg.CompositionRanges != nil {
+		ranges = *cfg.CompositionRanges
+	}
+	space, err := NewCompositionSpace(*cfg.Composition, ranges)
+	if err != nil {
+		return nil, nil, err
+	}
+	eval, err := NewEvaluator(EvaluatorConfig{
+		Strategy:        cfg.Strategy,
+		Dataset:         cfg.Dataset,
+		Start:           cfg.Start,
+		End:             cfg.End,
+		Folds:           folds,
+		SEPAStocks:      cfg.SEPAStocks,
+		StartingBalance: cfg.StartingBalance,
+		SPYSymbol:       cfg.SPYSymbol,
+		CompositionKind: true,
+		FixedParams:     cfg.FixedParams,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return space, eval, nil
 }
 
 // StudyTS returns the study timestamp / directory name.

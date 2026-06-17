@@ -1,6 +1,6 @@
 "use client";
 
-import { FlaskConical, Pencil, Trash2, Plus } from "lucide-react";
+import { FlaskConical, Pencil, Trash2, Plus, Sparkles } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -31,20 +31,23 @@ function activeWeight(composition: Composition): number {
 
 /**
  * The Compositions list (docs/concept-alignment.md §3.4 ③). Each Composition is a card with
- * its members + weights + cash + risk caps and the three per-Composition actions:
- * Backtest, Edit, Delete. A Composition COMPOSES already-tuned strategies and is
- * VALIDATED by Backtest — it never re-tunes params (per-strategy Hyperopt in the
- * Strategies module owns that). Backtest/Edit are delegated to the page (which
- * owns the dialogs + inline panels); Delete is handled inline.
+ * its members + weights + cash + risk caps and the per-Composition actions:
+ * Backtest, Hyperopt, Edit, Delete. A Composition COMPOSES already-tuned strategies:
+ * Backtest VALIDATES the blueprint, while Composition Hyperopt tunes the blueprint's
+ * WEIGHTS & RISK (member strategy params stay FIXED — per-strategy Hyperopt in the
+ * Strategies module owns SIGNAL params). Backtest/Hyperopt/Edit are delegated to the
+ * page (which owns the dialogs + inline panels); Delete is handled inline.
  */
 export function CompositionsList({
   onNew,
   onEdit,
   onBacktest,
+  onHyperopt,
 }: {
   onNew: () => void;
   onEdit: (composition: Composition) => void;
   onBacktest: (composition: Composition) => void;
+  onHyperopt: (composition: Composition) => void;
 }) {
   const { data, isLoading, error, refetch } = useCompositions();
   const del = useDeleteComposition();
@@ -193,6 +196,15 @@ export function CompositionsList({
                     >
                       <FlaskConical />
                       Backtest
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onHyperopt(m)}
+                      data-testid={`composition-hyperopt-${m.id}`}
+                    >
+                      <Sparkles />
+                      Hyperopt
                     </Button>
                     <Button
                       size="sm"

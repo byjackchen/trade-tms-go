@@ -27,10 +27,14 @@ export function TunePanel({ strategy }: { strategy: HyperoptStrategy }) {
     <div className="space-y-4" data-testid="tune-panel" data-strategy={strategy}>
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-medium">Hyperopt</h3>
+          <h3 className="text-sm font-medium">
+            Strategy Hyperopt — signal params
+          </h3>
           <p className="text-xs text-muted-foreground">
-            Seeded NSGA-II walk-forward studies for this strategy. Promote a
-            trial to write its params back as the strategy&apos;s active set.
+            Seeded NSGA-II walk-forward studies that tune this strategy&apos;s
+            SIGNAL params. Promote a trial to write its params back as the
+            strategy&apos;s active set. (Composition weights &amp; risk are tuned
+            separately in the Compositions module&apos;s Composition Hyperopt.)
           </p>
         </div>
         <div className="flex items-center gap-2">

@@ -45,17 +45,33 @@ func (s *Store) UpsertStudy(ctx context.Context, cfg StudyConfig, p Progress) er
 	if err != nil {
 		return err
 	}
+	kind := cfg.Kind
+	if kind == "" {
+		kind = KindStrategy
+	}
+	var compID *string
+	if cfg.CompositionID != "" {
+		compID = &cfg.CompositionID
+	}
+	searchCfg, err := searchConfigJSON(cfg.SearchConfig)
+	if err != nil {
+		return err
+	}
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO tms.hyperopt_studies
-		    (study_ts, study_name, strategy, start_date, end_date,
+		    (study_ts, study_name, strategy, kind, composition_id, search_config,
+		     start_date, end_date,
 		     directions, objectives, seed, n_trials, workers,
 		     walk_forward, folds, embargo_days, dump_trials, trial_timeout_sec,
 		     status, completed_trials, failed_trials, running_trials,
 		     started_at, last_heartbeat_at, coordinator_pid, current_best, last_error)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
 		ON CONFLICT (study_ts) DO UPDATE SET
 		    study_name = EXCLUDED.study_name,
 		    strategy = EXCLUDED.strategy,
+		    kind = EXCLUDED.kind,
+		    composition_id = EXCLUDED.composition_id,
+		    search_config = EXCLUDED.search_config,
 		    start_date = EXCLUDED.start_date,
 		    end_date = EXCLUDED.end_date,
 		    directions = EXCLUDED.directions,
@@ -77,7 +93,8 @@ func (s *Store) UpsertStudy(ctx context.Context, cfg StudyConfig, p Progress) er
 		    coordinator_pid = EXCLUDED.coordinator_pid,
 		    current_best = EXCLUDED.current_best,
 		    last_error = EXCLUDED.last_error`,
-		cfg.StudyTS(), cfg.StudyName, cfg.Strategy, cfg.Start, cfg.End,
+		cfg.StudyTS(), cfg.StudyName, cfg.Strategy, string(kind), compID, searchCfg,
+		cfg.Start, cfg.End,
 		cfg.Directions, cfg.Objectives, cfg.Seed, cfg.NTrials, cfg.Workers,
 		cfg.WalkForward.Enabled, cfg.WalkForward.Folds, cfg.WalkForward.EmbargoDays, true, cfg.TrialTimeoutSec,
 		string(p.Status), p.CompletedTrials, p.FailedTrials, p.RunningTrials,
@@ -228,7 +245,8 @@ func (s *Store) List(ctx context.Context, strategy string, limit int) ([]StudyRo
 		limit = 100
 	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT study_ts, study_name, strategy, start_date::text, end_date::text,
+		SELECT study_ts, study_name, strategy, kind, composition_id,
+		       start_date::text, end_date::text,
 		       directions, objectives, seed, n_trials, workers,
 		       walk_forward, folds, embargo_days, created_at, updated_at,
 		       status, completed_trials, failed_trials, running_trials,
@@ -259,7 +277,8 @@ func (s *Store) List(ctx context.Context, strategy string, limit int) ([]StudyRo
 // Get returns one study by ts, or ErrStudyNotFound.
 func (s *Store) Get(ctx context.Context, studyTS string) (*StudyRow, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT study_ts, study_name, strategy, start_date::text, end_date::text,
+		SELECT study_ts, study_name, strategy, kind, composition_id,
+		       start_date::text, end_date::text,
 		       directions, objectives, seed, n_trials, workers,
 		       walk_forward, folds, embargo_days, created_at, updated_at,
 		       status, completed_trials, failed_trials, running_trials,
@@ -363,14 +382,16 @@ type scannable interface {
 
 func scanStudyRow(row scannable) (StudyRow, error) {
 	var (
-		r     StudyRow
-		wfEn  bool
-		wfFld int
-		wfEmb int
-		cbRaw []byte
+		r      StudyRow
+		kind   string
+		compID *string
+		wfEn   bool
+		wfFld  int
+		wfEmb  int
+		cbRaw  []byte
 	)
 	err := row.Scan(
-		&r.TS, &r.StudyName, &r.Strategy, &r.Start, &r.End,
+		&r.TS, &r.StudyName, &r.Strategy, &kind, &compID, &r.Start, &r.End,
 		&r.Directions, &r.Objectives, &r.Seed, &r.NTrials, &r.Workers,
 		&wfEn, &wfFld, &wfEmb, &r.CreatedAt, &r.UpdatedAt,
 		&r.Status, &r.CompletedTrials, &r.FailedTrials, &r.RunningTrials,
@@ -380,6 +401,13 @@ func scanStudyRow(row scannable) (StudyRow, error) {
 		return r, err
 	}
 	r.Version = 1
+	r.Kind = StudyKind(kind)
+	if r.Kind == "" {
+		r.Kind = KindStrategy
+	}
+	if compID != nil {
+		r.CompositionID = *compID
+	}
 	r.WalkForward = WalkForward{Enabled: wfEn, Folds: wfFld, EmbargoDays: wfEmb}
 	if len(cbRaw) > 0 && string(cbRaw) != "null" {
 		var cb CurrentBest
@@ -388,6 +416,25 @@ func scanStudyRow(row scannable) (StudyRow, error) {
 		}
 	}
 	return r, nil
+}
+
+// searchConfigJSON marshals the per-launch composition search ranges (or nil) to
+// JSONB bytes / nil. Strategy studies pass nil (search_config stays NULL).
+func searchConfigJSON(r *CompositionRanges) ([]byte, error) {
+	if r == nil {
+		return nil, nil
+	}
+	b, err := json.Marshal(map[string]any{
+		"weight":        []float64{r.WeightLow, r.WeightHigh},
+		"cash":          []float64{r.CashLow, r.CashHigh},
+		"single_name":   []float64{r.SingleLow, r.SingleHigh},
+		"concentration": []float64{r.ConcLow, r.ConcHigh},
+		"daily_loss":    []float64{r.DailyLow, r.DailyHigh},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("hyperopt: marshal search_config: %w", err)
+	}
+	return b, nil
 }
 
 // currentBestJSON marshals a CurrentBest (or nil) to JSONB bytes / nil.

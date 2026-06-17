@@ -21,6 +21,7 @@ package study
 import (
 	"fmt"
 
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt/nsga2"
 )
@@ -110,6 +111,34 @@ func (b *SpaceBuilder) Space() *nsga2.SearchSpace { return b.space }
 // triple). The slice is a copy; callers may not mutate the builder's state.
 func (b *SpaceBuilder) Order() []string { return append([]string(nil), b.order...) }
 
+// RecordedParams renders the optimizer's decoded candidate into the trial
+// artifact params map: for a single strategy, the flat unprefixed {param: value};
+// for joint, the nested {sub: {param: value}}. Values are the OPTUNA-recorded
+// (pre-clamp) values — int params as whole float64s (the Optuna shape). This is
+// the studySpace surface the coordinator projects each trial through.
+func (b *SpaceBuilder) RecordedParams(cand nsga2.Params) map[string]any {
+	if len(b.order) == 1 {
+		sub := b.order[0]
+		out := make(map[string]any, len(cand))
+		for full, v := range cand {
+			out[stripPrefix(full, sub)] = v
+		}
+		return out
+	}
+	nested := make(map[string]any, len(b.order))
+	for _, sub := range b.order {
+		nested[sub] = map[string]any{}
+	}
+	for full, v := range cand {
+		sub := subStrategyOf(full, b.order)
+		if sub == "" {
+			continue
+		}
+		nested[sub].(map[string]any)[stripPrefix(full, sub)] = v
+	}
+	return nested
+}
+
 // echoTrial is a TrialLike whose Suggest* return the optimizer's already-decoded
 // values (looked up by prefixed name). It is the bridge that lets SuggestWith
 // apply the file-order constraint clamps over the genome's values without
@@ -139,6 +168,12 @@ type Decoded struct {
 	// Overrides maps each sub-strategy to its CLAMPED unprefixed param map (the
 	// values the backtest runs with).
 	Overrides map[string]map[string]float64
+	// Composition, when non-nil, is the proposed blueprint a COMPOSITION-tuning
+	// study decoded (the BE-Space path, composition_space.go): the target's active
+	// members with normalized weights + cash + risk substituted in. The strategy
+	// SIGNAL params are FIXED (decision 4), so RecordedParams/Overrides are unused
+	// on this path. nil for a strategy study.
+	Composition *composition.Composition
 }
 
 // Decode turns an nsga2 candidate (decoded Params: name -> any, ints as int64,

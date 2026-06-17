@@ -686,6 +686,131 @@ export type PromoteResponse = {
   promoted: PromotedEntry[];
 };
 
+// ---- Composition Hyperopt (weights & risk) ----
+//
+// DISTINCT from the per-strategy Hyperopt above. A STRATEGY Hyperopt tunes a
+// strategy's SIGNAL params (CreateStudyRequest). A COMPOSITION Hyperopt holds every
+// member's strategy params FIXED (at the member's active param_set) and instead
+// searches the composition's WEIGHTS + cash + the three portfolio-level risk caps,
+// reusing the SAME NSGA-II + Sharpe/Calmar + walk-forward machinery
+// (docs/concept-alignment.md §0, §1.2; LOCKED DECISIONS 1–6).
+//
+// POST /api/v1/compositions/{id}/hyperopt. The result is an ordinary hyperopt
+// study (StudyRow / TrialRow), so the study/trials/Pareto views are SHARED with the
+// strategy flow — a composition trial's `params` carry the searched weight/cash/risk
+// dims instead of signal params. Promotion is in-place (see CompositionPromote*).
+
+/** One editable [low, high] search range for a composition-hyperopt dimension. */
+export type HyperoptRange = {
+  low: number;
+  high: number;
+};
+
+/**
+ * The composition-hyperopt search ranges, on the wire as FLAT `[low, high]` tuples
+ * (matching the server's compositionHyperoptRequest). There is ONE shared raw weight
+ * range applied to EVERY active member's raw weight dim (the server builds one weight
+ * dim per active member from this single range), plus the raw cash range and the
+ * three risk-cap ranges. Weights are NORMALIZED to a simplex server-side (LOCKED
+ * DECISION 1a):
+ *   weight_i = raw_i / (Σ raw_weights + raw_cash),  cash = raw_cash / (Σ …)
+ * so Σ(weights) + cash = 1 is always feasible. Each is a GLOBAL DEFAULT
+ * (DEFAULT_COMPOSITION_HYPEROPT_RANGES) but OVERRIDABLE per launch (LOCKED DECISION 2);
+ * omit a key to keep its default.
+ */
+export type CompositionHyperoptRanges = {
+  /** Shared raw weight range, applied to every active member's weight dim. */
+  weight?: [number, number];
+  /** Raw cash range. */
+  cash?: [number, number];
+  single_name?: [number, number];
+  concentration?: [number, number];
+  daily_loss?: [number, number];
+};
+
+/**
+ * The LOCKED global default ranges for a composition hyperopt (LOCKED DECISION 6).
+ * `member_weight` / `cash` seed the shared raw weight range + the raw cash dim; the
+ * three caps seed the risk search. These prefill the launch dialog and are editable
+ * before submit.
+ */
+export const DEFAULT_COMPOSITION_HYPEROPT_RANGES = {
+  member_weight: { low: 0.05, high: 1.0 } as HyperoptRange,
+  cash: { low: 0.0, high: 0.3 } as HyperoptRange,
+  single_name_pct: { low: 0.1, high: 0.6 } as HyperoptRange,
+  concentration_pct: { low: 0.2, high: 0.6 } as HyperoptRange,
+  daily_loss_halt_pct: { low: 0.02, high: 0.15 } as HyperoptRange,
+} as const;
+
+/**
+ * POST /api/v1/compositions/{id}/hyperopt body. The composition id is in the path;
+ * each member's strategy params stay FIXED at the member's active param_set
+ * (LOCKED DECISION 4) — there is NO param picker. The range overrides are FLAT
+ * top-level fields (`weight`/`cash`/`single_name`/`concentration`/`daily_loss`),
+ * each a `[low, high]` pair, matching the server's strict-decoded request struct.
+ * Omit a field to keep its default.
+ */
+export type CompositionHyperoptRequest = {
+  start: string;
+  end: string;
+  population?: number;
+  generations?: number;
+  seed?: number;
+  workers?: number;
+  walk_forward?: boolean;
+  folds?: number;
+  embargo_days?: number;
+  starting_balance?: number;
+  /** Overridable search ranges, flat `[low, high]` pairs (LOCKED DECISION 2). */
+  weight?: [number, number];
+  cash?: [number, number];
+  single_name?: [number, number];
+  concentration?: [number, number];
+  daily_loss?: [number, number];
+  actor?: string;
+  dedupe_key?: string;
+  max_attempts?: number;
+};
+
+/** POST /api/v1/compositions/{id}/hyperopt response (an enqueued hyperopt job). */
+export type CompositionHyperoptResponse = {
+  job: Job;
+};
+
+/**
+ * POST /api/v1/compositions/{id}/promote body. Promotes a completed composition-
+ * hyperopt trial IN PLACE (LOCKED DECISION 3): it OVERWRITES the composition's
+ * risk_* caps + each member's weight + cash_pct from the trial. It does NOT touch
+ * any param_set (member strategy params stay fixed).
+ */
+export type CompositionPromoteRequest = {
+  study_ts: string;
+  trial_id: number;
+  actor?: string;
+};
+
+/**
+ * POST /api/v1/compositions/{id}/hyperopt/{study_ts}/promote response. The
+ * post-promote allocation is echoed back under a `promoted` envelope for the
+ * confirmation view. `weights` is a map (strategy_id → normalized weight); the three
+ * risk caps + cash are flat keys (NOT nested under a `risk` object). Mirrors the
+ * server handler (internal/api/handlers_compositions_hyperopt.go).
+ */
+export type CompositionPromoteResponse = {
+  composition_id: string;
+  study_ts: string;
+  trial_id: number;
+  promoted: {
+    version: number;
+    cash_pct: number;
+    single_name_pct: number;
+    concentration_pct: number;
+    daily_loss_halt_pct: number;
+    /** strategy_id → normalized weight. */
+    weights: Record<string, number>;
+  };
+};
+
 // ---- Live (P5 cockpit) ----
 //
 // The live read surface (docs/api.md §Live). All reads come from PostgreSQL

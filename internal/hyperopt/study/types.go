@@ -32,6 +32,20 @@ const (
 	TrialFail     TrialState = "FAIL"
 )
 
+// StudyKind distinguishes a single/joint strategy-param tune from a
+// Composition-blueprint tune (docs/concept-alignment.md §1.2). It is persisted to
+// tms.hyperopt_studies.kind (migration 000018). The zero value KindStrategy keeps
+// every existing study's meaning unchanged.
+type StudyKind string
+
+const (
+	// KindStrategy tunes a strategy's SIGNAL params (legacy single/joint space).
+	KindStrategy StudyKind = "strategy"
+	// KindComposition tunes a Composition's member weights / cash / composite risk
+	// (the BE-Space) with member signal params FIXED (decision 4).
+	KindComposition StudyKind = "composition"
+)
+
 // WalkForward is the study.json walk_forward block (§7.2).
 type WalkForward struct {
 	Enabled     bool `json:"enabled"`
@@ -43,10 +57,20 @@ type WalkForward struct {
 // rewritten at every run_study start; CreatedAt is preserved on resume,
 // UpdatedAt refreshed.
 type StudyConfig struct {
-	Version     int         `json:"version"`
-	StudyName   string      `json:"study_name"`
-	Strategy    string      `json:"strategy"`
-	Start       string      `json:"start"`
+	Version   int    `json:"version"`
+	StudyName string `json:"study_name"`
+	Strategy  string `json:"strategy"`
+	// Kind is the study flavour (strategy|composition); persisted to
+	// hyperopt_studies.kind. Empty (legacy rows) reads back as KindStrategy.
+	Kind StudyKind `json:"kind,omitempty"`
+	// CompositionID is the tuned Composition's id for a KindComposition study
+	// (persisted to hyperopt_studies.composition_id); empty for strategy studies.
+	CompositionID string `json:"composition_id,omitempty"`
+	// SearchConfig is the per-launch BE-Space ranges a composition study ran with
+	// (persisted to hyperopt_studies.search_config); nil for strategy studies. It is
+	// not part of the legacy study.json schema, so json:"-" keeps the artifact clean.
+	SearchConfig *CompositionRanges `json:"-"`
+	Start        string             `json:"start"`
 	End         string      `json:"end"`
 	Directions  []string    `json:"directions"`
 	Objectives  []string    `json:"objectives"`

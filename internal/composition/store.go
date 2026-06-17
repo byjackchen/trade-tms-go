@@ -142,6 +142,63 @@ func (s *Store) Update(ctx context.Context, m Composition) error {
 	return tx.Commit(ctx)
 }
 
+// RiskWeights is the in-place promotion payload from a composition hyperopt
+// trial: the composite risk caps + cash reserve, and the per-active-member
+// normalized weight (strategy_id -> weight). It is the decoded, simplex-normalized
+// blueprint a chosen trial produced (docs/concept-alignment.md §1.2, decision 3).
+type RiskWeights struct {
+	CashPct float64
+	Risk    Risk
+	Weights map[string]float64 // strategy_id -> normalized weight (active members only)
+}
+
+// UpdateRiskAndWeights OVERWRITES a composition's risk_* + cash_pct columns and
+// each ACTIVE member's weight IN PLACE from a promoted trial (decision 3). It does
+// NOT touch param_sets, member membership, or inactive members' weights. The
+// member set is matched by strategy_id; a weight for an unknown/inactive member is
+// an error (the trial's active set must match the composition's). Runs in one
+// transaction; bumps version. Returns ErrNotFound if id is absent.
+func (s *Store) UpdateRiskAndWeights(ctx context.Context, id string, rw RiskWeights) error {
+	cur, err := s.Get(ctx, id)
+	if err != nil {
+		return err // ErrNotFound or a real error
+	}
+	// Build the proposed Composition: overwrite risk + cash, substitute the active
+	// members' weights, leave inactive members and member identity untouched. This
+	// reuses Update's validation (Σ active weights + cash <= 1, ranges) and its
+	// transactional delete-then-insert of the member set.
+	next := *cur
+	next.CashPct = rw.CashPct
+	next.Risk = Risk{
+		SingleNamePct:    rw.Risk.SingleNamePct,
+		ConcentrationPct: rw.Risk.ConcentrationPct,
+		DailyLossHaltPct: rw.Risk.DailyLossHaltPct,
+		MaxGrossPct:      cur.Risk.MaxGrossPct,
+		MaxPositions:     cur.Risk.MaxPositions,
+	}
+	next.Version = cur.Version + 1
+
+	seen := make(map[string]bool, len(rw.Weights))
+	for i := range next.Members {
+		m := &next.Members[i]
+		if !m.Active {
+			continue
+		}
+		w, ok := rw.Weights[m.StrategyID]
+		if !ok {
+			return fmt.Errorf("composition %q: promote missing weight for active member %q", id, m.StrategyID)
+		}
+		m.Weight = w
+		seen[m.StrategyID] = true
+	}
+	for sid := range rw.Weights {
+		if !seen[sid] {
+			return fmt.Errorf("composition %q: promote weight for unknown/inactive member %q", id, sid)
+		}
+	}
+	return s.Update(ctx, next)
+}
+
 // Delete removes a Composition; members cascade via the FK. It returns ErrNotFound
 // if id is absent.
 func (s *Store) Delete(ctx context.Context, id string) error {

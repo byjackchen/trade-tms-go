@@ -1,9 +1,11 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { Zap } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { FlaskConical, Zap } from "lucide-react";
 import { PageHeader } from "@/components/shell/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useSelectedAccount } from "@/components/portfolio/account-selector";
 import { StrategyLiveCard } from "@/components/strategies/strategy-live-card";
@@ -13,7 +15,22 @@ import {
   type WatchlistStrategy,
 } from "@/components/strategies/strategy-watchlist";
 import { TunePanel } from "@/components/strategies/tune-panel";
+import { NewBacktestDialog } from "@/components/compositions/new-backtest-dialog";
 import type { HyperoptStrategy } from "@/lib/api/types";
+
+/**
+ * Each strategy's single-member seed Composition (docs/concept-alignment.md seeds;
+ * LOCKED DECISION 5). RE-ADDING the per-strategy Backtest = backtesting this
+ * single-member Composition via POST /backtests {composition_id} — there is no
+ * standalone "backtest a strategy" path; a strategy backtest is always its
+ * single-member Composition.
+ */
+const SINGLE_MEMBER_COMPOSITION: Record<string, string> = {
+  sepa: "sepa-only",
+  sector_rotation: "sector-only",
+  pairs: "pairs-only",
+  intraday_breakout: "orb-only",
+};
 
 /**
  * One per-strategy tab.
@@ -74,8 +91,14 @@ function StrategiesInner() {
 }
 
 function StrategiesBody({ accountId }: { accountId: string | undefined }) {
+  const router = useRouter();
   const [tabId, setTabId] = useState<string>(FIRST_TAB.id);
   const tab = TABS.find((t) => t.id === tabId) ?? FIRST_TAB;
+  // RE-ADDED Backtest (LOCKED DECISION 5): backtest this strategy's single-member
+  // Composition. Results open in the Compositions module's inline panel via the
+  // ?backtest= deep-link the NewBacktestDialog's onView routes to.
+  const [backtestOpen, setBacktestOpen] = useState(false);
+  const backtestCompositionId = SINGLE_MEMBER_COMPOSITION[tab.id];
 
   return (
     <>
@@ -122,9 +145,24 @@ function StrategiesBody({ accountId }: { accountId: string | undefined }) {
       >
         {/* DETAILS — every tab, ORB included. */}
         <section data-testid="strategy-section-details">
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Details
-          </h2>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Details
+            </h2>
+            {/* RE-ADDED per-strategy Backtest (LOCKED DECISION 5): backtests this
+                strategy's single-member Composition. Hyperopt(signal) stays below. */}
+            {backtestCompositionId ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setBacktestOpen(true)}
+                data-testid={`strategy-backtest-${tab.id}`}
+              >
+                <FlaskConical />
+                Backtest
+              </Button>
+            ) : null}
+          </div>
           <StrategyDetails strategyId={tab.id} />
         </section>
 
@@ -170,6 +208,20 @@ function StrategiesBody({ accountId }: { accountId: string | undefined }) {
           </>
         )}
       </main>
+
+      {/* RE-ADDED Backtest: prefilled to this strategy's single-member Composition.
+          On completion we route to the Compositions module's inline backtest panel. */}
+      {backtestOpen && backtestCompositionId ? (
+        <NewBacktestDialog
+          open
+          onClose={() => setBacktestOpen(false)}
+          prefillCompositionId={backtestCompositionId}
+          onView={(id) => {
+            setBacktestOpen(false);
+            router.push(`/compositions?backtest=${id}`);
+          }}
+        />
+      ) : null}
     </>
   );
 }

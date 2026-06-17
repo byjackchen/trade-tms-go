@@ -58,6 +58,10 @@ type stubPromoter struct {
 	err      error
 	lastIn   study.PromoteInput
 	notFound bool
+
+	compOut   *study.PromotedComposition
+	compErr   error
+	lastCompIn study.PromoteCompositionInput
 }
 
 func (s *stubPromoter) Promote(_ context.Context, in study.PromoteInput) ([]study.PromotedStrategy, error) {
@@ -69,6 +73,17 @@ func (s *stubPromoter) Promote(_ context.Context, in study.PromoteInput) ([]stud
 		return nil, s.err
 	}
 	return s.out, nil
+}
+
+func (s *stubPromoter) PromoteComposition(_ context.Context, in study.PromoteCompositionInput) (*study.PromotedComposition, error) {
+	s.lastCompIn = in
+	if s.notFound {
+		return nil, study.ErrStudyNotFound
+	}
+	if s.compErr != nil {
+		return nil, s.compErr
+	}
+	return s.compOut, nil
 }
 
 func sampleStudyRow(ts string) study.StudyRow {

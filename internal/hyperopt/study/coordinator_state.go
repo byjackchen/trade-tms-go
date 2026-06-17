@@ -14,6 +14,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt/nsga2"
 	"github.com/byjackchen/trade-tms-go/internal/metrics"
 )
@@ -35,10 +36,28 @@ const (
 
 // validateConfig validates and defaults a Config in place (§6.1).
 func validateConfig(cfg *Config) error {
-	switch cfg.Strategy {
-	case "sepa", "sector_rotation", "pairs", "joint":
+	if cfg.Kind == "" {
+		cfg.Kind = KindStrategy
+	}
+	switch cfg.Kind {
+	case KindStrategy:
+		switch cfg.Strategy {
+		case "sepa", "sector_rotation", "pairs", "joint":
+		default:
+			return fmt.Errorf("unknown strategy: %s", cfg.Strategy)
+		}
+	case KindComposition:
+		// The composition path samples a blueprint, not a strategy. Strategy is a
+		// fixed marker token ("composition") used only for the study name/row; the
+		// concrete strategies come from the target Composition's active members.
+		if cfg.Strategy == "" {
+			cfg.Strategy = string(KindComposition)
+		}
+		if cfg.Composition == nil {
+			return fmt.Errorf("hyperopt: composition study needs a target Composition")
+		}
 	default:
-		return fmt.Errorf("unknown strategy: %s", cfg.Strategy)
+		return fmt.Errorf("hyperopt: unknown study kind %q", cfg.Kind)
 	}
 	if cfg.Start.IsZero() || cfg.End.IsZero() {
 		return fmt.Errorf("hyperopt: study needs start and end dates")
@@ -81,11 +100,31 @@ func validateConfig(cfg *Config) error {
 	if cfg.SPYSymbol == "" {
 		cfg.SPYSymbol = "SPY"
 	}
-	// sepa / joint need a stock universe to trade.
-	if (cfg.Strategy == "sepa" || cfg.Strategy == "joint") && len(cfg.SEPAStocks) == 0 {
-		return fmt.Errorf("hyperopt: strategy %q requires SEPAStocks (the stock universe)", cfg.Strategy)
+	// Any study whose strategy set includes SEPA needs a stock universe to trade:
+	// sepa/joint on the strategy path, or an ACTIVE sepa member on the composition
+	// path.
+	if configWantsSEPA(cfg) && len(cfg.SEPAStocks) == 0 {
+		return fmt.Errorf("hyperopt: a study trading SEPA requires SEPAStocks (the stock universe)")
 	}
 	return nil
+}
+
+// configWantsSEPA reports whether a study's strategy set includes SEPA: the
+// sepa/joint selector on the strategy path, or an ACTIVE sepa member of the target
+// Composition on the composition path.
+func configWantsSEPA(cfg *Config) bool {
+	if cfg.Kind == KindComposition {
+		if cfg.Composition == nil {
+			return false
+		}
+		for _, m := range cfg.Composition.Members {
+			if m.Active && m.StrategyID == composition.StrategySEPA {
+				return true
+			}
+		}
+		return false
+	}
+	return cfg.Strategy == "sepa" || cfg.Strategy == "joint"
 }
 
 // totalTrials is population * generations.
@@ -100,12 +139,29 @@ func (c *Coordinator) studyConfig() StudyConfig {
 		t := c.trialTimeoutSecs
 		timeout = &t
 	}
+	kind := c.cfg.Kind
+	if kind == "" {
+		kind = KindStrategy
+	}
+	var compID string
+	var ranges *CompositionRanges
+	if kind == KindComposition && c.cfg.Composition != nil {
+		compID = c.cfg.Composition.ID
+		r := DefaultCompositionRanges()
+		if c.cfg.CompositionRanges != nil {
+			r = *c.cfg.CompositionRanges
+		}
+		ranges = &r
+	}
 	return StudyConfig{
-		Version:    1,
-		StudyName:  c.name,
-		Strategy:   c.cfg.Strategy,
-		Start:      c.cfg.Start.String(),
-		End:        c.cfg.End.String(),
+		Version:       1,
+		StudyName:     c.name,
+		Strategy:      c.cfg.Strategy,
+		Kind:          kind,
+		CompositionID: compID,
+		SearchConfig:  ranges,
+		Start:         c.cfg.Start.String(),
+		End:           c.cfg.End.String(),
 		Directions: []string{"maximize", "maximize"},
 		Objectives: []string{"sharpe", "calmar"},
 		Seed:       c.cfg.Seed,
@@ -225,30 +281,11 @@ func (c *Coordinator) trialArtifact(out trialOutcome) TrialArtifact {
 }
 
 // recordedParams renders the optimizer's decoded candidate into the artifact
-// params map: for a single strategy, the flat unprefixed {param: value}; for
-// joint, the nested {sub: {param: value}}. Values are the OPTUNA-recorded
-// (pre-clamp) values — int params as whole float64s (the Optuna shape).
+// params map. The projection is kind-specific (strategy: flat/nested signal
+// params; composition: the normalized blueprint values) and owned by the
+// studySpace.
 func (c *Coordinator) recordedParams(cand nsga2.Params) map[string]any {
-	if c.cfg.Strategy != "joint" {
-		out := make(map[string]any, len(cand))
-		for full, v := range cand {
-			name := stripPrefix(full, c.cfg.Strategy)
-			out[name] = v
-		}
-		return out
-	}
-	nested := make(map[string]any, len(c.space.order))
-	for _, sub := range c.space.order {
-		nested[sub] = map[string]any{}
-	}
-	for full, v := range cand {
-		sub := subStrategyOf(full, c.space.order)
-		if sub == "" {
-			continue
-		}
-		nested[sub].(map[string]any)[stripPrefix(full, sub)] = v
-	}
-	return nested
+	return c.space.RecordedParams(cand)
 }
 
 func stripPrefix(full, sub string) string {
@@ -283,6 +320,13 @@ func (c *Coordinator) paretoSolutions() []nsga2.Solution {
 // baseline with that trial's pre-clamp params. An empty Pareto front silently
 // skips (no best_params dir), matching the reference.
 func (c *Coordinator) writeBestParams(_ context.Context) error {
+	// A composition study tunes a blueprint, not strategy SIGNAL params: there is no
+	// best_params/<strat>.json to write (promotion overwrites the Composition IN
+	// PLACE — promote.go). Skip cleanly.
+	sb, ok := c.space.(*SpaceBuilder)
+	if !ok {
+		return nil
+	}
 	front := c.paretoSolutions()
 	if len(front) == 0 {
 		return nil
@@ -294,7 +338,7 @@ func (c *Coordinator) writeBestParams(_ context.Context) error {
 			best = s
 		}
 	}
-	strategies := c.space.order // single element, or the joint triple
+	strategies := sb.order // single element, or the joint triple
 	now := c.now().UTC()
 	for _, sub := range strategies {
 		tuned := filterPrefixed(best.Params, sub)

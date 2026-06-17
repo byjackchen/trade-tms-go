@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 )
@@ -49,13 +50,15 @@ type PromoteInput struct {
 
 // Promoter performs promotions over a pgx pool.
 type Promoter struct {
-	pool *pgxpool.Pool
-	now  func() time.Time
+	pool  *pgxpool.Pool
+	comps *composition.Store
+	now   func() time.Time
 }
 
-// NewPromoter wraps a pool.
+// NewPromoter wraps a pool. It builds a composition.Store over the same pool for
+// the IN-PLACE composition promotion path (decision 3).
 func NewPromoter(pool *pgxpool.Pool) *Promoter {
-	return &Promoter{pool: pool, now: time.Now}
+	return &Promoter{pool: pool, comps: composition.NewStore(pool), now: time.Now}
 }
 
 // PromotedStrategy reports one strategy that was promoted (audit echo).
@@ -169,6 +172,131 @@ func (p *Promoter) Promote(ctx context.Context, in PromoteInput) ([]PromotedStra
 		return nil, fmt.Errorf("hyperopt: promote: commit: %w", err)
 	}
 	return promoted, nil
+}
+
+// PromoteCompositionInput parameterizes an in-place composition promotion.
+type PromoteCompositionInput struct {
+	CompositionID string    // the composition the study targets (path id; must match the study)
+	StudyTS       string    // composition study to promote from
+	TrialNumber   int       // artifact trial number to promote
+	PromotedBy    string    // audit identity (required)
+	Now           time.Time // promotion clock (UTC); zero => time.Now()
+}
+
+// PromotedComposition echoes the in-place promotion result (audit): the new
+// blueprint values written to tms.compositions / composition_members.
+type PromotedComposition struct {
+	CompositionID string
+	CashPct       float64
+	Risk          composition.Risk
+	Weights       map[string]float64
+	Version       int
+}
+
+// PromoteComposition OVERWRITES a composition's risk_* + cash_pct + each active
+// member's weight IN PLACE from a chosen composition-study trial (decision 3). It
+// reads the trial's decoded, simplex-normalized blueprint values (what the
+// composition study recorded) and never touches param_sets. The trial must exist,
+// be COMPLETE, and belong to a kind=composition study whose composition_id matches
+// CompositionID. PromotedBy is required.
+func (p *Promoter) PromoteComposition(ctx context.Context, in PromoteCompositionInput) (*PromotedComposition, error) {
+	if in.PromotedBy == "" {
+		return nil, fmt.Errorf("hyperopt: promote requires promoted_by")
+	}
+
+	// Read the study: must be kind=composition and target CompositionID.
+	var (
+		kind   string
+		compID *string
+	)
+	err := p.pool.QueryRow(ctx,
+		`SELECT kind, composition_id FROM tms.hyperopt_studies WHERE study_ts = $1`,
+		in.StudyTS).Scan(&kind, &compID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrStudyNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("hyperopt: promote composition: read study: %w", err)
+	}
+	if StudyKind(kind) != KindComposition {
+		return nil, fmt.Errorf("%w: study %s is kind %q, not composition", ErrTrialNotPromotable, in.StudyTS, kind)
+	}
+	if compID == nil || *compID != in.CompositionID {
+		got := "<nil>"
+		if compID != nil {
+			got = *compID
+		}
+		return nil, fmt.Errorf("%w: study %s targets composition %q, not %q", ErrTrialNotPromotable, in.StudyTS, got, in.CompositionID)
+	}
+
+	// Read the trial: must be COMPLETE; params are the decoded normalized blueprint.
+	var (
+		state     string
+		paramsRaw json.RawMessage
+	)
+	err = p.pool.QueryRow(ctx,
+		`SELECT state, params FROM tms.hyperopt_trials WHERE study_ts = $1 AND number = $2`,
+		in.StudyTS, in.TrialNumber).Scan(&state, &paramsRaw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("%w: trial %d not found in study %s", ErrTrialNotPromotable, in.TrialNumber, in.StudyTS)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("hyperopt: promote composition: read trial: %w", err)
+	}
+	if TrialState(state) != TrialComplete {
+		return nil, fmt.Errorf("%w: trial %d is %s (only COMPLETE trials promote)", ErrTrialNotPromotable, in.TrialNumber, state)
+	}
+
+	rw, err := decodeCompositionTrial(paramsRaw)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.comps.UpdateRiskAndWeights(ctx, in.CompositionID, rw); errors.Is(err, composition.ErrNotFound) {
+		return nil, fmt.Errorf("%w: composition %q not found", ErrTrialNotPromotable, in.CompositionID)
+	} else if err != nil {
+		return nil, fmt.Errorf("hyperopt: promote composition: update: %w", err)
+	}
+
+	// Read back the new version for the audit echo.
+	updated, err := p.comps.Get(ctx, in.CompositionID)
+	if err != nil {
+		return nil, fmt.Errorf("hyperopt: promote composition: read-back: %w", err)
+	}
+	return &PromotedComposition{
+		CompositionID: in.CompositionID,
+		CashPct:       rw.CashPct,
+		Risk:          rw.Risk,
+		Weights:       rw.Weights,
+		Version:       updated.Version,
+	}, nil
+}
+
+// decodeCompositionTrial extracts the promotion payload (cash + risk caps + the
+// per-member normalized weights) from a composition trial's recorded params JSON
+// (the shape CompositionSpace.RecordedParams writes).
+func decodeCompositionTrial(paramsRaw json.RawMessage) (composition.RiskWeights, error) {
+	var rec struct {
+		CashPct          float64            `json:"cash_pct"`
+		SingleNamePct    float64            `json:"single_name_pct"`
+		ConcentrationPct float64            `json:"concentration_pct"`
+		DailyLossHaltPct float64            `json:"daily_loss_halt_pct"`
+		Weights          map[string]float64 `json:"weights"`
+	}
+	if err := json.Unmarshal(paramsRaw, &rec); err != nil {
+		return composition.RiskWeights{}, fmt.Errorf("%w: decode composition trial params: %v", ErrTrialNotPromotable, err)
+	}
+	if len(rec.Weights) == 0 {
+		return composition.RiskWeights{}, fmt.Errorf("%w: composition trial has no member weights", ErrTrialNotPromotable)
+	}
+	return composition.RiskWeights{
+		CashPct: rec.CashPct,
+		Risk: composition.Risk{
+			SingleNamePct:    rec.SingleNamePct,
+			ConcentrationPct: rec.ConcentrationPct,
+			DailyLossHaltPct: rec.DailyLossHaltPct,
+		},
+		Weights: rec.Weights,
+	}, nil
 }
 
 // validateTunedForPromotion enforces the promotion-safety gate for one

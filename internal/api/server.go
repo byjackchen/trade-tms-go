@@ -226,11 +226,14 @@ func (s *Server) Routes() *chi.Mux {
 			r.Post("/compositions", s.handleCompositionCreate)
 			r.Put("/compositions/{id}", s.handleCompositionUpdate)
 			r.Delete("/compositions/{id}", s.handleCompositionDelete)
-			// NOTE: there is intentionally NO Composition-level optimize route.
-			// Composition-level joint hyperopt is dropped from the product; the
-			// hyperopt engine's internal "joint" study code stays DORMANT (never
-			// exposed as a Composition operation). Params are tuned ONLY by
-			// per-strategy Hyperopt below.
+			// Composition-level hyperopt (kind=composition): tune a Composition's
+			// member weights + cash + composite risk while every member's SIGNAL
+			// params stay FIXED (decision 4). The study/trials are read through the
+			// existing GET /hyperopt[/{id}/trials] (they carry kind=composition);
+			// promote OVERWRITES the composition IN PLACE (decision 3). Per-strategy
+			// SIGNAL-param tuning still lives at POST /hyperopt below.
+			r.Post("/compositions/{id}/hyperopt", s.handleCompositionHyperoptEnqueue)
+			r.Post("/compositions/{id}/hyperopt/{study_ts}/promote", s.handleCompositionHyperoptPromote)
 
 			// Aggregated system status (P7 capstone): pg + redis + moomoo feed
 			// + active sessions + job-queue depth + data freshness in one call

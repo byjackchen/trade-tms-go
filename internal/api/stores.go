@@ -99,6 +99,10 @@ type HyperoptReader interface {
 // (satisfied by *study.Promoter). It backs POST /api/v1/hyperopt/{id}/promote.
 type HyperoptPromoter interface {
 	Promote(ctx context.Context, in study.PromoteInput) ([]study.PromotedStrategy, error)
+	// PromoteComposition OVERWRITES a composition's risk_* + cash_pct + member
+	// weights IN PLACE from a chosen composition-study trial (decision 3). It backs
+	// POST /api/v1/compositions/{id}/hyperopt/{study_ts}/promote.
+	PromoteComposition(ctx context.Context, in study.PromoteCompositionInput) (*study.PromotedComposition, error)
 }
 
 // CompositionStore is the persistence seam for the Composition CRUD (satisfied by

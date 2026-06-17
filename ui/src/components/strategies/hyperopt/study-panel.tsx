@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Rocket, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,18 +25,45 @@ import { formatInt, formatNum, formatTs } from "@/lib/format";
 import type { TrialRow } from "@/lib/api/types";
 
 /**
+ * A render-prop that owns the promotion flow for a selected trial. The default
+ * (strategy) flow renders the per-strategy `PromoteDialog` (writes active_params);
+ * the Compositions module passes its own to promote weights+risk IN PLACE. This is
+ * how the study/trials/Pareto views are SHARED, not forked, across the two hyperopt
+ * flavours (Strategy Hyperopt — signal params · Composition Hyperopt — weights & risk).
+ */
+export type PromoteRenderProp = (args: {
+  trial: TrialRow;
+  studyTS: string;
+  onClose: () => void;
+}) => ReactNode;
+
+/** Copy that distinguishes what promoting a trial DOES (signal params vs weights+risk). */
+const DEFAULT_PROMOTE_COPY =
+  "Promote to set its params as the strategy's active set.";
+
+/**
  * The study detail, rendered INLINE (formerly the `/hyperopt/[id]` route).
  * Per the "inline results" decision (docs/concept-alignment.md §3.4) the study
  * no longer navigates to its own page — selecting a row in the Tune panel opens
  * this panel in place below the studies table. `ts` is the study timestamp id
  * (already validated by the caller / the row that produced it).
+ *
+ * SHARED by Strategy Hyperopt (signal params) and Composition Hyperopt (weights &
+ * risk): pass `renderPromote` to swap the promotion flow + `promoteCopy` to change
+ * the CTA wording; both default to the per-strategy promote.
  */
 export function StudyPanel({
   ts,
   onClose,
+  renderPromote,
+  promoteCopy = DEFAULT_PROMOTE_COPY,
 }: {
   ts: string;
   onClose?: () => void;
+  /** Override the promotion flow (Compositions promotes weights+risk in place). */
+  renderPromote?: PromoteRenderProp;
+  /** CTA wording in the "complete — ready to promote" banner. */
+  promoteCopy?: string;
 }) {
   const study = useStudy(ts);
   const status = study.data?.study.progress.status;
@@ -218,7 +245,7 @@ export function StudyPanel({
                   <span className="font-mono tabular-nums">
                     {formatNum(bestTrial.calmar)}
                   </span>
-                  . Promote to set its params as the strategy&apos;s active set.
+                  . {promoteCopy}
                 </AlertDescription>
               </div>
               <Button
@@ -332,12 +359,20 @@ export function StudyPanel({
       )}
 
       {promoteTrial ? (
-        <PromoteDialog
-          open={promoteTrial != null}
-          onClose={() => setPromoteTrial(null)}
-          studyTS={ts}
-          trial={promoteTrial}
-        />
+        renderPromote ? (
+          renderPromote({
+            trial: promoteTrial,
+            studyTS: ts,
+            onClose: () => setPromoteTrial(null),
+          })
+        ) : (
+          <PromoteDialog
+            open={promoteTrial != null}
+            onClose={() => setPromoteTrial(null)}
+            studyTS={ts}
+            trial={promoteTrial}
+          />
+        )
       ) : null}
     </div>
   );
