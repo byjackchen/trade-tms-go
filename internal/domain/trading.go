@@ -56,8 +56,8 @@ func RunWord(exec ExecutionPolicy, env BrokerEnv) string {
 }
 
 // AccountKind derives the operator-facing "kind" word for an account from its
-// env, mirroring the RunWord rule (the env stays the source of truth; this is a
-// derived label, never a stored column — docs/concept-alignment.md §1.3):
+// env, following the same rule as RunWord (the env stays the source of truth;
+// this is a derived label, never a stored column):
 //
 //	env=real   -> "live"   (a real-money account)
 //	env=*else* -> "paper"  (sim/simulate — no real money)

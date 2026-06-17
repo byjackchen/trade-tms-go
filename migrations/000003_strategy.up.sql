@@ -1,7 +1,7 @@
 -- 000003_strategy: strategy parameter management.
 --
--- DB counterpart of the Python reference's params files
--- (src/strategies/params/*, docs/spec/hyperopt-metrics.md §2, §8):
+-- DB store for strategy params files
+-- (docs/spec/hyperopt-metrics.md §2, §8):
 -- param_sets stores immutable, versioned snapshots of a strategy's full
 -- params document (the JSON file shape: strategy, schema_version, display,
 -- allocation, metadata, parameters, constraints); active_params is the
@@ -61,7 +61,7 @@ CREATE TABLE tms.active_params (
 );
 
 COMMENT ON TABLE tms.active_params IS
-    'Promotion pointer per strategy (runs/active_params equivalent). No row = baseline (the Python reference deletes the file to revert — spec §8.4 set_active).';
+    'Promotion pointer per strategy (runs/active_params equivalent). No row = baseline (delete the row to revert — spec §8.4 set_active).';
 COMMENT ON COLUMN tms.active_params.source_id IS
     'Grammar per spec §8.4: "baseline" | "hyperopt:<study_ts>" | "external" (reader-side only, never settable via API).';
 COMMENT ON COLUMN tms.active_params.promoted_by IS 'Operator/user/automation identity that performed the promotion (audit).';

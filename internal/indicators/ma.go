@@ -2,13 +2,12 @@ package indicators
 
 import "math"
 
-// MA is the SEPA simple moving average (sepa/_indicators.py:13-15):
-// klines[col].rolling(period).mean(). Identical to SMA, named to match the
-// reference call sites (ma(klines, 50) etc.). Output is NaN until `period` bars
-// exist.
+// MA is the SEPA simple moving average: a rolling(period).mean() over close.
+// Identical to SMA, named for the SEPA call sites (ma(klines, 50) etc.). Output
+// is NaN until `period` bars exist.
 func MA(close []float64, period int) []float64 { return SMA(close, period) }
 
-// MASlopePct mirrors sepa/_indicators.py:18-31 ma_slope_pct:
+// MASlopePct is the SEPA ma_slope_pct:
 //
 //	if len(klines) < period + lookback: return 0.0
 //	series = ma(klines, period)
@@ -32,7 +31,7 @@ func MASlopePct(close []float64, period, lookback int) float64 {
 	return (last - prev) / prev * 100.0
 }
 
-// MAUptrendDays mirrors sepa/_indicators.py:34-52 ma_uptrend_days:
+// MAUptrendDays is the SEPA ma_uptrend_days:
 //
 //	if len(klines) < period + 2: return 0
 //	series = ma(klines, period).dropna()
@@ -78,11 +77,11 @@ func MAUptrendDays(close []float64, period int) int {
 	return count
 }
 
-// FractionAbove mirrors the stage classifier's rolling-top fallback
-// (stage.py:81): (close.tail(n) > ma(...).tail(n)).mean() — the fraction of the
-// last `n` bars whose close exceeds the corresponding MA value. Pairs are
-// aligned by position over the trailing `n`. NaN MA values count as False
-// (pandas `close > NaN` is False). Returns NaN if n <= 0 or inputs too short.
+// FractionAbove is the stage classifier's rolling-top fallback:
+// (close.tail(n) > ma(...).tail(n)).mean() — the fraction of the last `n` bars
+// whose close exceeds the corresponding MA value. Pairs are aligned by position
+// over the trailing `n`. NaN MA values count as False (close > NaN is False).
+// Returns NaN if n <= 0 or inputs too short.
 func FractionAbove(close, ma []float64, n int) float64 {
 	if n <= 0 || len(close) < n || len(ma) < n {
 		return NaN

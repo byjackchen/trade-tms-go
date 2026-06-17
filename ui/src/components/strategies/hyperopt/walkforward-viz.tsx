@@ -27,7 +27,7 @@ function toMs(d: string | undefined): number | null {
  * anchored-expanding train window (solid), an embargo gap, then the out-of-
  * sample test window (accent). Fold boundaries are read from a representative
  * trial's per-fold breakdown (folds[].{train,test}_{start,end}) — the same
- * deterministic splits parity-gated against the Python splitter.
+ * deterministic splits, golden-gated against the canonical splitter.
  */
 export function WalkForwardViz({
   folds,

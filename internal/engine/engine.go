@@ -14,14 +14,14 @@ package engine
 //	KindFill (settlements produced during KindBar)
 //	KindSample (one equity sample for the day)
 //
-// For the nautilus-compat (this-bar) model, a BarEvent's handler:
+// For the close-fill (this-bar) model, a BarEvent's handler:
 //  1. records the bar's close as the symbol's last price (mark-to-market);
 //  2. runs every strategy's OnBar (orders submitted to the executor);
 //  3. calls executor.ProcessBar(bar) — orders submitted this bar fill at the
 //     bar close and are scheduled as FillEvents at the SAME ts (KindFill), so
 //     accounting settles them after all bars at this ts have been delivered to
-//     strategies. This reproduces Nautilus's "market order in on_bar(T) fills
-//     at T's close, at T" (verified empirically).
+//     strategies. This is the same-bar close-fill rule: a market order placed
+//     in on_bar(T) fills at T's close, at T.
 //
 // For the realistic (next-bar) model, the bar handler calls
 // executor.ProcessBar FIRST (filling orders pending from prior bars against
@@ -84,7 +84,7 @@ type Engine struct {
 
 	// lastBar records each symbol's most recently observed bar (real close +
 	// volume), so end-of-run liquidation fills a flattening order against the
-	// symbol's last bar exactly as Nautilus's on_stop close_all_positions does.
+	// symbol's last bar.
 	lastBar map[string]domain.Bar
 
 	barsProcessed int
@@ -103,7 +103,7 @@ func New(ctx context.Context, cfg Config, feed BarFeed) (*Engine, error) {
 	}
 	profile := cfg.Profile
 	if profile == "" {
-		profile = ProfileNautilusCompat
+		profile = ProfileRealistic
 	}
 
 	loop := core.NewLoop()
@@ -144,7 +144,7 @@ func New(ctx context.Context, cfg Config, feed BarFeed) (*Engine, error) {
 	eng.exec = exec.NewSimExecutor(model, sink, loop)
 
 	// Build strategies. Real (prebuilt) strategies take precedence; otherwise
-	// build the scripted parity drivers from the intent specs. The account is
+	// build the scripted drivers from the intent specs. The account is
 	// the position reader for FLAT close sizing in either path.
 	if len(cfg.PrebuiltStrategies) > 0 {
 		eng.strategies = append(eng.strategies, cfg.PrebuiltStrategies...)
@@ -165,11 +165,10 @@ func New(ctx context.Context, cfg Config, feed BarFeed) (*Engine, error) {
 		}
 	}
 
-	// OUT-OF-BAND warmup priming (Python SEPAUniverseRunner.warmup_ticker,
-	// multi_strategy_backtest.py:645-653): before the event loop runs, prime
+	// OUT-OF-BAND warmup priming: before the event loop runs, prime
 	// every WarmupConsumer strategy from the pre-window history WITHOUT submitting
 	// orders or emitting equity samples. SEPA implements WarmupConsumer; Pairs and
-	// SectorRotation do not, so they receive NO warmup (faithful asymmetry). The
+	// SectorRotation do not, so they receive NO warmup (deliberate asymmetry). The
 	// engine then replays ONLY [Start, End] (the bars the feed loaded). SPY regime
 	// warmup is handled by the ContextProvider's own full SPY history, not here.
 	eng.primeWarmup()
@@ -237,7 +236,7 @@ func (e *Engine) seed(instruments []InstrumentBars) error {
 
 // Run drives the loop to completion (or ctx cancellation) and returns the
 // Result. It emits the initial account-state at the first timestamp before
-// processing, mirroring the Nautilus venue's run-start event.
+// processing, as a run-start event.
 func (e *Engine) Run(ctx context.Context) (*Result, error) {
 	initTS := e.firstTS
 	if initTS.IsZero() {
@@ -256,15 +255,12 @@ func (e *Engine) Run(ctx context.Context) (*Result, error) {
 	if _, err := e.exec.FlushThisBar(); err != nil {
 		return nil, fmt.Errorf("engine: final this-bar flush: %w", err)
 	}
-	// End-of-run liquidation: mirror Nautilus's on_stop close_all_positions, which
-	// EVERY Python runner implements (pairs/sector/sepa nautilus_runner on_stop ->
-	// close_all_positions(instrument_id)). After the last bar, flatten every open
-	// net position with a market order filled at the symbol's last close, so the
-	// settled cash / total PnL / final NAV reflect the liquidation exactly as
-	// Python does. Without this, a position open at a fold's terminal bar leaves
-	// its exit unrealized in Go's settled cash, diverging per-fold final_balance /
-	// total_pnl from Python by the open position's mark-to-exit (FIXER round-1
-	// finding 1). This runs AFTER the final equity sample (taken during the loop
+	// End-of-run liquidation: after the last bar, flatten every open net position
+	// with a market order filled at the symbol's last close, so the settled cash /
+	// total PnL / final NAV reflect the liquidation. Without this, a position open
+	// at a fold's terminal bar leaves its exit unrealized in the settled cash,
+	// diverging per-fold final_balance / total_pnl by the open position's
+	// mark-to-exit. This runs AFTER the final equity sample (taken during the loop
 	// at the terminal bar, marking the open position to the same close the
 	// liquidation realizes at), so it settles cash without emitting an extra
 	// sample — the last NAV point already equals the liquidation value.
@@ -393,9 +389,9 @@ func (e *Engine) handleBar(_ context.Context, ev core.Event) error {
 
 	// Context refresh (multi-strategy path): on the SPY heartbeat bar, advance
 	// the look-ahead-safe provider and push the resulting regime / market-cap /
-	// earnings snapshot into every ContextConsumer strategy (mirroring the
-	// Python Context Actors publishing on the SPY bar; the SG setters persist
-	// the value until the next update). SPY is registered FIRST so same-date
+	// earnings snapshot into every ContextConsumer strategy (the context is
+	// published on the SPY bar; the SG setters persist the value until the
+	// next update). SPY is registered FIRST so same-date
 	// stock bars dispatched after it already see today's context.
 	if e.ctxProv != nil && bar.Symbol == e.spySym {
 		e.ctxProv.OnBar(e.ctxStat, bar.TS)
@@ -443,7 +439,7 @@ func (e *Engine) injectContext(asOf time.Time) {
 // primeWarmup feeds the out-of-band pre-window history into every
 // WarmupConsumer strategy, once per (symbol, strategy). It runs BEFORE the loop:
 // no executor, no account mutation, no sampling — pure indicator/history
-// priming. A nil Warmup config (the default, incl. the P2 parity path) is a
+// priming. A nil Warmup config (the default) is a
 // no-op, so warmup defaults to 0 unless explicitly configured. Each consumer
 // self-filters by symbol (SEPA primes only its own symbol; Pairs/Sector are not
 // WarmupConsumers and never reach here), so offering every warmup symbol to
@@ -464,15 +460,12 @@ func (e *Engine) primeWarmup() {
 	})
 }
 
-// liquidateOpenPositions flattens every open net position at end-of-run,
-// mirroring Nautilus's on_stop close_all_positions(instrument_id) (implemented by
-// EVERY Python runner: pairs/sector_rotation/sepa nautilus_runner.py on_stop).
-// For each open position (iterated in deterministic (strategy, symbol) order, the
-// same order Nautilus closes bar_types) it submits a FLAT-closing market order —
-// opposite side, abs qty — attributed to the position's owning strategy, and
-// fills it at the symbol's LAST observed bar (real close + volume), so the fill
-// reproduces the same depth-walk (nautilus-compat) or slippage/commission
-// (realistic) the in-loop path applies. The closing order is recorded (so it
+// liquidateOpenPositions flattens every open net position at end-of-run.
+// For each open position (iterated in deterministic (strategy, symbol) order)
+// it submits a FLAT-closing market order — opposite side, abs qty — attributed
+// to the position's owning strategy, and fills it at the symbol's LAST observed
+// bar (real close + volume), so the fill applies the same depth-walk (close-fill)
+// or slippage/commission (realistic) the in-loop path applies. The closing order is recorded (so it
 // counts toward num_orders/num_filled) and settled synchronously via the
 // executor's sink (mutating cash + flattening the position). No equity sample is
 // emitted: the final SampleEvent already fired during the loop at the terminal
@@ -519,13 +512,12 @@ func (e *Engine) TotalBars() int { return e.totalBars }
 func (e *Engine) Clock() core.Clock { return e.loop.Clock() }
 
 // EquityFloat returns the value the strategy generators size against: the
-// account's SETTLED cash balance (= starting + realized = Nautilus
-// account(VENUE).balance_total(USD)), NOT cash + unrealized. The Python
-// equity_provider on every runner reads balance_total, which does not fold open
-// positions' unrealized PnL into the balance; sizing against Equity() instead
-// would compute different leg quantities once any position carries unrealized
-// PnL, diverging the P&L and objective from Python (FIXER round-3 finding 1).
-// Returns the starting balance on the (never-expected) error path so a sizing
+// account's SETTLED cash balance (= starting + realized), NOT cash + unrealized.
+// Sizing reads the settled balance, which does not fold open positions'
+// unrealized PnL into the balance; sizing against Equity() instead would compute
+// different leg quantities once any position carries unrealized PnL, diverging
+// the P&L and objective. Returns the starting balance on the (never-expected)
+// error path so a sizing
 // closure built over it degrades gracefully rather than panicking. Strategy
 // assemblers bind this as the generators' EquityProvider so sizing reflects the
 // live settled book.
@@ -577,15 +569,13 @@ func (e *Engine) handleSample(_ context.Context, ev core.Event) error {
 
 // buildResult assembles the final Result from the engine state.
 //
-// FinalBalance / TotalPnL come from the SETTLED cash balance (= Nautilus
-// account.balance_total(USD)), NOT the mark-to-market equity. The reference
-// run_backtest computes final_balance_usd = balance_total and
-// total_pnl_usd = final_balance - starting (multi_strategy_backtest.py:677-679),
-// so an open position's unrealized PnL does NOT count toward final_balance_usd /
-// total_pnl_usd (it only shows up in the per-bar equity curve, which the sampler
-// captures separately as cash + unrealized). Using Equity() here would inflate
-// these counters by the live unrealized PnL and diverge from Python (FIXER
-// round-3 finding 1). This also keeps FinalBalance consistent with the last
+// FinalBalance / TotalPnL come from the SETTLED cash balance, NOT the
+// mark-to-market equity: final_balance_usd = balance_total and
+// total_pnl_usd = final_balance - starting, so an open position's unrealized PnL
+// does NOT count toward final_balance_usd / total_pnl_usd (it only shows up in
+// the per-bar equity curve, which the sampler captures separately as cash +
+// unrealized). Using Equity() here would inflate these counters by the live
+// unrealized PnL. This also keeps FinalBalance consistent with the last
 // AccountState.Total (account.json), which already records cash per fill.
 func (e *Engine) buildResult() (*Result, error) {
 	final, err := e.acct.Cash()
@@ -636,7 +626,7 @@ func (e *Engine) buildResult() (*Result, error) {
 
 func (e *Engine) profile() FillProfile {
 	if e.cfg.Profile == "" {
-		return ProfileNautilusCompat
+		return ProfileRealistic
 	}
 	return e.cfg.Profile
 }
@@ -663,13 +653,12 @@ func (s orderSubmitter) SubmitMarket(strategyID, symbol string, side domain.Orde
 // NetPosition exposes the live cross-strategy net position to strategies that
 // FLAT-close by reading the venue book (engine.PositionReader). The real
 // strategy adapters (SEPA / Pairs) translate a FLAT signal into a closing market
-// order sized from the venue net position — the Python runners read
-// self.riskgate.net_position(instrument_id) (a NETTING-OMS venue net across
-// strategies), so the engine submitter must net across strategies too. WITHOUT
+// order sized from the venue net position — a NETTING-OMS venue net across
+// strategies — so the engine submitter must net across strategies too. WITHOUT
 // this, sub.(engine.PositionReader) failed the type assertion and FLAT closes
 // silently sized to 0 (a no-op), so a Pairs/SEPA position once opened never
-// closed in the integrated path — diverging the equity curve from Python (the
-// P3 gap the parity_backtest regression test pins down). strategyID is ignored
+// closed in the integrated path — diverging the equity curve (the gap the
+// integrated regression test pins down). strategyID is ignored
 // (venue net is cross-strategy, §7.4), matching accountPositionReader.
 func (s orderSubmitter) NetPosition(_ string, symbol string) domain.Qty {
 	snap, err := s.eng.acct.Snapshot()
@@ -684,20 +673,18 @@ func (s orderSubmitter) NetPosition(_ string, symbol string) domain.Qty {
 }
 
 // SubmitMarketSignal runs the pre-trade portfolio gate (when configured) for a
-// strategy signal before submitting. It mirrors src/strategies/_base/runner.py
-// :_gate + maybe_check_portfolio: build a ProposedOrder (strategy id, symbol,
-// signalSide, abs qty, estimated price = the symbol's last close), snapshot the
-// account, and run riskgate.Check. FLAT and qty<=0 bypass the gate inside the
-// pipeline (closes always proceed, even during a daily-loss halt). On a
-// rejection it records the rejection and returns submitted=false WITHOUT
-// placing an order (the runner skips the submit). A nil gate always submits.
+// strategy signal before submitting. It builds a ProposedOrder (strategy id,
+// symbol, signalSide, abs qty, estimated price = the symbol's last close),
+// snapshots the account, and runs riskgate.Check. FLAT and qty<=0 bypass the
+// gate inside the pipeline (closes always proceed, even during a daily-loss
+// halt). On a rejection it records the rejection and returns submitted=false
+// WITHOUT placing an order (the runner skips the submit). A nil gate always submits.
 func (s orderSubmitter) SubmitMarketSignal(strategyID, symbol string, signalSide domain.SignalSide, orderSide domain.OrderSide, qty domain.Qty, reason string, ts time.Time) (string, bool, error) {
 	if s.eng.gate != nil && signalSide != domain.SideFlat && qty > 0 {
-		// Estimated fill price = the symbol's last observed close (the reference
-		// _gate reads self._last_close.get(symbol, Decimal(0))). The engine has
-		// already ObserveBar'd this bar's close before strategies run, so the
-		// current bar's close is the price — matching Python, which sets
-		// _last_close to the current bar at the top of on_bar.
+		// Estimated fill price = the symbol's last observed close (zero when
+		// unknown). The engine has already ObserveBar'd this bar's close before
+		// strategies run, so the current bar's close is the price: last_close is
+		// set to the current bar at the top of on_bar.
 		price, _ := s.eng.acct.LastPrice(symbol) // zero Price when unknown == Decimal(0)
 		snap, err := s.eng.acct.Snapshot()
 		if err != nil {
@@ -739,10 +726,10 @@ func (s engineRejectionSink) RecordRejection(r riskgate.Rejection) {
 // fillSink settles executor fills synchronously on the loop goroutine: the
 // account is mutated and the fill recorded immediately, so a strategy reading
 // its net position later in the SAME bar dispatch sees the up-to-date book.
-// This matches Nautilus, which settles each data point's venue before the next
-// (engine.pyx:1627-1663) — a market order's fill is visible before subsequent
-// strategy reads. Settling inline (rather than deferring a KindFill event past
-// the bar handler) is what makes next-bar FLAT close-sizing correct.
+// Each data point's venue settles before the next — a market order's fill is
+// visible before subsequent strategy reads. Settling inline (rather than
+// deferring a KindFill event past the bar handler) is what makes next-bar FLAT
+// close-sizing correct.
 //
 // The KindFill event kind and Engine.handleFill remain registered for
 // forward-compatibility (an external scheduler may inject fills), but the
@@ -823,8 +810,8 @@ func validateConfig(cfg Config) error {
 	}
 	// Prebuilt strategies MAY share a logical engine id: the SEPA universe path
 	// runs one per-symbol generator instance per stock, all under the single
-	// allocator key "SEPA-UNIVERSE-001" (mirroring the Python SEPAUniverseRunner,
-	// one strategy id managing N SignalGenerators). The allocator budget and the
+	// allocator key "SEPA-UNIVERSE-001" (one strategy id managing N
+	// SignalGenerators). The allocator budget and the
 	// positions book are keyed by (strategy_id, symbol), so a shared id across
 	// distinct symbols is correct, not a collision. We therefore only reject
 	// empty ids here, not duplicates.
@@ -841,8 +828,8 @@ func validateConfig(cfg Config) error {
 
 func buildModel(profile FillProfile, rp RealisticParams) (exec.FillModel, error) {
 	switch profile {
-	case ProfileNautilusCompat:
-		return exec.NautilusCompatModel{}, nil
+	case ProfileCloseFill:
+		return exec.CloseFillModel{}, nil
 	case ProfileRealistic:
 		return exec.RealisticModel{
 			SlippageBps:        rp.SlippageBps,

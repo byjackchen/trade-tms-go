@@ -1,7 +1,6 @@
 package runner
 
-// eod.go is the idempotent engine-REPLAY EOD refresh (P5 locked decision 4),
-// replacing Python's non-idempotent pure-Python EOD side path.
+// eod.go is the idempotent engine-REPLAY EOD refresh (P5 locked decision 4).
 //
 // For an as_of date it:
 //  1. assembles the SAME strategy / portfolio / context / warmup code as
@@ -80,7 +79,7 @@ type RefreshReport struct {
 	// PublishErrors is how many Redis publishes failed (best-effort transport).
 	PublishErrors int `json:"publish_errors"`
 	// RSRankStamped is how many SEPA intents were stamped with a cross-sectional
-	// RS rank (TMS enhancement; not in the Python SEPA reference).
+	// RS rank.
 	RSRankStamped int `json:"rs_rank_stamped"`
 }
 
@@ -185,8 +184,8 @@ func (e *EOD) RunRefresh(ctx context.Context, cfg EODConfig, publisher *publish.
 		return nil, fmt.Errorf("eod: replay: %w", err)
 	}
 
-	// (4.5) TMS ENHANCEMENT (not in the Python SEPA reference): cross-sectional
-	// RS rank. After the as-of intents are persisted, compute the universe RS rank
+	// (4.5) Cross-sectional RS rank. After the as-of intents are persisted,
+	// compute the universe RS rank
 	// from tms.bars_daily as-of cfg.AsOf in ONE set-based query and stamp it (plus
 	// the RS-dependent buy_readiness) onto each SEPA intent's JSONB. This makes
 	// every forming signal rankable on the watchlist. Best-effort within the run:

@@ -4,9 +4,8 @@ import "time"
 
 // NYSE holiday and early-close rules.
 //
-// The Python reference deliberately has no NYSE-calendar dependency
-// (docs/spec/calendar-universe.md §1.1); this package implements the
-// [IMPROVE] static holiday/early-close table from that section. The rule
+// This package implements the static holiday/early-close table from
+// docs/spec/calendar-universe.md §1.1. The rule
 // set below reproduces the canonical exchange_calendars XNYS calendar
 // exactly over 2000–2030 (golden-tested against
 // testdata/nyse_sessions_*.csv, generated from exchange_calendars 4.13.2).

@@ -13,7 +13,7 @@ func TestStitchConcatenatesReturns(t *testing.T) {
 		{100000, 101500, 103000},
 	}
 	got := Stitch(curves, 100000)
-	// Golden from the Python reference (_stitch_equity_curves).
+	// Golden for the stitched equity curve.
 	want := []float64{100000, 101000, 102000, 103529.99999999999, 105060.0}
 	if len(got) != len(want) {
 		t.Fatalf("len: got %d want %d", len(got), len(want))

@@ -223,9 +223,9 @@ func (g *GatedSubmitter) dailyLossHalted() bool {
 }
 
 // dailyLossThresholdBreached evaluates day P&L < -haltPct*NAV (strict) from the
-// account snapshot MARKED TO MARKET (the live daily-loss input; the parity
-// snapshot keeps day P&L 0 for backtest parity, so the marked snapshot is what
-// makes the live halt fire on a held loss).
+// account snapshot MARKED TO MARKET (the live daily-loss input; the
+// backtest-style snapshot keeps day P&L 0 to match backtest gating, so the
+// marked snapshot is what makes the live halt fire on a held loss).
 func (g *GatedSubmitter) dailyLossThresholdBreached() bool {
 	if g.gate == nil {
 		return false

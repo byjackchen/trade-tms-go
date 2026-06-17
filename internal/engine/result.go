@@ -18,9 +18,9 @@ import (
 type FillProfile string
 
 const (
-	// ProfileNautilusCompat is the zero-cost parity gate profile: same-bar
+	// ProfileCloseFill is the zero-cost deterministic profile: same-bar
 	// close fill, no slippage, no commission.
-	ProfileNautilusCompat FillProfile = "nautilus-compat"
+	ProfileCloseFill FillProfile = "close-fill"
 	// ProfileRealistic is the production default: next-bar-open fill with
 	// configurable slippage and commission.
 	ProfileRealistic FillProfile = "realistic"
@@ -28,7 +28,7 @@ const (
 
 // IsValid reports whether p is a known profile.
 func (p FillProfile) IsValid() bool {
-	return p == ProfileNautilusCompat || p == ProfileRealistic
+	return p == ProfileCloseFill || p == ProfileRealistic
 }
 
 // StrategySpec describes one scripted strategy to run: its engine id and its
@@ -47,11 +47,11 @@ type Config struct {
 	Start, End calendar.Date
 	// StartingBalance seeds the account (USD).
 	StartingBalance domain.Money
-	// Profile selects the fill model. Defaults to nautilus-compat when empty.
+	// Profile selects the fill model. Defaults to realistic when empty.
 	Profile FillProfile
-	// Realistic configures the realistic model (ignored for nautilus-compat).
+	// Realistic configures the realistic model (ignored for close-fill).
 	Realistic RealisticParams
-	// Strategies are the scripted strategies (the parity drivers). Mutually
+	// Strategies are the scripted strategies (the scripted drivers). Mutually
 	// exclusive with PrebuiltStrategies; supply exactly one of the two.
 	Strategies []StrategySpec
 	// PrebuiltStrategies are already-constructed engine.Strategy instances (the
@@ -63,15 +63,15 @@ type Config struct {
 	PrebuiltStrategies []Strategy
 	// Gate is the optional pre-trade gating pipeline (allocator budget +
 	// aggregate risk constraints). When non-nil, every LONG/SHORT signal order
-	// is gated before submission, mirroring src/strategies/_base/runner.py:_gate;
-	// FLAT/close orders and qty<=0 bypass the gate. Rejections are counted and
+	// is gated before submission; FLAT/close orders and qty<=0 bypass the gate.
+	// Rejections are counted and
 	// reported in RejectedOrders (never an error).
 	Gate *riskgate.Gate
 	// Context, when non-nil, is the look-ahead-safe per-bar context source
 	// (regime / market-cap / earnings). The engine advances it on every
 	// SPYSymbol heartbeat bar and injects the resulting context snapshot into
-	// each ContextConsumer strategy before OnBar (mirroring the Python Context
-	// Actors publishing onto the bus that the SignalGenerators read).
+	// each ContextConsumer strategy before OnBar (the context is published onto
+	// the bus that the SignalGenerators read).
 	Context *riskgate.ContextProvider
 	// SPYSymbol is the heartbeat instrument whose bars drive Context refresh
 	// (default "SPY"). Ignored when Context is nil.
@@ -79,12 +79,11 @@ type Config struct {
 	// Warmup, when non-nil, supplies OUT-OF-BAND pre-window history per symbol to
 	// prime WarmupConsumer strategies (SEPA) BEFORE the event loop runs. These
 	// bars are NEVER scheduled through the loop (no orders, no fills, no equity
-	// samples); the engine replays ONLY [Start, End]. This is the faithful port
-	// of Python's SEPAUniverseRunner.warmup_ticker (multi_strategy_backtest.py
-	// :645-653): SEPA SGs are pre-warmed from the 400d tail while Pairs/Sector are
-	// not (their generators do not implement WarmupConsumer). SPY regime warmup is
-	// handled separately by the ContextProvider's own full SPY history, NOT here.
-	// Default (nil) => no warmup priming (the P2 Nautilus parity path).
+	// samples); the engine replays ONLY [Start, End]. SEPA SGs are pre-warmed
+	// from the 400d tail while Pairs/Sector are not (their generators do not
+	// implement WarmupConsumer). SPY regime warmup is handled separately by the
+	// ContextProvider's own full SPY history, NOT here.
+	// Default (nil) => no warmup priming.
 	Warmup *WarmupConfig
 	// Progress, when non-nil, is called after each bar is dispatched with the
 	// number of bars processed so far and the total scheduled (for "% complete"
@@ -110,10 +109,10 @@ type RealisticParams struct {
 }
 
 // RejectedOrder records one signal order the portfolio gate rejected, in
-// rejection (= signal emission) order. It is the engine's equivalent of a
-// Nautilus order whose status is REJECTED, and is what makes the metrics
-// num_rejected_orders count meaningful (the gate is the only producer of
-// rejections in this engine). Reason carries the rule name + explanation.
+// rejection (= signal emission) order. It is a pre-trade REJECTED order, and is
+// what makes the metrics num_rejected_orders count meaningful (the gate is the
+// only producer of rejections in this engine). Reason carries the rule name +
+// explanation.
 type RejectedOrder struct {
 	StrategyID string
 	Symbol     string
@@ -181,17 +180,16 @@ type OrderCounts struct {
 }
 
 // Counts returns the order/position counters scoped to strategyID ("" =
-// portfolio: all strategies). Semantics mirror Nautilus exactly (the parity
-// target of multi_strategy_backtest.py):
+// portfolio: all strategies):
 //
 //   - num_orders        — orders SUBMITTED to the executor.
-//   - num_filled_orders — orders that produced at least one fill (Nautilus
-//     o.is_closed; the engine settles fills asynchronously and never mutates the
-//     submitted order's Status to FILLED, so we derive "filled" from res.Fills,
-//     NOT from Order.Status which stays at submit-time).
+//   - num_filled_orders — orders that produced at least one fill (the engine
+//     settles fills asynchronously and never mutates the submitted order's
+//     Status to FILLED, so we derive "filled" from res.Fills, NOT from
+//     Order.Status which stays at submit-time).
 //   - num_rejected_orders — submitted orders left in a REJECTED status PLUS the
 //     signal orders the portfolio gate blocked pre-submit (RejectedOrders); the
-//     gate is the engine's equivalent of a Nautilus pre-trade REJECTED order.
+//     gate is the engine's pre-trade REJECTED order.
 //   - num_positions     — final position snapshots (one per (strategy, symbol)
 //     that ever left flat).
 func (r *Result) Counts(strategyID string) OrderCounts {

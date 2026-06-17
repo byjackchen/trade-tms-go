@@ -13,7 +13,7 @@ import (
 // guarantees every NewRunID output is INSERT-able into tms.runs.
 var runTSCheckRE = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}_([01]\d|2[0-3])-[0-5]\d-[0-5]\d(-\d{6}-\d{4})?$`)
 
-// TestNewRunTSMatchesCheck pins the plain second-resolution form (parity /
+// TestNewRunTSMatchesCheck pins the plain second-resolution form (golden runs /
 // explicit idempotency keys) against the relaxed DB CHECK.
 func TestNewRunTSMatchesCheck(t *testing.T) {
 	ts := NewRunTS(time.Date(2026, 6, 14, 2, 31, 59, 0, time.UTC))

@@ -1,7 +1,7 @@
 package pairs
 
-// observability.go: read-side surfaces — EvaluateIntent and StateSummary.
-// Ports signal.py:342-439 (spec §9). These NEVER affect trading.
+// observability.go: read-side surfaces — EvaluateIntent and StateSummary
+// (spec §9). These NEVER affect trading.
 
 import (
 	"fmt"
@@ -12,9 +12,9 @@ import (
 )
 
 // EvaluateIntent returns exactly 2*N intents for N configured pairs, in pair
-// order (long leg then short leg). Pure read of telemetry + state
-// (signal.py:342-408, spec §9.1). It increments the generation counter at the
-// TOP of the call (before building the list), starting at 1 on the first call.
+// order (long leg then short leg). Pure read of telemetry + state (spec §9.1).
+// It increments the generation counter at the TOP of the call (before building
+// the list), starting at 1 on the first call.
 //
 // Inputs per pair default to z=0.0, beta=1.0, state=FLAT when the pair is still
 // in warmup (telemetry not yet computed). Note the intent thresholds use
@@ -92,7 +92,6 @@ func (g *Generator) EvaluateIntent(asOf time.Time) []domain.PairsSignalIntent {
 			it.ZEntryThreshold = entryZ
 			it.ZExitThreshold = exitZ
 			it.HedgeRatio = beta
-			it.HalfLifeDays = 0.0 // reserved; never computed (spec §9.1, I-7)
 			out = append(out, it)
 		}
 	}
@@ -100,7 +99,7 @@ func (g *Generator) EvaluateIntent(asOf time.Time) []domain.PairsSignalIntent {
 }
 
 // PairSummary is one entry of StateSummary. current_z / current_beta are nil
-// until the pair's first successful evaluation (signal.py:410-439, spec §9.2).
+// until the pair's first successful evaluation (spec §9.2).
 type PairSummary struct {
 	LongLeg     string   `json:"long_leg"`
 	ShortLeg    string   `json:"short_leg"`
@@ -112,7 +111,7 @@ type PairSummary struct {
 }
 
 // StateSummary returns per-pair state for the UI, one entry per configured pair
-// in config order (signal.py:410-439, spec §9.2). JSON-serializable primitives.
+// in config order (spec §9.2). JSON-serializable primitives.
 func (g *Generator) StateSummary() map[string][]PairSummary {
 	pairs := make([]PairSummary, 0, len(g.cfg.Pairs))
 	for _, p := range g.cfg.Pairs {

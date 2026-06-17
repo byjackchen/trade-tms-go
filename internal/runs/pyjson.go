@@ -1,17 +1,16 @@
 package runs
 
-// pyjson.go renders JSON byte-compatible with the Python reference's
-// json.dumps(payload, indent=2, default=str) used by src/runs/dumper.py
-// (api-ws-redis.md §7 [MUST-MATCH]). Two things differ from Go's
-// encoding/json and must be reproduced:
+// pyjson.go renders JSON in this repo's run-artifact wire format
+// (api-ws-redis.md §7): indent=2, default=str, insertion-ordered keys. Two
+// things differ from Go's encoding/json and are produced explicitly:
 //
-//   - Float formatting follows Python's repr (shortest round-trip), but with
-//     Python's distinctive surface form: a whole-number float keeps a trailing
-//     ".0" (100000.0, not 100000); exponents use Python's e+NN / e-NN form with
-//     a sign and at least two exponent digits. This is the same shortest-digits
-//     algorithm Go's strconv uses, re-surfaced into Python's layout. (Q2 of the
-//     api-ws-redis spec asks for byte-equality of these floats; we provide it.)
-//   - HTML escaping is off (Python does not escape <, >, &).
+//   - Float formatting uses shortest round-trip digits with a distinctive
+//     surface form: a whole-number float keeps a trailing ".0" (100000.0, not
+//     100000); exponents use e+NN / e-NN form with a sign and at least two
+//     exponent digits. This is the same shortest-digits algorithm Go's strconv
+//     uses, re-surfaced into the artifact layout. The api-ws-redis spec asks
+//     for stable byte-equality of these floats; we provide it.
+//   - HTML escaping is off (<, >, & are not escaped).
 //
 // Everything else (2-space indent, key insertion order via PyValue ordering,
 // no trailing newline) is handled by the encoder below. Strings, bools, ints
@@ -25,14 +24,14 @@ import (
 	"strings"
 )
 
-// PyFloat is a float64 that JSON-encodes with Python repr surface form. Use it
-// for every float value that must be byte-compatible with a Python json.dumps
-// dump (balances, prices, pnl).
+// PyFloat is a float64 that JSON-encodes with the artifact float surface form
+// (trailing ".0", signed exponents). Use it for every float value in the wire
+// format (balances, prices, pnl).
 type PyFloat float64
 
 // PyValue is the artifact value model: it preserves insertion order for object
-// keys (Python dicts serialize in insertion order). Build artifacts out of
-// Obj/Arr/these scalar wrappers and encode with Marshal.
+// keys. Build artifacts out of Obj/Arr/these scalar wrappers and encode with
+// Marshal.
 type PyValue interface {
 	writeTo(b *strings.Builder, indent int)
 }
@@ -92,8 +91,8 @@ type Null struct{}
 // opaque blobs (e.g. a JSONB params object) verbatim.
 type Raw string
 
-// Marshal renders v as Python-json.dumps(indent=2)-compatible bytes (no
-// trailing newline).
+// Marshal renders v as the indent=2 artifact wire format bytes (no trailing
+// newline).
 func Marshal(v PyValue) []byte {
 	var b strings.Builder
 	v.writeTo(&b, 0)
@@ -158,12 +157,12 @@ func (bl Bool) writeTo(b *strings.Builder, _ int) {
 
 func (f PyFloat) writeTo(b *strings.Builder, _ int) { b.WriteString(FormatPyFloat(float64(f))) }
 
-// FormatPyFloat renders x the way Python's json.dumps / repr does:
+// FormatPyFloat renders x in the artifact float surface form:
 //   - shortest round-trip digits (same algorithm Go's strconv 'g'/-1 uses);
 //   - whole numbers keep a trailing ".0" (100000.0);
 //   - exponential form uses "e+NN"/"e-NN" with a sign and >= 2 exponent digits;
-//   - NaN/Inf become Python's "NaN"/"Infinity"/"-Infinity" (json.dumps default
-//     allow_nan=True; the reference never emits these but we stay faithful).
+//   - NaN/Inf become "NaN"/"Infinity"/"-Infinity" (the data never emits these
+//     but we stay faithful).
 func FormatPyFloat(x float64) string {
 	switch {
 	case math.IsNaN(x):
@@ -173,18 +172,17 @@ func FormatPyFloat(x float64) string {
 	case math.IsInf(x, -1):
 		return "-Infinity"
 	}
-	// Python uses repr(float) == float_repr_style 'short': shortest string that
-	// round-trips, choosing fixed vs scientific by the same thresholds as
-	// strconv 'g' with -1 precision EXCEPT Python switches to exponent for
-	// exp < -4 or exp >= 16. Go's 'g' switches at exp < -4 or exp >= 21.
-	// Reconcile by formatting with 'g' then post-processing to Python's layout.
+	// The surface form uses shortest round-trip digits, choosing fixed vs
+	// scientific by exp < -4 or exp >= 16 (Go's strconv 'g' switches at exp < -4
+	// or exp >= 21). Reconcile by formatting with 'g' then post-processing to
+	// the artifact layout.
 	s := strconv.FormatFloat(x, 'g', -1, 64)
 	return pyFloatSurface(s, x)
 }
 
-// pyFloatSurface rewrites Go's 'g' output into Python's repr surface form.
+// pyFloatSurface rewrites Go's 'g' output into the artifact float surface form.
 func pyFloatSurface(s string, x float64) string {
-	// Determine the decimal exponent of x to apply Python's fixed/scientific
+	// Determine the decimal exponent of x to apply the fixed/scientific
 	// threshold (>= 1e16 or < 1e-4 -> scientific).
 	if x == 0 {
 		if math.Signbit(x) {
@@ -194,7 +192,7 @@ func pyFloatSurface(s string, x float64) string {
 	}
 	mant, exp := shortestDigits(x)
 	// mant is the shortest significant-digit string (no sign, no dot); exp is
-	// the power of ten of the first digit. Python repr: use scientific when
+	// the power of ten of the first digit. Use scientific when
 	// exp < -4 or exp >= 16; otherwise fixed.
 	neg := math.Signbit(x)
 	var out string
@@ -207,8 +205,8 @@ func pyFloatSurface(s string, x float64) string {
 		out = "-" + out
 	}
 	// Defensive: if our reconstruction does not round-trip, fall back to a
-	// massaged 'g' form (guarantees validity; loses exact Python layout only in
-	// pathological cases none of the reference values hit).
+	// massaged 'g' form (guarantees validity; loses exact layout only in
+	// pathological cases none of the artifact values hit).
 	if v, err := strconv.ParseFloat(out, 64); err != nil || v != x {
 		return ensureDotOrExp(s)
 	}
@@ -230,7 +228,7 @@ func shortestDigits(x float64) (mant string, exp int) {
 	return mantPart, exp
 }
 
-// pyFixed renders mant*10^(exp) in Python fixed-point repr, always keeping a
+// pyFixed renders mant*10^(exp) in fixed-point form, always keeping a
 // decimal point (a trailing ".0" for whole numbers).
 func pyFixed(mant string, exp int) string {
 	digits := mant
@@ -245,9 +243,9 @@ func pyFixed(mant string, exp int) string {
 	return "0." + strings.Repeat("0", -exp-1) + digits
 }
 
-// pySci renders mant*10^exp in Python scientific repr: "de±NN" or "d.dddde±NN"
+// pySci renders mant*10^exp in scientific form: "de±NN" or "d.dddde±NN"
 // with a signed exponent of at least two digits. A single-digit mantissa
-// carries NO decimal point (Python: 1e+16, not 1.0e+16).
+// carries NO decimal point (1e+16, not 1.0e+16).
 func pySci(mant string, exp int) string {
 	var m string
 	if len(mant) == 1 {
@@ -277,11 +275,10 @@ func ensureDotOrExp(s string) string {
 	return s + ".0"
 }
 
-// encodePyString encodes a Go string the way Python json.dumps does for ASCII
-// (ensure_ascii=True is Python's default, but the reference data is all ASCII
-// and the spec notes "non-ASCII unescaped is irrelevant"). We escape the JSON
-// mandatory set and keep printable ASCII verbatim. Non-ASCII is emitted as
-// \uXXXX to match Python's default ensure_ascii.
+// encodePyString encodes a Go string for the artifact format with ensure_ascii
+// semantics (the data is all ASCII; the spec notes "non-ASCII unescaped is
+// irrelevant"). We escape the JSON mandatory set and keep printable ASCII
+// verbatim. Non-ASCII is emitted as \uXXXX.
 func encodePyString(s string) string {
 	var b strings.Builder
 	b.WriteByte('"')

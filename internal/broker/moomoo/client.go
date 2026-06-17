@@ -1,7 +1,7 @@
 package moomoo
 
 // client.go is a native Go OpenD client. It speaks the moomoo wire protocol
-// directly (no Python sidecar), implementing the P5 market-data + session
+// directly, implementing the P5 market-data + session
 // surface: InitConnect(1001), GetGlobalState(1002), KeepAlive(1004),
 // Qot_Sub(3001), Qot_RegQotPush(3002), Qot_GetSubInfo(3003),
 // Qot_GetBasicQot(3004), Qot_GetKL(3006), Qot_UpdateKL(3007, push) and

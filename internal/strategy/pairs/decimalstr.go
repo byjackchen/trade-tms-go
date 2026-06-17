@@ -1,6 +1,6 @@
 package pairs
 
-// decimalstr.go: the Python decimal-string bridge and tiny date helpers.
+// decimalstr.go: the decimal-string bridge and tiny date helpers.
 
 import (
 	"fmt"
@@ -11,16 +11,15 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
-// pyDecimalStr reproduces Python's str(Decimal(str(float(price)))) — the form
-// in which closes are serialized by state_dict (signal.py:462). For the <=4dp
-// Price domain the float64 round-trips losslessly, and the shortest decimal
-// repr is the canonical form. Unlike domain.Price.String() (which renders
-// 100.0 as "100"), this keeps the ".0" on integer-valued closes to match
-// Python's Decimal(str(float)).
+// pyDecimalStr renders str(Decimal(str(float(price)))) — the form in which
+// closes are serialized by state_dict. For the <=4dp Price domain the float64
+// round-trips losslessly, and the shortest decimal repr is the canonical form.
+// Unlike domain.Price.String() (which renders 100.0 as "100"), this keeps the
+// ".0" on integer-valued closes.
 //
-// Algorithm: take the shortest float repr (strconv 'g'/-1 == Python repr for
-// these magnitudes), then if it has neither a '.' nor an exponent, append
-// ".0" — exactly what str(float) does for integer-valued floats.
+// Algorithm: take the shortest float repr (strconv 'g'/-1), then if it has
+// neither a '.' nor an exponent, append ".0" — what str(float) does for
+// integer-valued floats.
 func pyDecimalStr(p domain.Price) string {
 	f := p.Float64()
 	s := strconv.FormatFloat(f, 'g', -1, 64)

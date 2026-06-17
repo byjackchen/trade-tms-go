@@ -45,8 +45,7 @@ const progressEvery = 200
 
 // sepaWarmupCalendarDays is the out-of-band SEPA warmup window: 400 calendar
 // days before the run start (~270 trading days, above the 200-bar TrendTemplate
-// / SEPA threshold), matching multi_strategy_backtest.py's
-// `warmup_start = start_dt - timedelta(days=400)`.
+// / SEPA threshold).
 const sepaWarmupCalendarDays = 400
 
 // Backtest handles "backtest.run" jobs.
@@ -59,7 +58,7 @@ const sepaWarmupCalendarDays = 400
 //	  "start":            "YYYY-MM-DD",         // required (bar window start)
 //	  "end":              "YYYY-MM-DD",         // required (bar window end)
 //	  "starting_balance": 100000.0,             // USD; default 100000
-//	  "fill_profile":     "nautilus-compat",    // or "realistic"; default nautilus-compat
+//	  "fill_profile":     "realistic",          // or "close-fill"; default realistic
 //	  "composition_id":   "sepa-only",          // the Composition the backtest runs (API resolves it)
 //	  "composition":       { ... composition.Composition ... }, // the resolved blueprint (enqueued by the API)
 //	  "strategy":         "scripted",           // legacy selector (back-compat for old queued payloads)
@@ -92,7 +91,7 @@ func NewBacktest(pool *pgxpool.Pool, runsDir string, log zerolog.Logger) (*Backt
 // NewBacktestWithParamsDir builds the handler with an explicit strategy-params
 // override directory (config.StrategyParamsDir / TMS_STRATEGY_PARAMS_DIR). The
 // params loader resolves db active_params -> param_sets -> this dir -> embedded
-// baseline, exactly like the Python loader.
+// baseline.
 func NewBacktestWithParamsDir(pool *pgxpool.Pool, runsDir, paramsDir string, log zerolog.Logger) (*Backtest, error) {
 	if pool == nil {
 		return nil, errors.New("backtest.run: nil connection pool")
@@ -318,10 +317,10 @@ func (h *Backtest) buildConfig(ctx context.Context, p backtestParams) (engine.Co
 
 	profile := engine.FillProfile(p.FillProfile)
 	if profile == "" {
-		profile = engine.ProfileNautilusCompat
+		profile = engine.ProfileRealistic
 	}
 	if !profile.IsValid() {
-		return engine.Config{}, nil, "", fmt.Errorf("backtest.run: unknown fill_profile %q (want \"nautilus-compat\" or \"realistic\")", p.FillProfile)
+		return engine.Config{}, nil, "", fmt.Errorf("backtest.run: unknown fill_profile %q (want \"close-fill\" or \"realistic\")", p.FillProfile)
 	}
 
 	cfg := engine.Config{
@@ -421,7 +420,7 @@ func seedCompositionForStrategy(strategy string) (composition.Composition, error
 // given Composition via strategyassembly, and unions the strategies' required
 // instruments (ETFs / pair legs / SPY heartbeat) into the engine ticker
 // registration — SPY FIRST so its bar dispatches before same-date stock bars
-// (look-ahead-safe context). Mirrors multi_strategy_backtest.py.
+// (look-ahead-safe context).
 func (h *Backtest) assembleFromComposition(ctx context.Context, comp composition.Composition, cfg engine.Config, tickers []string, p backtestParams) (engine.Config, *strategyassembly.Assembly, error) {
 	in := strategyassembly.Input{
 		Composition:     comp,
@@ -507,7 +506,7 @@ func (h *Backtest) assembleFromComposition(ctx context.Context, comp composition
 // strategies then run with the cold-start regime/market-cap defaults).
 func (h *Backtest) buildContext(ctx context.Context, cfg engine.Config, stocks []string) (*riskgate.ContextProvider, error) {
 	// SPY history for regime: pull a generous warmup window before the run so
-	// the 200-bar MA is ready on day 1 (mirrors _load_spy's 500-day warmup).
+	// the 200-bar MA is ready on day 1 (a ~500-day warmup window).
 	warmupStart := calendar.NewDate(cfg.Start.Year-2, cfg.Start.Month, cfg.Start.Day)
 	spyRows, err := h.uni.GetBars(ctx, "SPY", warmupStart, cfg.End)
 	if err != nil {
@@ -539,10 +538,10 @@ func (h *Backtest) buildContext(ctx context.Context, cfg engine.Config, stocks [
 
 // buildWarmup loads the out-of-band SEPA warmup tail (the 400 calendar days
 // BEFORE the run window) for each SEPA stock and returns an engine.WarmupConfig.
-// This mirrors multi_strategy_backtest.py:404-435,645-653: the warmup bars are
-// pulled in the same pass as the run window but split off into warmup_by_ticker,
-// then injected via SEPAUniverseRunner.warmup_ticker BEFORE engine.run() — they
-// are NEVER replayed through the engine (no orders, no equity samples). Only
+// The warmup bars are pulled in the same pass as the run window but split off
+// per ticker, then injected into the WarmupConsumer strategies BEFORE the engine
+// runs — they are NEVER replayed through the engine (no orders, no equity
+// samples). Only
 // SEPA stocks get warmed (Pairs/Sector are not WarmupConsumers). Returns nil
 // when no stock has pre-window history (cold start), which is a no-op.
 func (h *Backtest) buildWarmup(ctx context.Context, cfg engine.Config, stocks []string) (*engine.WarmupConfig, error) {
@@ -589,10 +588,9 @@ func (h *Backtest) buildWarmup(ctx context.Context, cfg engine.Config, stocks []
 
 // collectStrategySummaries gathers each real strategy's end-of-run state summary
 // (engine.StateSummarizer) keyed by distinct strategy id, for the legacy
-// strategy_summaries/{id}.json artifact (mirrors multi_strategy_backtest.py's
-// strategy_summaries dump). For SEPA's per-symbol universe the FIRST instance's
-// summary represents the id (the Python side stores a universe aggregate; a
-// per-symbol sample is a faithful-enough Go stand-in). Returns nil for the
+// strategy_summaries/{id}.json artifact. For SEPA's per-symbol universe the
+// FIRST instance's summary represents the id (a per-symbol sample standing in
+// for the universe aggregate). Returns nil for the
 // scripted path (asm == nil) so no summaries are written.
 func collectStrategySummaries(asm *strategyassembly.Assembly) map[string]map[string]any {
 	if asm == nil || len(asm.Strategies) == 0 {

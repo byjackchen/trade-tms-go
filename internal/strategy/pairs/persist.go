@@ -1,7 +1,6 @@
 package pairs
 
-// persist.go: state_dict / load_state and the Python decimal-string bridge.
-// Ports signal.py:445-497 (spec §12).
+// persist.go: state_dict / load_state and the decimal-string bridge (spec §12).
 
 import (
 	"sort"
@@ -10,7 +9,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
-// StateConfig is the "config" block of state_dict (signal.py:447-460).
+// StateConfig is the "config" block of state_dict.
 // equity_at_snapshot is float(equity_provider()) captured AT SAVE TIME; it is
 // informational only — load_state never reads it (spec §12.1). There is
 // deliberately no account_size key.
@@ -24,9 +23,9 @@ type StateConfig struct {
 	Timezone          string     `json:"timezone"`
 }
 
-// StateDict is the full persisted state (signal.py:445-466, spec §12.1).
-// Maps serialize with sorted keys under Go's encoding/json; Python preserves
-// insertion order. Parity is semantic (parse-and-compare), not byte order.
+// StateDict is the full persisted state (spec §12.1).
+// Maps serialize with sorted keys under Go's encoding/json. Round-trip equality
+// is semantic (parse-and-compare), not byte order.
 type StateDict struct {
 	Config      StateConfig         `json:"config"`
 	History     map[string][]string `json:"history"`       // str(Decimal), oldest→newest
@@ -36,7 +35,7 @@ type StateDict struct {
 	LegPosition map[string]int64    `json:"leg_position"`  // signed ints
 }
 
-// StateDict serializes the generator state (signal.py:445-466).
+// StateDict serializes the generator state.
 func (g *Generator) StateDict() StateDict {
 	cfgPairs := make([][]string, 0, len(g.cfg.Pairs))
 	for _, p := range g.cfg.Pairs {
@@ -82,7 +81,7 @@ func (g *Generator) StateDict() StateDict {
 	}
 }
 
-// LoadState restores state from a StateDict (signal.py:468-497, spec §12.2).
+// LoadState restores state from a StateDict (spec §12.2).
 // History rings are rebuilt with capacity from the CURRENT config (lookback+1);
 // if lookback shrank, oldest entries are evicted on load (deque semantics).
 // Empty buffers / FLAT states / 0 positions are seeded for any configured
@@ -92,9 +91,8 @@ func (g *Generator) LoadState(d StateDict) error {
 	maxlen := g.cfg.Lookback + 1
 
 	g.history = make(map[string]*priceRing)
-	// Deterministic load order (Python iterates the snapshot dict in its
-	// order; for ring eviction the per-symbol order is what matters and is
-	// preserved within each list).
+	// Deterministic load order; for ring eviction the per-symbol order is what
+	// matters and is preserved within each list.
 	syms := make([]string, 0, len(d.History))
 	for sym := range d.History {
 		syms = append(syms, sym)
@@ -164,7 +162,7 @@ func (g *Generator) LoadState(d StateDict) error {
 	return nil
 }
 
-// splitFirstPipe splits a "long|short" key on the FIRST '|' (signal.py:486).
+// splitFirstPipe splits a "long|short" key on the FIRST '|'.
 func splitFirstPipe(k string) (string, string) {
 	for i := 0; i < len(k); i++ {
 		if k[i] == '|' {

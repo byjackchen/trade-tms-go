@@ -17,11 +17,11 @@ import { useUiMode } from "@/components/shell/ui-mode-provider";
  * <ResponsiveTable> — a column-definition-driven table that renders the shadcn
  * <Table> on desktop and a stacked CARD LIST on mobile.
  *
- * Decision (docs/concept-alignment.md, LOCKED DECISION 2 — mobile = FULL
- * PARITY): the mobile card carries *every* column, never drops a feature.
- * Primary columns render prominently at the top of each card; secondary columns
- * fold into a collapsible "More" section so the card stays scannable while
- * keeping full parity one tap away.
+ * Decision (LOCKED DECISION 2 — mobile = FULL FEATURE SET): the mobile card
+ * carries *every* column, never drops a feature. Primary columns render
+ * prominently at the top of each card; secondary columns fold into a
+ * collapsible "More" section so the card stays scannable while keeping every
+ * feature one tap away.
  *
  * The surface is chosen from `useUiMode().mode` (the explicit `ui-mode` cookie,
  * LOCKED DECISION 4) — NOT a CSS breakpoint — so a desktop user who forces
@@ -46,7 +46,7 @@ import { useUiMode } from "@/components/shell/ui-mode-provider";
  *               (collapsed under "More"). If NO column is primary, the first
  *               column is treated as primary so a card is never empty.
  *   mobileHidden? — drop this column from the mobile card entirely. Off by
- *               default (full parity); reserved for purely decorative columns.
+ *               default (full feature set); reserved for purely decorative columns.
  *   labelMobile? — override the card label (e.g. a short form of `header`).
  *
  * ── Usage ────────────────────────────────────────────────────────────────────

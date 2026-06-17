@@ -6,16 +6,14 @@ package moomoo
 // types. trade.go (the executor-facing contract) and trd_client.go (the wire
 // client) both build on these.
 //
-// The order-status classification is a 1:1 transcription of the Python
-// reference's dispatch sets (src/adapters/moomoo/exec_client.py:
-// _ACCEPT_STATUSES / _FILL_STATUSES / _CANCEL_STATUSES / _REJECT_STATUSES /
-// _TRANSIENT_STATUSES). Keeping the buckets identical to the production Python
-// adapter is what makes "green on the mock" predict "green on a real account":
-// the SAME moomoo status drives the SAME lifecycle transition here as in the
-// system this replaces.
+// The order-status classification sorts every moomoo OrderStatus into dispatch
+// buckets (accept / fill / cancel / reject / transient). Keeping the buckets
+// stable across the mock and a real account is what makes "green on the mock"
+// predict "green on a real account": the SAME moomoo status drives the SAME
+// lifecycle transition in both.
 //
 // AUTHORITATIVE: Trd_Common.proto (TrdEnv / TrdSide / OrderType / OrderStatus /
-// PositionSide enums) + exec_client.py.
+// PositionSide enums).
 
 import (
 	"fmt"
@@ -112,7 +110,7 @@ const (
 	// StatusClassRejected: terminal reject (Failed/Disabled/SubmitFailed/TimeOut).
 	StatusClassRejected
 	// StatusClassUnknown: a status outside every known set — a state-drift risk
-	// the caller must log at WARN and surface (per exec_client.py).
+	// the caller must log at WARN and surface.
 	StatusClassUnknown
 )
 
@@ -150,12 +148,12 @@ func (c OrderStatusClass) IsTerminal() bool {
 // single authority for moomoo->lifecycle mapping; the mock venue and the wire
 // client both go through it, so they cannot drift.
 //
-// Faithful to exec_client.py:
-//   - _ACCEPT_STATUSES    = {SUBMITTED}
-//   - _FILL_STATUSES      = {FILLED_PART, FILLED_ALL}
-//   - _CANCEL_STATUSES    = {CANCELLED_PART, CANCELLED_ALL, DELETED, FILL_CANCELLED}
-//   - _REJECT_STATUSES    = {FAILED, DISABLED, SUBMIT_FAILED, TIMEOUT}
-//   - _TRANSIENT_STATUSES = {SUBMITTING, WAITING_SUBMIT, CANCELLING_PART, CANCELLING_ALL}
+// Bucket definitions:
+//   - accept    = {SUBMITTED}
+//   - fill      = {FILLED_PART, FILLED_ALL}
+//   - cancel    = {CANCELLED_PART, CANCELLED_ALL, DELETED, FILL_CANCELLED}
+//   - reject    = {FAILED, DISABLED, SUBMIT_FAILED, TIMEOUT}
+//   - transient = {SUBMITTING, WAITING_SUBMIT, CANCELLING_PART, CANCELLING_ALL}
 func classifyTrdStatus(raw int32) OrderStatusClass {
 	switch trdcommon.OrderStatus(raw) {
 	case trdcommon.OrderStatus_OrderStatus_Submitted:

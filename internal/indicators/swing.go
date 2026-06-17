@@ -24,25 +24,25 @@ type Swing struct {
 	Kind  SwingKind
 }
 
-// FindSwingPoints mirrors sepa/_swing.py:23-42 find_swing_points EXACTLY.
+// FindSwingPoints detects local swing extrema.
 //
 // For each center index i in [lookback, n-lookback): consider the
 // (2*lookback+1)-bar window centered on i.
 //
 //   - swing HIGH when highs[i] == window_high.max() AND argmax(window_high) ==
-//     lookback. argmax returns the LEFTMOST index of the maximum (numpy
-//     tie-break), so a high at the center is accepted only if no EARLIER bar in
-//     the window shares that maximum.
+//     lookback. argmax returns the LEFTMOST index of the maximum, so a high at
+//     the center is accepted only if no EARLIER bar in the window shares that
+//     maximum.
 //   - swing LOW is symmetric with lows and argmin.
 //
-// Both a high and a low can be emitted at the same i (the reference checks them
-// independently). Output is sorted by Idx ascending, with high emitted before
-// low at the same Idx (matching the Python append order then stable sort).
+// Both a high and a low can be emitted at the same i (checked independently).
+// Output is sorted by Idx ascending, with high emitted before low at the same
+// Idx.
 //
 // The first and last `lookback` bars never produce a swing (post-confirmation
 // requirement). NaN is not expected in OHLC; if present it participates in the
 // comparisons as IEEE NaN (every comparison false), so it never becomes an
-// extremum — matching numpy's behaviour closely enough for finite OHLC inputs.
+// extremum.
 func FindSwingPoints(high, low []float64, lookback int) []Swing {
 	if lookback < 1 {
 		panic("indicators: FindSwingPoints lookback must be >= 1")
@@ -83,9 +83,8 @@ func FindSwingPoints(high, low []float64, lookback int) []Swing {
 			out = append(out, Swing{Idx: i, Price: low[i], Kind: SwingLow})
 		}
 	}
-	// Python sorts by idx; appends keep high-before-low at equal idx, and the
-	// sort is stable (list.sort). Our build order already yields ascending idx
-	// with high before low, so it is already sorted. Kept explicit for clarity
-	// against the reference's out.sort(key=lambda s: s.idx).
+	// Swings are ordered by idx, with high-before-low at equal idx. Our build
+	// order already yields ascending idx with high before low, so the output is
+	// already sorted.
 	return out
 }

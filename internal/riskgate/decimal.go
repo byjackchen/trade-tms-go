@@ -1,16 +1,18 @@
 package riskgate
 
 // decimal.go provides `dec`, an exact rational money value (math/big.Rat) used
-// throughout the risk pipeline. It exists so the Go pipeline reproduces the
-// comparison results of CPython's `decimal.Decimal` exactly.
+// throughout the risk pipeline. It exists so the pipeline's comparison results
+// are bit-for-bit reproducible across platforms (arm64 vs x86), where rounded
+// float arithmetic could diverge.
 //
 // Why exact rationals and not float64 / the 1e-4 fixed-point domain.Money:
-// the Python pipeline multiplies share counts by `Decimal(str(pct))` fractions
-// (e.g. nav * Decimal("0.2")) and by 2-dp prices, then compares with strict
-// </>. A float64 would drift; domain.Money's 4-dp quantization would truncate
-// products like nav*0.05 that Python keeps exact. big.Rat keeps every
-// intermediate exact, and since the Python decimal context (28 digits) never
-// rounds for the magnitudes used here, the comparison results are identical.
+// the pipeline multiplies share counts by decimal-string pct fractions
+// (e.g. nav * 0.2) and by 2-dp prices, then compares with strict </>. A float64
+// would drift (and could differ across platforms); domain.Money's 4-dp
+// quantization would truncate products like nav*0.05 that must stay exact.
+// big.Rat keeps every intermediate exact, and since the 28-digit decimal
+// precision never rounds for the magnitudes used here, the comparison results
+// are identical on every platform.
 
 import (
 	"math/big"
@@ -31,9 +33,9 @@ func decZero() dec { return dec{r: new(big.Rat)} }
 // decFromInt builds an exact integer dec.
 func decFromInt(v int64) dec { return dec{r: new(big.Rat).SetInt64(v)} }
 
-// decFromPctFloat builds the exact rational of `Decimal(str(f))` — Python takes
-// the SHORTEST decimal repr of the float then parses it exactly. strconv with
-// 'g'/-1 yields that shortest repr; parsing it into a big.Rat is exact.
+// decFromPctFloat builds the exact rational of the SHORTEST decimal repr of the
+// float, then parses it exactly. strconv with 'g'/-1 yields that shortest repr;
+// parsing it into a big.Rat is exact.
 func decFromPctFloat(f float64) dec {
 	s := strconv.FormatFloat(f, 'g', -1, 64)
 	r, ok := new(big.Rat).SetString(s)
@@ -91,16 +93,14 @@ func (d dec) Sub(o dec) dec { return dec{r: new(big.Rat).Sub(d.rat(), o.rat())} 
 func (d dec) Mul(o dec) dec { return dec{r: new(big.Rat).Mul(d.rat(), o.rat())} }
 func (d dec) Neg() dec      { return dec{r: new(big.Rat).Neg(d.rat())} }
 
-// decPrec mirrors CPython's default decimal context precision (28 significant
-// digits). Division in the health snapshot (day_pnl/nav, headroom/nav,
-// value/nav) is the only place the pipeline rounds; +, -, * stay exact. We
-// round the quotient to 28 significant digits with banker's rounding
-// (ROUND_HALF_EVEN, the Python decimal default) so numeric comparisons in the
-// parity suite match.
+// decPrec is the decimal precision used for division: 28 significant digits.
+// Division in the health snapshot (day_pnl/nav, headroom/nav, value/nav) is the
+// only place the pipeline rounds; +, -, * stay exact. We round the quotient to
+// 28 significant digits with banker's rounding (ROUND_HALF_EVEN) so numeric
+// comparisons are bit-for-bit reproducible across platforms.
 const decPrec = 28
 
-// Quo returns d / o rounded to 28 significant digits (ROUND_HALF_EVEN),
-// mirroring CPython decimal.Decimal division under the default context.
+// Quo returns d / o rounded to 28 significant digits (ROUND_HALF_EVEN).
 // Caller guarantees o != 0 (the pipeline only divides when nav > 0).
 func (d dec) Quo(o dec) dec {
 	q := new(big.Rat).Quo(d.rat(), o.rat())

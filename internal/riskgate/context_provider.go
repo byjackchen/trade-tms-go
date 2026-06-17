@@ -1,9 +1,9 @@
 package riskgate
 
-// context_provider.go is the BACKTEST data-equivalent of the Python Context
-// Actors (RegimeActor / FundamentalsActor / EarningsActor, spec §7.5-§7.7).
+// context_provider.go is the BACKTEST data-equivalent of the live context
+// publishers (regime / fundamentals / earnings, spec §7.5-§7.7).
 //
-// In live mode the Actors subscribe to the SPY heartbeat bar and publish
+// In live mode the publishers subscribe to the SPY heartbeat bar and publish
 // RegimeUpdate / MarketCapUpdate / EarningsBlackoutUpdate onto the message bus,
 // which the strategy SignalGenerators consume. In BACKTEST there is no bus: the
 // engine instead consults a ContextProvider once per bar with the bar's date,
@@ -13,10 +13,10 @@ package riskgate
 // with as_of = the bar date, so it is look-ahead-safe by construction: only
 // data with date <= as_of is ever consulted (§7.2-§7.4).
 //
-// This mirrors the Actors' transition/dedup publishing semantics so the
-// sequence of published updates a backtest sees matches what a live run would
-// have published bar-for-bar (RegimeActor: on transition + first; Fundamentals:
-// per-ticker value change; Earnings: per-ticker transition + first observation).
+// It uses the same transition/dedup publishing semantics as the live publishers
+// so the sequence of published updates a backtest sees matches what a live run
+// would have published bar-for-bar (regime: on transition + first; fundamentals:
+// per-ticker value change; earnings: per-ticker transition + first observation).
 
 import (
 	"sort"
@@ -24,8 +24,8 @@ import (
 )
 
 // ContextProvider computes per-bar context from full history, look-ahead-safe.
-// It is the backtest stand-in for the three Context Actors. Tickers is the
-// tracked universe (the SEPA stock universe in production, §7.8); per-ticker
+// It is the backtest stand-in for the three live context publishers. Tickers is
+// the tracked universe (the SEPA stock universe in production, §7.8); per-ticker
 // updates are emitted in tracked order for determinism.
 type ContextProvider struct {
 	spyHistory []SPYBar // sorted ascending by date (regime input)
@@ -35,16 +35,16 @@ type ContextProvider struct {
 	dimension  string
 	blackout   int
 
-	// dedup state mirroring the Actors' publish gating.
+	// dedup state for publish gating.
 	lastRegime       *string
-	lastMarketCap    map[string]dec  // by value (FundamentalsActor §7.6)
+	lastMarketCap    map[string]dec  // by value (fundamentals §7.6)
 	lastBlackoutSeen map[string]bool // key present == observed at least once
 	lastBlackout     map[string]bool
 }
 
 // NewContextProvider builds a provider over the given history. spyHistory is
 // sorted ascending by date defensively. dimension defaults to "MRT" and blackout
-// to 5 (the reference defaults) when zero-valued.
+// to 5 (the defaults) when zero-valued.
 func NewContextProvider(spyHistory []SPYBar, sf1Rows []SF1Row, earnings []EarningsRow, tickers []string, dimension string, blackoutDays int) *ContextProvider {
 	hist := make([]SPYBar, len(spyHistory))
 	copy(hist, spyHistory)
@@ -101,9 +101,9 @@ type ContextUpdates struct {
 
 // OnBar advances the provider for a SPY heartbeat bar at ts, writes the new
 // context into state, and returns the updates that a live run would have
-// PUBLISHED on this bar (mirroring the Actors' dedup/transition semantics,
-// §7.5-§7.7). The returned updates let a backtest record the exact published
-// sequence; the always-write-to-state behavior matches the Actors writing
+// PUBLISHED on this bar (the same dedup/transition semantics, §7.5-§7.7). The
+// returned updates let a backtest record the exact published sequence; the
+// always-write-to-state behavior matches the live publishers writing
 // shared_state every qualifying bar.
 //
 // Regime (§7.5): only classifies/writes when >= 200 bars are available as of

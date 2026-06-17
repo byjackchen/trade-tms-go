@@ -87,8 +87,8 @@ func ATRWilder(high, low, close []float64, period int) []float64 {
 }
 
 // ATRSimple computes ATR as a plain simple moving average of the true range
-// (pandas `TrueRange.rolling(period).mean()`). Some references use this instead
-// of Wilder smoothing; provided for completeness and parity flexibility. Warmup
+// (a rolling(period).mean() over TrueRange). Some strategies use this instead
+// of Wilder smoothing; provided for completeness and flexibility. Warmup
 // indices [0, period-1] are NaN.
 func ATRSimple(high, low, close []float64, period int) []float64 {
 	if period <= 0 {

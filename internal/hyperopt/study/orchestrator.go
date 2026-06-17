@@ -658,8 +658,7 @@ func (c *Coordinator) evalOne(parent context.Context, t nsga2.Trial) trialOutcom
 
 // timeoutError returns the §5.4 trial-timeout FAIL error: the message text is
 // "timeout: trial timeout after <N>s" — the outer wrapper's "timeout: " prefix
-// over the inner "trial timeout after <N>s" (the doubled word is intentional,
-// matching the reference workers.py:42,203).
+// over the inner "trial timeout after <N>s" (the doubled word is intentional).
 func (c *Coordinator) timeoutError() error {
 	return fmt.Errorf("timeout: trial timeout after %ds", c.trialTimeoutSecs)
 }

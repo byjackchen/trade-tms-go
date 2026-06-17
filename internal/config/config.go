@@ -10,8 +10,8 @@ import (
 )
 
 // MissingConfig is returned when a required configuration value is unset.
-// It mirrors the Python reference's MissingConfig(RuntimeError): callers get
-// a consistent message with a setup pointer instead of a bare KeyError.
+// Callers get a consistent message with a setup pointer instead of a bare
+// lookup failure.
 type MissingConfig struct {
 	// Key is the environment variable name that is missing or empty.
 	Key string
@@ -53,7 +53,7 @@ type Config struct {
 	RedisPassword string // TMS_REDIS_PASSWORD (optional)
 
 	// --- Runtime ---
-	LogLevel  string // TMS_LOG_LEVEL (debug/info/warn/error; Python-style DEBUG/INFO/WARNING/ERROR accepted)
+	LogLevel  string // TMS_LOG_LEVEL (debug/info/warn/error; uppercase DEBUG/INFO/WARNING/ERROR accepted)
 	LogFormat string // TMS_LOG_FORMAT ("auto"|"console"|"json")
 	APIAddr   string // TMS_API_ADDR (listen address for `tms api`)
 
@@ -70,12 +70,12 @@ type Config struct {
 	// --- Data vendors ---
 	// NasdaqDataLinkAPIKey has no safe default; use
 	// Require("TMS_NASDAQ_DATA_LINK_API_KEY"). The TMS_-prefixed name is the
-	// canonical Go-side spelling; the Python reference's bare
+	// canonical spelling; the data provider's bare
 	// NASDAQ_DATA_LINK_API_KEY is accepted as a fallback so a shared .env
 	// keeps working.
 	NasdaqDataLinkAPIKey string // TMS_NASDAQ_DATA_LINK_API_KEY (fallback NASDAQ_DATA_LINK_API_KEY)
 	// SharadarCacheDir: "" means "use repo-root default ./cache/sharadar"
-	// (resolved by the data layer), matching the Python reference.
+	// (resolved by the data layer).
 	SharadarCacheDir string // TMS_SHARADAR_CACHE_DIR
 
 	// --- moomoo OpenD (P5) ---
@@ -122,13 +122,13 @@ type Config struct {
 	// --- Strategy params resolution ---
 	// StrategyParamsDir: "" means "use embedded baseline params"; set to e.g.
 	// runs/active_params to run with tuned params (per-strategy fallback to
-	// baseline), matching the Python reference.
+	// baseline).
 	StrategyParamsDir string // TMS_STRATEGY_PARAMS_DIR
 
 	// --- Run artifacts ---
 	// RunsDir is the base directory for the legacy runs/{ts}/*.json artifact
 	// set written alongside the DB source of truth (P2 locked decision 4).
-	// Defaults to "runs" (matching the Python reference's TMS_RUNS_DIR).
+	// Defaults to "runs".
 	RunsDir string // TMS_RUNS_DIR
 
 	// DotenvPath records where .env was loaded from ("" if none found),
@@ -139,8 +139,7 @@ type Config struct {
 // Load reads .env (non-overriding) and returns a fresh Config snapshot.
 // It returns an error only for values that are present but malformed
 // (e.g. a non-integer port); absence of optional values is not an error —
-// required-at-use values are enforced via Require at the call site, exactly
-// like the Python reference's Config.require.
+// required-at-use values are enforced via Require at the call site.
 func Load() (*Config, error) {
 	dotenvPath, err := loadDotenv()
 	if err != nil {

@@ -212,7 +212,7 @@ export type UniverseRebuildRequest = {
 
 export type BacktestStatus = "RUNNING" | "COMPLETE" | "INTERRUPTED" | "FAIL";
 
-export type FillProfile = "nautilus-compat" | "realistic";
+export type FillProfile = "close-fill" | "realistic";
 
 /** A run summary, as returned in the list and the detail `backtest` field. */
 export type BacktestSummary = {

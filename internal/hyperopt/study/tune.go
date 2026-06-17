@@ -1,13 +1,12 @@
 package study
 
-// tune.go ports write_tuned_params (loader.py:233-272, spec §8.2 [MUST-MATCH]):
-// produce a tuned strategy param document by overlaying a best trial's params
-// onto the PACKAGE baseline, replacing ONLY each tuned param's `default` value
-// (search/constraints/ordering/all other fields preserved verbatim) and swapping
-// the metadata block for the tuned provenance ({source:"tuned", created_at,
-// tuned_from_study, tuned_from_trial}). The output is json.dumps(raw, indent=2,
-// sort_keys=False) — insertion order preserved — which the shared pyjson encoder
-// reproduces byte-for-byte.
+// tune.go (spec §8.2): produce a tuned strategy param document by overlaying a
+// best trial's params onto the PACKAGE baseline, replacing ONLY each tuned
+// param's `default` value (search/constraints/ordering/all other fields
+// preserved verbatim) and swapping the metadata block for the tuned provenance
+// ({source:"tuned", created_at, tuned_from_study, tuned_from_trial}). The
+// output is 2-space-indented JSON with insertion order preserved, emitted by
+// the shared pyjson encoder.
 //
 // The promoted values are the OPTUNA-recorded (pre-constraint-clamp) values
 // (§2.3/§8.1 step 4, Q5: bug-compatible — the runtime loader re-applies clamps).
@@ -38,8 +37,8 @@ type TuneInput struct {
 }
 
 // TuneBaseline reads the PACKAGE baseline for the strategy and returns the tuned
-// document as Python-json.dumps(indent=2)-compatible bytes. The baseline order
-// is preserved; only tuned defaults and the metadata block change.
+// document as 2-space-indented JSON bytes. The baseline order is preserved;
+// only tuned defaults and the metadata block change.
 func TuneBaseline(in TuneInput) ([]byte, error) {
 	raw, err := hyperopt.BaselineRaw(in.Strategy)
 	if err != nil {
@@ -57,7 +56,7 @@ func TuneBaseline(in TuneInput) ([]byte, error) {
 	}
 
 	// Decode the full baseline into an ordered tree, rewrite defaults + metadata,
-	// re-encode with the Python-compatible encoder.
+	// re-encode with the pyjson encoder.
 	var top orderedMap
 	if err := json.Unmarshal(raw, &top); err != nil {
 		return nil, fmt.Errorf("hyperopt: parsing baseline %s: %w", in.Strategy, err)
@@ -88,7 +87,7 @@ func TuneBaseline(in TuneInput) ([]byte, error) {
 	}
 
 	// Replace metadata with the tuned provenance, preserving any pre-existing
-	// metadata keys (Python does {**old, ...new}).
+	// metadata keys (merge old <- new).
 	meta, _ := top.get("metadata")
 	newMeta := &orderedMap{}
 	if mo, ok := meta.(*orderedMap); ok {
@@ -135,7 +134,7 @@ func (o *orderedMap) set(k string, v any) {
 }
 
 // jsonStr/jsonInt/jsonFloat are typed scalar markers so toPyValue renders them
-// with the correct surface form (ints without ".0", floats with Python repr).
+// with the correct surface form (ints without ".0", floats with shortest repr).
 type jsonStr string
 type jsonInt int64
 type jsonFloat float64

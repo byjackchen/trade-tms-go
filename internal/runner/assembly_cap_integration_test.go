@@ -327,7 +327,7 @@ func TestBacktestEODAssemblyKeepsFullUniverse(t *testing.T) {
 		assert.True(t, contains(as.Tickers, tk), "uncapped assembly must keep SEPA name %s", tk)
 	}
 	assert.Greater(t, len(as.Tickers), moomoo.DefaultMaxSubscriptions,
-		"uncapped assembly keeps the full universe (> the OpenD cap — backtest/hyperopt parity)")
+		"uncapped assembly keeps the full universe (> the OpenD cap — backtest/hyperopt path)")
 	t.Logf("uncapped (backtest/EOD) assembly: %d total (full %d-name universe + fixed)",
 		len(as.Tickers), len(sepaByCap))
 }

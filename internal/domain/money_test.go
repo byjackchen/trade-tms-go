@@ -140,7 +140,7 @@ func TestMoneyArithmetic(t *testing.T) {
 		t.Errorf("StringFixed = %q", a.StringFixed(2))
 	}
 	if got := MustMoney("123.4").StringFixed(2); got != "123.40" {
-		t.Errorf("StringFixed(2) of 123.4 = %q, want Python Decimal-style %q", got, "123.40")
+		t.Errorf("StringFixed(2) of 123.4 = %q, want fixed-2dp %q", got, "123.40")
 	}
 }
 
@@ -181,7 +181,7 @@ func TestQty(t *testing.T) {
 }
 
 func TestQtyFromFloat64Trunc(t *testing.T) {
-	// Python int(x) truncates toward zero — including for negatives.
+	// Truncation toward zero — including for negatives.
 	tests := []struct {
 		in   float64
 		want Qty
@@ -264,7 +264,7 @@ func TestFixedJSONRoundTrip(t *testing.T) {
 }
 
 func TestFixedJSONForms(t *testing.T) {
-	// String form (the canonical encoding, matching Python default=str).
+	// String form (the canonical encoding, default=str).
 	if b, _ := json.Marshal(MustPrice("123.45")); string(b) != `"123.45"` {
 		t.Errorf("Price marshals as %s, want \"123.45\"", b)
 	}

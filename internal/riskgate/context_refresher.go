@@ -1,18 +1,17 @@
 package riskgate
 
-// context_refresher.go ports src/portfolio/context_refresher.py (spec §7.2-§7.4
-// [MUST-MATCH]): the three pure context-computation functions consumed by the
-// backtest context providers and (in live mode) the Context Actors.
+// context_refresher.go (spec §7.2-§7.4): the three pure context-computation
+// functions consumed by the backtest context providers and (in live mode) the
+// context publishers.
 //
 //   - ComputeRegime:        SPY daily history -> {bull,bear,neutral,warning}.
 //   - LoadSF1MarketCaps:    latest market cap per ticker as of a date.
 //   - LoadEarningsCalendar: per-ticker earnings-blackout flag as of a date.
 //
-// Pandas frames at the Python boundary become typed slices here (spec Open
-// question 10): the loaders preserve input order so the "stable sort by datekey,
-// last per ticker" tie-break (§7.3) reproduces pandas tail() semantics. Float
-// math is float64 mirroring numpy/pandas; the rolling MA uses min_periods=200
-// (first 199 entries NaN) and NaN propagates through the mean exactly as pandas.
+// The loaders take typed slices and preserve input order so the "stable sort by
+// datekey, last per ticker" tie-break (§7.3) is deterministic. Float math is
+// float64; the rolling MA uses min_periods=200 (first 199 entries NaN) and NaN
+// propagates through the mean.
 
 import (
 	"math"
@@ -47,8 +46,7 @@ type EarningsRow struct {
 	ReportDate time.Time
 }
 
-// ComputeRegime classifies the market regime from SPY daily history
-// (context_refresher.py:50-103, spec §7.2 [MUST-MATCH]).
+// ComputeRegime classifies the market regime from SPY daily history (spec §7.2).
 //
 // asOf (when non-zero) filters to bars with date <= asOf BEFORE any computation
 // (look-ahead prevention). Classification order:
@@ -125,7 +123,7 @@ func rollingMean(xs []float64, window int) []float64 {
 }
 
 // LoadSF1MarketCaps returns the latest known market cap per ticker as of asOf
-// (context_refresher.py:106-147, spec §7.3 [MUST-MATCH]).
+// (spec §7.3).
 //
 // Steps:
 //  1. nil/empty -> empty map.
@@ -137,9 +135,8 @@ func rollingMean(xs []float64, window int) []float64 {
 //     DateKey: last in original input order wins — stable sort + tail).
 //  6. Value = exact decimal of the float's shortest-repr string.
 //
-// Value strings carry a trailing ".0" for integral floats to match Python's
-// Decimal(str(2.7e12)) == Decimal("2700000000000.0"); MarketCapDecString below
-// renders that form for parity assertions.
+// Value strings carry a trailing ".0" for integral floats (e.g. 2.7e12 ->
+// "2700000000000.0"); MarketCapDecString below renders that canonical form.
 func LoadSF1MarketCaps(rows []SF1Row, asOf time.Time, dimension string) map[string]dec {
 	out := map[string]dec{}
 	if len(rows) == 0 {
@@ -203,7 +200,7 @@ func LoadSF1MarketCaps(rows []SF1Row, asOf time.Time, dimension string) map[stri
 }
 
 // LoadEarningsCalendar returns the per-ticker earnings-blackout flag as of asOf
-// (context_refresher.py:150-183, spec §7.4 [MUST-MATCH]).
+// (spec §7.4).
 //
 // A ticker is in blackout iff ANY of its earnings dates d satisfies
 // asOf-N <= d <= asOf+N calendar days, inclusive both ends (N = blackoutDays).
@@ -225,9 +222,8 @@ func LoadEarningsCalendar(rows []EarningsRow, asOf time.Time, blackoutDays int) 
 	return out
 }
 
-// decFromFloatStr builds the exact decimal of Decimal(str(f)) — Python takes the
-// float's shortest decimal repr then parses it exactly. strconv 'g'/-1 yields
-// that shortest repr.
+// decFromFloatStr builds the exact decimal of the float's shortest decimal repr,
+// then parses it exactly. strconv 'g'/-1 yields that shortest repr.
 func decFromFloatStr(f float64) dec {
 	s := strconv.FormatFloat(f, 'g', -1, 64)
 	d, ok := ParseDec(s)

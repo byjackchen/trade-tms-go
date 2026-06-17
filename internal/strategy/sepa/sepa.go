@@ -1,17 +1,16 @@
 package sepa
 
-// sepa.go is the pure Go port of SEPASignalGenerator (sepa/signal.py) — the
-// stateful, streaming SEPA state machine. It composes the parity-tested
+// sepa.go is the stateful, streaming SEPA state machine. It composes the
 // indicator primitives in internal/indicators (Trend Template, Stage, VCP,
 // swing, breakout volume, round-half-even) with the grade gate and grade-aware
-// sizing, reproducing the reference's decision chain, sizing arithmetic,
-// look-ahead guards, and string formats BYTE-FOR-BYTE.
+// sizing: the decision chain, sizing arithmetic, look-ahead guards, and string
+// formats.
 //
-// Layering [MUST-MATCH spec §0]: this package imports only internal/indicators
-// (the numerical foundation) and the stdlib — never broker/engine/riskgate.
+// Layering (spec §0): this package imports only internal/indicators (the
+// numerical foundation) and the stdlib — never broker/engine/riskgate.
 // External context (regime / market cap / earnings / catalyst) arrives via
-// setters exactly as the reference's set_* methods; the engine adapter feeds
-// them from internal/riskgate's look-ahead-safe providers.
+// set_* setters; the engine adapter feeds them from internal/riskgate's
+// look-ahead-safe providers.
 
 import (
 	"time"
@@ -20,9 +19,9 @@ import (
 )
 
 // decState carries a price-like state field both as its float64 value (for
-// arithmetic and comparisons — the reference compares the Decimal whose value
-// is the shortest-repr float, so float compares are exact) and its canonical
-// Python str(Decimal) string (for state_summary / state_dict / intent parity).
+// arithmetic and comparisons — the value is the shortest-repr float, so float
+// compares are exact) and its canonical str(Decimal) string (for state_summary
+// / state_dict / intent serialization).
 type decState struct {
 	val float64
 	str string // pyFloatRepr(val); "" iff zero-and-unset
@@ -32,26 +31,25 @@ func decFromFloat(f float64) decState {
 	return decState{val: f, str: pyFloatRepr(f)}
 }
 
-// decZero is the reference's Decimal(0): value 0.0, str "0".
+// decZero is Decimal(0): value 0.0, str "0".
 var decZero = decState{val: 0, str: "0"}
 
-// Generator is the SEPA SignalGenerator (sepa/signal.py SEPASignalGenerator).
-// Not safe for concurrent use; the engine drives one instance per symbol on a
-// single goroutine (spec §15: per-symbol serialization).
+// Generator is the SEPA SignalGenerator. Not safe for concurrent use; the
+// engine drives one instance per symbol on a single goroutine (spec §15:
+// per-symbol serialization).
 type Generator struct {
 	cfg Config
 
-	// Internal kline buffer (signal.py _klines). Parallel slices mirror the
-	// float/int columns of the reference DataFrame; ts mirrors the
-	// DatetimeIndex. Oldest first.
+	// Internal kline buffer. Parallel slices hold the float/int OHLCV columns;
+	// ts holds the timestamps. Oldest first.
 	ts     []time.Time
 	open   []float64
 	high   []float64
 	low    []float64
 	close  []float64
-	volume []float64 // float64 for mean() parity (pandas volume.mean() is float)
+	volume []float64 // float64 because volume.mean() is float
 
-	// Position state (signal.py:142-147).
+	// Position state.
 	position   int
 	entryPrice decState
 	stopPrice  decState
@@ -60,7 +58,7 @@ type Generator struct {
 
 	intentGeneration int
 
-	// Externally-supplied context (signal.py:149-153 cold-start defaults).
+	// Externally-supplied context (cold-start defaults).
 	regime           string
 	marketCapUSD     float64
 	earningsBlackout bool
@@ -69,12 +67,11 @@ type Generator struct {
 	// inc carries the per-generator incremental indicator state that replaces the
 	// O(window)-per-bar batch recomputation in the flat-book entry chain. It is
 	// fed once per bar in appendBar and rebuilt by WarmupFromHistory / LoadState.
-	// See incstate.go / incentry.go (parity-critical, byte-identical to batch).
+	// See incstate.go / incentry.go (byte-identical to the batch indicators).
 	inc *incState
 }
 
-// New constructs a SEPA generator, validating the config exactly as
-// SEPASignalGeneratorConfig.__post_init__ (signal.py:155-164). Returns
+// New constructs a SEPA generator, validating the configuration. Returns
 // ErrInvalidConfig-wrapped errors on invalid risk_pct / hard_stop_pct / nil
 // equity provider.
 func New(cfg Config) (*Generator, error) {
@@ -92,7 +89,7 @@ func New(cfg Config) (*Generator, error) {
 }
 
 // ---------------------------------------------------------------------------
-// External context setters (signal.py:170-180)
+// External context setters
 // ---------------------------------------------------------------------------
 
 // SetRegime sets the market regime ("bull"/"neutral"/"warning"/"bear").
@@ -118,12 +115,12 @@ func (g *Generator) Position() int { return g.position }
 func (g *Generator) StopPriceFloat() float64 { return g.stopPrice.val }
 
 // ---------------------------------------------------------------------------
-// Core: process one bar (signal.py:186-193)
+// Core: process one bar
 // ---------------------------------------------------------------------------
 
 // OnBar processes one bar and returns zero or more signals. A bar for a
-// different symbol is ignored WITHOUT being appended to history
-// (test_signal.py:162-166). Otherwise the bar is appended, then the flat book
+// different symbol is ignored WITHOUT being appended to history.
+// Otherwise the bar is appended, then the flat book
 // runs the entry chain and a held book runs the (hard-stop-only) exit check —
 // never both on one bar.
 func (g *Generator) OnBar(bar Bar) []Signal {
@@ -138,13 +135,13 @@ func (g *Generator) OnBar(bar Bar) []Signal {
 }
 
 // ---------------------------------------------------------------------------
-// Entry logic (signal.py:199-254)
+// Entry logic
 // ---------------------------------------------------------------------------
 
 func (g *Generator) maybeEnter(bar Bar) []Signal {
 	n := len(g.close)
 	if n < 200 {
-		return nil // not enough history for Trend Template (signal.py:200-201)
+		return nil // not enough history for Trend Template
 	}
 
 	// [CORRECTNESS/PERF fix 3] Early market-cap reject. Trend-Template rule 8
@@ -153,7 +150,7 @@ func (g *Generator) maybeEnter(bar Bar) []Signal {
 	// rejected. Hoisting the SAME gate ahead of the Stage/Trend-Template/VCP chain
 	// yields the IDENTICAL admit/reject set (a sub-min-cap name never traded
 	// before either) while skipping the entire indicator recompute for names that
-	// cannot clear the cap. Byte-identical predicate to rule 8 (trend_template.go).
+	// cannot clear the cap. Same predicate as rule 8 (trend_template.go).
 	if !(g.marketCapUSD >= g.cfg.MarketCapMinUSD) {
 		return nil
 	}
@@ -173,9 +170,9 @@ func (g *Generator) maybeEnter(bar Bar) []Signal {
 		return nil
 	}
 
-	// 3. VCP base on history EXCLUDING the current bar (signal.py:217-221) —
-	// the look-ahead/self-reference guard so the breakout bar's own high cannot
-	// redefine the pivot. prior = _klines.iloc[:-1].
+	// 3. VCP base on history EXCLUDING the current bar — the look-ahead/
+	// self-reference guard so the breakout bar's own high cannot redefine the
+	// pivot. prior = _klines.iloc[:-1].
 	priorLen := n - 1
 	if priorLen < 30 {
 		return nil
@@ -195,8 +192,8 @@ func (g *Generator) maybeEnter(bar Bar) []Signal {
 		return nil
 	}
 
-	// 4. Breakout: close strictly > pivot (signal.py:230-233). The reference
-	// compares float(bar.close) <= vcp.pivot_price.
+	// 4. Breakout: close strictly > pivot. We compare float(bar.close) <=
+	// vcp.pivot_price.
 	closeF := bar.Close
 	if closeF <= vcp.PivotPrice {
 		return nil
@@ -205,7 +202,7 @@ func (g *Generator) maybeEnter(bar Bar) []Signal {
 		return nil
 	}
 
-	// 5. Grade — final go/no-go (signal.py:236-251).
+	// 5. Grade — final go/no-go.
 	earningsPass := !g.earningsBlackout
 	grade := gradeSetup(setupInputs{
 		trendTemplatePass:   ttPass,
@@ -219,21 +216,20 @@ func (g *Generator) maybeEnter(bar Bar) []Signal {
 		return nil
 	}
 
-	// 6. Stop + size, emit (signal.py:253).
+	// 6. Stop + size, emit.
 	return g.buildLongEntry(bar, vcp, grade)
 }
 
-// breakoutVolumeOK mirrors _breakout_volume_ok (signal.py:256-273): base
-// lookback is hard-coded 60 (NOT 50); the denominator excludes today.
+// breakoutVolumeOK is the _breakout_volume_ok gate: base lookback is hard-coded
+// 60 (NOT 50); the denominator excludes today.
 func (g *Generator) breakoutVolumeOK() bool {
 	const baseLookback = 60
 	return indicators.BreakoutVolumeOK(g.volume, baseLookback, g.cfg.BreakoutVolumeMultiple)
 }
 
-// buildLongEntry mirrors _build_long_entry (signal.py:275-311): compute the
-// stop as max(hard_stop, pivot_stop) with round-half-even to 4 dp, derive the
-// first-tranche share count, persist state, and emit the LONG signal with the
-// exact reason string.
+// buildLongEntry computes the stop as max(hard_stop, pivot_stop) with
+// round-half-even to 4 dp, derives the first-tranche share count, persists
+// state, and emits the LONG signal with the reason string.
 func (g *Generator) buildLongEntry(bar Bar, vcp indicators.VCPSnapshot, grade Grade) []Signal {
 	entryF := bar.Close
 	pivotF := vcp.PivotPrice
@@ -251,10 +247,10 @@ func (g *Generator) buildLongEntry(bar Bar, vcp indicators.VCPSnapshot, grade Gr
 	}
 	shares := g.computeFirstTrancheShares(entryF, stopF, tranches)
 	if shares <= 0 {
-		return nil // no entry, no state (signal.py:282-283)
+		return nil // no entry, no state
 	}
 
-	// Persist state (signal.py:286-291).
+	// Persist state.
 	g.position = shares
 	g.entryPrice = decFromFloat(entryF) // == Decimal(str(close))
 	g.stopPrice = decFromFloat(stopF)
@@ -278,9 +274,8 @@ func (g *Generator) buildLongEntry(bar Bar, vcp indicators.VCPSnapshot, grade Gr
 	}}
 }
 
-// computeFirstTrancheShares mirrors _compute_first_tranche_shares
-// (signal.py:313-326): pull live equity, compute risk dollars, two floor
-// divisions (risk // stop_distance, then // tranches).
+// computeFirstTrancheShares pulls live equity, computes risk dollars, and does
+// two floor divisions (risk // stop_distance, then // tranches).
 func (g *Generator) computeFirstTrancheShares(entry, stop float64, tranches int) int {
 	equity := g.cfg.EquityProvider()
 	riskDollar := equity * (g.cfg.RiskPct / 100)
@@ -297,7 +292,7 @@ func (g *Generator) computeFirstTrancheShares(entry, stop float64, tranches int)
 }
 
 // ---------------------------------------------------------------------------
-// Exit logic (signal.py:332-354) — P2 hard stop only
+// Exit logic — P2 hard stop only
 // ---------------------------------------------------------------------------
 
 func (g *Generator) maybeExit(bar Bar) []Signal {
@@ -329,7 +324,7 @@ func (g *Generator) maybeExit(bar Bar) []Signal {
 }
 
 // ---------------------------------------------------------------------------
-// History buffer (signal.py:360-376)
+// History buffer
 // ---------------------------------------------------------------------------
 
 func (g *Generator) appendBar(bar Bar) {
@@ -351,8 +346,8 @@ func (g *Generator) appendBar(bar Bar) {
 		// old copy-into-new-slice trimFront. Reslicing is O(1) and allocation-free
 		// — it only advances the slice header past the dropped prefix; the live
 		// window stays contiguous and oldest-first (so DetectVCP / EvaluateIntent
-		// keep clean slices) and len(g.close) stays exactly max (parity:
-		// BarsInHistory). The wasted prefix is reclaimed by the next append's grow.
+		// keep clean slices) and len(g.close) stays exactly max (so
+		// BarsInHistory is stable). The wasted prefix is reclaimed by the next append's grow.
 		// This removes the ~84% per-bar GC/alloc the profile flagged.
 		cut := len(g.close) - max
 		g.ts = g.ts[cut:]
@@ -366,7 +361,7 @@ func (g *Generator) appendBar(bar Bar) {
 }
 
 // WarmupFromHistory primes the kline buffer from historical OHLCV WITHOUT
-// evaluating any signal (signal.py:378-392). Empty input is a no-op. The latest
+// evaluating any signal. Empty input is a no-op. The latest
 // HistoryMaxBars rows are retained. Bars must be date-ordered oldest-first.
 func (g *Generator) WarmupFromHistory(bars []Bar) {
 	if len(bars) == 0 {

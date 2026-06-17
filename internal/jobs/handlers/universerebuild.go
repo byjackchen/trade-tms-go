@@ -29,7 +29,7 @@ const KindUniverseRebuild = "universe.rebuild"
 //	  "kind":     "live"|"eod"|"backtest"|"manual",  // optional; default "manual"
 //	  "limit":    85,        // optional top-N cap; omitted/null = env default
 //	                         //   (TMS_LIVE_UNIVERSE_LIMIT, fallback 85)
-//	  "uncapped": false,     // optional; true skips the cap (backtest parity)
+//	  "uncapped": false,     // optional; true skips the cap (full backtest universe)
 //	  "top_k":    0          // optional ranked-candidate bound; <=0 = all
 //	}
 //
@@ -61,7 +61,7 @@ func (h *UniverseRebuild) Kind() string { return KindUniverseRebuild }
 
 // universeRebuildParams is the payload wire shape. Limit is a pointer so
 // "absent" (use the env default) is distinguishable from an explicit 0
-// (which, per the reference semantics, yields an empty universe).
+// (which yields an empty universe).
 type universeRebuildParams struct {
 	Kind     string `json:"kind"`
 	Limit    *int   `json:"limit"`

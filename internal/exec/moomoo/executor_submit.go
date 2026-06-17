@@ -32,7 +32,7 @@ func (e *MoomooExecutor) SubmitMarket(strategyID, symbol string, side domain.Ord
 // SubmitMarketSignal submits a market order for a strategy SIGNAL. The portfolio
 // gate has ALREADY run upstream (decision 4 wires the gate as a pre-submit step
 // in the session); by the time the strategy adapter calls this, the decision is
-// made. signalSide is informational here (carried for parity with the engine
+// made. signalSide is informational here (carried to match the engine
 // seam). It always submits and reports submitted=true (a gate rejection upstream
 // means this is never reached for the rejected order). A genuine PlaceOrder
 // error is returned as err (NOT a gate rejection).
@@ -163,8 +163,8 @@ func (e *MoomooExecutor) assertEnvInvariants(req mo.PlaceOrderRequest) error {
 func (e *MoomooExecutor) onOrderUpdate(upd mo.OrderUpdate) {
 	st := e.lookup(upd)
 	if st == nil {
-		// Unknown order (likely placed outside this process / external). Drop it —
-		// the Python adapter does the same; reconciliation surfaces any drift.
+		// Unknown order (likely placed outside this process / external). Drop it;
+		// reconciliation surfaces any drift.
 		return
 	}
 	effects, err := Apply(st, upd, e.tradeID, e.clock.Now())

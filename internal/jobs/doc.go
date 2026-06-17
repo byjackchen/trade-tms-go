@@ -51,7 +51,6 @@
 // jobs.progress JSONB column and publish an event, but are deliberately
 // not audited (too chatty for an append-only audit table).
 //
-// The jobs event channel is a Go-side addition (no Python reference
-// equivalent — the reference has no durable job queue); documented here as
-// the single source of truth for its wire shape (see Event).
+// The jobs event channel is documented here as the single source of truth
+// for its wire shape (see Event).
 package jobs

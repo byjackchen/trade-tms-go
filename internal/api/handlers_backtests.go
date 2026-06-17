@@ -124,9 +124,9 @@ func (s *Server) handleBacktestEnqueue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeValidation, `supply "tickers" or a "universe" window`)
 		return
 	}
-	if req.FillProfile != "" && req.FillProfile != "nautilus-compat" && req.FillProfile != "realistic" {
+	if req.FillProfile != "" && req.FillProfile != "close-fill" && req.FillProfile != "realistic" {
 		writeError(w, http.StatusBadRequest, CodeValidation,
-			fmt.Sprintf("unknown fill_profile %q (want \"nautilus-compat\" or \"realistic\")", req.FillProfile))
+			fmt.Sprintf("unknown fill_profile %q (want \"close-fill\" or \"realistic\")", req.FillProfile))
 		return
 	}
 	if req.MaxAttempts < 0 || req.MaxAttempts > 10 {

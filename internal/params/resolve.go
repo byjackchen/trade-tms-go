@@ -1,17 +1,16 @@
 package params
 
 // resolve.go is the document-resolution layer: given a strategy id, produce the
-// active parameter Document with the same precedence the Python loader uses
-// (loader.py:64-96), adapted to the P0 DB schema:
+// active parameter Document over the P0 DB schema with this precedence:
 //
 //	DB active_params -> param_sets      (runs/active_params equivalent)
 //	-> file TMS_STRATEGY_PARAMS_DIR/<strategy>.json (env-dir override)
 //	-> embedded baseline                (package-shipped default)
 //
-// Like Python, resolution is per-strategy with baseline fallback: an absent DB
-// row OR an absent file falls through to the next source rather than erroring,
-// so a partial promotion (a sepa-only tuned set) still serves the rest from
-// baseline (spec strategy-sepa.md §1.4 [MUST-MATCH]).
+// Resolution is per-strategy with baseline fallback: an absent DB row OR an
+// absent file falls through to the next source rather than erroring, so a
+// partial promotion (a sepa-only tuned set) still serves the rest from
+// baseline (spec strategy-sepa.md §1.4).
 
 import (
 	"context"
@@ -45,8 +44,8 @@ type PayloadReader interface {
 }
 
 // Resolver resolves parameter documents. DB and Dir are both optional: a nil DB
-// skips the DB tier (embedded/file-only mode, matching a Python install with no
-// TMS_STRATEGY_PARAMS_DIR), an empty Dir skips the file tier.
+// skips the DB tier (embedded/file-only mode with no TMS_STRATEGY_PARAMS_DIR),
+// an empty Dir skips the file tier.
 type Resolver struct {
 	DB  PayloadReader // optional; nil = skip DB tier
 	Dir string        // optional; "" = skip file tier (TMS_STRATEGY_PARAMS_DIR)
@@ -79,7 +78,7 @@ func (r *Resolver) Resolve(ctx context.Context, strategy string) (*Document, err
 	}
 
 	// 2. File env-dir override: only when <strategy>.json exists there
-	//    (loader.py:84-86 — partial dirs fall through per-strategy).
+	//    (partial dirs fall through per-strategy).
 	if r.Dir != "" {
 		path := filepath.Join(r.Dir, strategy+".json")
 		raw, err := os.ReadFile(path)

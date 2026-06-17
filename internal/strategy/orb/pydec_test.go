@@ -1,8 +1,8 @@
 package orb
 
-// pydec_test.go locks the CPython-Decimal-faithful arithmetic and rendering
-// that the ORB reason / state strings depend on. Expected values were captured
-// from the reference venv (decimal.Decimal).
+// pydec_test.go locks the exact decimal arithmetic and rendering that the ORB
+// reason / state strings depend on. Expected values are the pinned golden
+// decimal outputs.
 
 import "testing"
 

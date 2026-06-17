@@ -1,13 +1,12 @@
 package indicators
 
-// VCP (Volatility Contraction Pattern) detection primitives, ported from
-// sepa/vcp.py with the exact geometry/volume semantics documented in
-// docs/spec/strategy-sepa.md §6 [MUST-MATCH]. These are pure functions over
-// OHLCV slices; the SEPA strategy builder composes them with stage / trend
-// template / regime context.
+// VCP (Volatility Contraction Pattern) detection primitives, implementing the
+// exact geometry/volume semantics documented in docs/spec/strategy-sepa.md §6.
+// These are pure functions over OHLCV slices; the SEPA strategy builder
+// composes them with stage / trend template / regime context.
 
-// VCP canonical thresholds (vcp.py:29-33). Exported so call sites and tests
-// reference the single source of truth.
+// VCP canonical thresholds. Exported so call sites and tests reference the
+// single source of truth.
 const (
 	VCPDryupBaselineThreshold = 0.7 // final-contraction vol < 70% of baseline
 	VCPBaselineLookback       = 50
@@ -24,16 +23,15 @@ type Contraction struct {
 	HighIdx  int
 }
 
-// ContractionDepthPct is the VCP contraction depth: (high - low) / high * 100
-// (vcp.py:82). Pure helper exposed for testing and reuse.
+// ContractionDepthPct is the VCP contraction depth: (high - low) / high * 100.
+// Pure helper exposed for testing and reuse.
 func ContractionDepthPct(high, low float64) float64 {
 	return (high - low) / high * 100.0
 }
 
-// VCPSnapshot mirrors the Python VCPSnapshot dataclass (vcp.py:37-51). Bar-count
-// fields (BaseLengthDays, FinalContractionDurationDays) keep the reference names
-// per the [IMPROVE] note's compatibility guidance; they are bar positional
-// differences, not calendar days.
+// VCPSnapshot is the detected-base summary. Bar-count fields (BaseLengthDays,
+// FinalContractionDurationDays) are bar positional differences, not calendar
+// days.
 type VCPSnapshot struct {
 	Code                         string
 	Contractions                 []float64 // depths %, oldest -> newest, round(2)
@@ -46,13 +44,12 @@ type VCPSnapshot struct {
 	FinalContractionDurationDays int
 
 	// BaseLowPrice is the lowest LOW across the detected base window (base start
-	// .. trailing low inclusive). TMS ENHANCEMENT (not in the Python SEPA
-	// reference's VCPSnapshot): the actionable trade-plan uses it as the VCP stop
-	// reference. Not rounded.
+	// .. trailing low inclusive). The actionable trade-plan uses it as the VCP
+	// stop reference. Not rounded.
 	BaseLowPrice float64
 }
 
-// DetectVCPParams carries the tunable detector knobs (vcp.py:54-63 defaults).
+// DetectVCPParams carries the tunable detector knobs.
 type DetectVCPParams struct {
 	Code               string
 	Lookback           int     // swing lookback (config.vcp_lookback); default 5
@@ -62,7 +59,7 @@ type DetectVCPParams struct {
 	BaseLengthMax      int     // default 150
 }
 
-// DefaultVCPParams returns the reference defaults (vcp.py:54-63).
+// DefaultVCPParams returns the canonical defaults.
 func DefaultVCPParams() DetectVCPParams {
 	return DetectVCPParams{
 		Lookback:           5,
@@ -73,14 +70,15 @@ func DefaultVCPParams() DetectVCPParams {
 	}
 }
 
-// DetectVCP ports sepa/vcp.py detect_vcp EXACTLY. high/low/volume must be equal
-// length and date-ordered (oldest first). Returns (snapshot, true) on a valid
-// base, or (_, false) when no convergent tail meets the Minervini geometry.
+// DetectVCP detects a Volatility Contraction Pattern base. high/low/volume must
+// be equal length and date-ordered (oldest first). Returns (snapshot, true) on
+// a valid base, or (_, false) when no convergent tail meets the Minervini
+// geometry.
 //
-// All numeric handling mirrors the reference: float64 math, round-half-even on
-// the output fields, the exact pairing/convergent-tail rules, the pivot taken
-// from highs AFTER the trailing low, and the volume-dryup logic (50-bar baseline
-// + per-contraction strictly-decreasing 6-bar average volume).
+// Numeric handling: float64 math, round-half-even on the output fields, the
+// exact pairing/convergent-tail rules, the pivot taken from highs AFTER the
+// trailing low, and the volume-dryup logic (50-bar baseline + per-contraction
+// strictly-decreasing 6-bar average volume).
 func DetectVCP(high, low, volume []float64, p DetectVCPParams) (VCPSnapshot, bool) {
 	n := len(high)
 	if len(low) != n || len(volume) != n {
@@ -97,7 +95,7 @@ func DetectVCP(high, low, volume []float64, p DetectVCPParams) (VCPSnapshot, boo
 
 	// Pair (high, low) into contractions. A later high overwrites an earlier
 	// unpaired high; a low consumes the pending high even if depth is out of
-	// range (vcp.py:75-86).
+	// range.
 	var contractions []Contraction
 	haveHigh := false
 	var lastHigh float64
@@ -130,7 +128,7 @@ func DetectVCP(high, low, volume []float64, p DetectVCPParams) (VCPSnapshot, boo
 
 	// Convergent tail: walk backwards; include while each older depth >= the
 	// last-added depth (>=, allows equal). Stop at first violation, then
-	// reverse to chronological order (vcp.py:93-101).
+	// reverse to chronological order.
 	tail := []Contraction{contractions[len(contractions)-1]}
 	for i := len(contractions) - 2; i >= 0; i-- {
 		if contractions[i].DepthPct >= tail[len(tail)-1].DepthPct {
@@ -181,7 +179,7 @@ func DetectVCP(high, low, volume []float64, p DetectVCPParams) (VCPSnapshot, boo
 		finalDuration = 1
 	}
 
-	// 50-bar baseline volume preceding the trailing low (vcp.py:126-131).
+	// 50-bar baseline volume preceding the trailing low.
 	lo := lastLowIdx - VCPBaselineLookback
 	if lo < 0 {
 		lo = 0
@@ -206,7 +204,7 @@ func DetectVCP(high, low, volume []float64, p DetectVCPParams) (VCPSnapshot, boo
 	}
 
 	// Per-contraction relative dryup: each tail leg's 6-bar avg volume strictly
-	// less than the previous (vcp.py:139-147).
+	// less than the previous.
 	relativeDryup := true
 	havePrev := false
 	var prevVol float64

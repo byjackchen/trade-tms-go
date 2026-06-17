@@ -1,8 +1,7 @@
 package sharadar
 
-// syncplan_test.go pins the pure planning layer to the Python reference
-// oracles (test_writer_sep.py for _date_chunks, test_writer_tickers.py for
-// the survivorship filter, catchup.py semantics for trading days).
+// syncplan_test.go pins the pure planning layer: date chunking, the
+// survivorship filter, and trading-day semantics.
 
 import (
 	"testing"
@@ -60,7 +59,7 @@ func TestDateChunksSingleDayAndEmpty(t *testing.T) {
 }
 
 func TestDateChunksMonthsValidation(t *testing.T) {
-	// MUST-MATCH error message shape (spec §6.1).
+	// Error message shape (spec §6.1).
 	for _, months := range []int{0, 5, 7, 13, -1} {
 		_, err := dateChunks(d(2023, time.January, 1), d(2023, time.December, 31), months)
 		require.Error(t, err)
@@ -102,7 +101,7 @@ func TestTradingDays(t *testing.T) {
 	// end < start -> empty (spec §8.2 step 4).
 	assert.Empty(t, tradingDays(cal, d(2026, time.June, 12), d(2026, time.June, 11)))
 
-	// Outside the calendar range: weekday fallback (bdate_range parity).
+	// Outside the calendar range: weekday fallback.
 	// 2031-01-04 is a Saturday.
 	days = tradingDays(cal, d(2031, time.January, 3), d(2031, time.January, 6))
 	assert.Equal(t, []calendar.Date{

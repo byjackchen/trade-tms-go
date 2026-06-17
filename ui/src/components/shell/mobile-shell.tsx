@@ -17,7 +17,7 @@ import { AccountSelector } from "@/components/portfolio/account-selector";
 /**
  * <MobileShell> — the touch-first chrome that wraps the shared content area when
  * `useUiMode().mode === "mobile"` (the layout branches on it; the content tree is
- * identical to desktop — LOCKED DECISION 2: full feature parity, nothing hidden).
+ * identical to desktop — LOCKED DECISION 2: full feature set, nothing hidden).
  *
  * Two fixed bars frame a scrolling content column:
  *   - TOP APP BAR — the current page title (derived from the active top-level

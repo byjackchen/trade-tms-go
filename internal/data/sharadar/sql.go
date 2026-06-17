@@ -1,9 +1,9 @@
 package sharadar
 
 // sql.go generates the staging DDL and merge statements. One session temp
-// staging table per dataset; the merge keeps "new rows win" parity with the
-// Python writers' drop_duplicates(keep="last") via DISTINCT ON ordered by
-// the staging sequence descending (see doc.go for the design rationale).
+// staging table per dataset; the merge keeps "new rows win" (last write of a
+// key wins) via DISTINCT ON ordered by the staging sequence descending (see
+// doc.go for the design rationale).
 
 import (
 	"fmt"
@@ -18,9 +18,8 @@ type stagingPlan struct {
 	upsertSQL string
 	// mergeCountSQL wraps upsertSQL to report (total affected, net-new
 	// inserts). The xmax = 0 predicate distinguishes fresh inserts from
-	// conflict updates, giving the Python writers' `added = len(merged) -
-	// len(existing)` net-new-keys semantics (spec §6 step 3) — revised rows
-	// are applied but not counted, exactly like the original.
+	// conflict updates, giving the `added` net-new-keys semantics (spec §6
+	// step 3) — revised rows are applied but not counted.
 	mergeCountSQL string
 }
 
@@ -153,12 +152,12 @@ func eventsPlan() stagingPlan {
 	)
 }
 
-// tickersDeleteMissingSQL implements the Python writer's full-overwrite
-// semantics for TICKERS (spec §2.5): rows absent from the source file are
-// removed. Only executed when no --tickers filter narrows the import.
+// tickersDeleteMissingSQL implements the full-overwrite semantics for TICKERS
+// (spec §2.5): rows absent from the source file are removed. Only executed
+// when no --tickers filter narrows the import.
 const tickersDeleteMissingSQL = "DELETE FROM tms.tickers t WHERE NOT EXISTS (SELECT 1 FROM _stage_tickers s WHERE s.ticker = t.ticker)"
 
-// datasetSyncSQL mirrors CacheMeta.record_sync (spec §5): last_sync is the
+// datasetSyncSQL records the dataset watermark (spec §5): last_sync is the
 // wall-clock sync time, row_count is the rows written by this run
 // (bootstrap semantics — the importer is a bulk load, not an incremental
 // catchup).

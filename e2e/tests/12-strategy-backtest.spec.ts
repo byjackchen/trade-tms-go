@@ -117,10 +117,10 @@ test.describe("real single-strategy backtest", () => {
     await page.getByTestId("backtest-start").fill(cover.start);
     await page.getByTestId("backtest-end").fill(cover.end);
 
-    // Parity profile for a deterministic result, when the control exists.
+    // close-fill profile for a deterministic result, when the control exists.
     const profile = page.getByTestId("backtest-fill-profile");
     if (await profile.count()) {
-      await profile.selectOption("nautilus-compat").catch(() => {});
+      await profile.selectOption("close-fill").catch(() => {});
     }
 
     // Submit and watch the shared job panel via the live WS stream.

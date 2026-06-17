@@ -3,7 +3,7 @@ package sepaadapter
 // intent.go is the SANCTIONED SEPA domain bridge (modularization-review.md §E3):
 // the local→domain intent normalization relocated here from publish. The pure
 // sepa package emits a tag-less sepa.SignalIntent (kept zero-domain for
-// byte-for-byte golden parity, sepa/doc.go §11-14); this adapter — the only place
+// byte-for-byte golden output, sepa/doc.go §11-14); this adapter — the only place
 // that legitimately imports both sepa and domain — converts it to the canonical
 // snake_case domain.SEPASignalIntent wire shape. publish therefore switches only
 // on domain types and drops its strategy/sepa import.
@@ -14,8 +14,8 @@ import (
 )
 
 // NormalizeIntent converts the pure sepa.SignalIntent (no json tags) into the
-// canonical domain.SEPASignalIntent (byte-identical Python field tags). It is the
-// single source of the SEPA intent wire shape — formerly publish.normalizeSEPA.
+// canonical domain.SEPASignalIntent. It is the single source of the SEPA intent
+// wire shape — formerly publish.normalizeSEPA.
 // Decimal price strings ("" == nil) become *domain.Price.
 func NormalizeIntent(s sepa.SignalIntent) domain.SEPASignalIntent {
 	d := domain.NewSEPASignalIntent()
@@ -42,9 +42,9 @@ func NormalizeIntent(s sepa.SignalIntent) domain.SEPASignalIntent {
 }
 
 // priceStrPtr parses a str(Decimal) price ("" == nil) into a *domain.Price. A
-// non-empty value that fails to parse is dropped to nil (the reference's
-// "" == nil convention treats an unparseable price as absent rather than
-// crashing the publish path).
+// non-empty value that fails to parse is dropped to nil (the "" == nil
+// convention treats an unparseable price as absent rather than crashing the
+// publish path).
 func priceStrPtr(s string) *domain.Price {
 	if s == "" {
 		return nil

@@ -4,9 +4,8 @@
 // universe snapshots, and a WebSocket fan-out of job/sync events bridged
 // from Redis pub/sub. The wire contract is docs/api.md.
 //
-// The Python reference's FastAPI live-cockpit endpoints (backtest dumps,
-// Redis stream reads, broker proxy — docs/spec/api-ws-redis.md) mount here
-// in a later build phase.
+// The live-cockpit endpoints (backtest dumps, Redis stream reads, broker
+// proxy — docs/spec/api-ws-redis.md) mount here in a later build phase.
 //
 // Rules:
 //   - Handlers are thin: decode, validate, call the store seams

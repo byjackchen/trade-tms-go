@@ -7,9 +7,8 @@ package runs
 // round-trip trades from the fill stream (trades.go).
 //
 // Equity curve -> metrics float64 conversion: the metrics package operates on
-// []float64. We convert each sampled Money point to its exact float64 (the
-// Decimal(str) bridge), so the metric inputs match what the Python reference
-// computes from its own float curve (hyperopt spec §1.6).
+// []float64. We convert each sampled Money point to its exact float64, so the
+// metric inputs are the exact decimal values of the curve (hyperopt spec §1.6).
 
 import (
 	"encoding/json"

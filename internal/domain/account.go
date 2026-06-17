@@ -1,8 +1,7 @@
 package domain
 
 // account.go defines PortfolioSnapshot, the read-only runtime account-book view
-// consumed by the risk pipeline, mirroring the frozen Python dataclass
-// src/portfolio/types.py:50-94 (spec §2.9 [MUST-MATCH]).
+// consumed by the risk pipeline (spec §2.9).
 
 import (
 	"bytes"
@@ -12,7 +11,7 @@ import (
 )
 
 // StrategySymbol is the (strategy_id, symbol) composite key of the positions
-// book — the Python tuple key. StrategyID is the ENGINE strategy id (§7.7).
+// book. StrategyID is the ENGINE strategy id (§7.7).
 type StrategySymbol struct {
 	StrategyID string `json:"strategy_id"`
 	Symbol     string `json:"symbol"`
@@ -20,16 +19,15 @@ type StrategySymbol struct {
 
 // PortfolioSnapshot is a point-in-time, read-only view of account state.
 // Treat as immutable: never mutate the maps of a snapshot you received
-// (NewPortfolioSnapshot and Clone deep-copy them; the Python glue likewise
-// copies last_close).
+// (NewPortfolioSnapshot and Clone deep-copy them, including last_close).
 //
-// Conventions (Python docstring [MUST-MATCH]):
-//   - NAV = total account value. The reference glue sets Cash = NAV
-//     ("balance_total already accounts for margin"); a Go engine may track
-//     true cash separately [IMPROVE], but the value fed to the risk pipeline
-//     must remain NAV for parity.
+// Conventions:
+//   - NAV = total account value. Cash is set equal to NAV ("balance_total
+//     already accounts for margin"); a future engine may track true cash
+//     separately, but the value fed to the risk pipeline must remain NAV so
+//     sizing and gating see the same equity.
 //   - RealizedPnLToday/UnrealizedPnLToday default to 0 in backtest, which
-//     keeps the daily-loss-halt rule dormant — also parity-relevant.
+//     keeps the daily-loss-halt rule dormant.
 //   - Positions[(strategy_id, symbol)] = signed shares; 0/missing = flat.
 type PortfolioSnapshot struct {
 	NAV                Money
@@ -41,7 +39,7 @@ type PortfolioSnapshot struct {
 }
 
 // NewPortfolioSnapshot builds a snapshot, deep-copying both maps (nil maps are
-// allowed and become empty maps, like the Python default_factory=dict).
+// allowed and become empty maps).
 func NewPortfolioSnapshot(
 	nav, cash, realizedToday, unrealizedToday Money,
 	positions map[StrategySymbol]Qty,
@@ -69,8 +67,7 @@ func (a PortfolioSnapshot) Clone() PortfolioSnapshot {
 	}
 }
 
-// TotalPnLToday returns realized + unrealized day P&L
-// (types.py:71-72 [MUST-MATCH]).
+// TotalPnLToday returns realized + unrealized day P&L.
 func (a PortfolioSnapshot) TotalPnLToday() (Money, error) {
 	v, err := a.RealizedPnLToday.Add(a.UnrealizedPnLToday)
 	if err != nil {
@@ -80,13 +77,13 @@ func (a PortfolioSnapshot) TotalPnLToday() (Money, error) {
 }
 
 // StrategyPosition returns the signed share count for (strategyID, symbol),
-// 0 when absent (types.py:74-75 [MUST-MATCH]).
+// 0 when absent.
 func (a PortfolioSnapshot) StrategyPosition(strategyID, symbol string) Qty {
 	return a.Positions[StrategySymbol{StrategyID: strategyID, Symbol: symbol}]
 }
 
 // NetPositionAcrossStrategies sums all strategies' signed positions in the
-// symbol (types.py:77-79 [MUST-MATCH]).
+// symbol.
 func (a PortfolioSnapshot) NetPositionAcrossStrategies(symbol string) (Qty, error) {
 	var net Qty
 	for key, qty := range a.Positions {
@@ -103,9 +100,8 @@ func (a PortfolioSnapshot) NetPositionAcrossStrategies(symbol string) (Qty, erro
 }
 
 // GrossExposureForStrategy returns Σ |qty| × last_close over the strategy's
-// non-zero positions (types.py:81-94 [MUST-MATCH]). Symbols missing from
-// LastClose contribute 0 — positions with unknown price are invisible to the
-// budget, exactly as in the reference.
+// non-zero positions. Symbols missing from LastClose contribute 0 — positions
+// with unknown price are invisible to the budget.
 func (a PortfolioSnapshot) GrossExposureForStrategy(strategyID string) (Money, error) {
 	var total Money
 	for key, qty := range a.Positions {
@@ -114,15 +110,14 @@ func (a PortfolioSnapshot) GrossExposureForStrategy(strategyID string) (Money, e
 		}
 		price, ok := a.LastClose[key.Symbol]
 		if !ok || price == 0 {
-			continue // contributes Decimal(0) in the reference
+			continue // contributes 0
 		}
 		absQty, err := qty.Abs()
 		if err != nil {
 			return 0, fmt.Errorf("gross exposure for %s/%s: %w", strategyID, key.Symbol, err)
 		}
-		// Python computes abs(Decimal(qty)) * price — the contribution keeps
-		// the price's sign (only relevant for a nonsensical negative close;
-		// preserved exactly for parity).
+		// The contribution is abs(qty) * price; it keeps the price's sign
+		// (only relevant for a nonsensical negative close).
 		value, err := price.MulQty(absQty)
 		if err != nil {
 			return 0, fmt.Errorf("gross exposure for %s/%s: %w", strategyID, key.Symbol, err)
@@ -139,9 +134,9 @@ func (a PortfolioSnapshot) GrossExposureForStrategy(strategyID string) (Money, e
 // JSON
 // ---------------------------------------------------------------------------
 
-// positionEntryJSON flattens the tuple-keyed positions map for JSON (Go maps
-// with struct keys cannot marshal natively; the Python tuple-keyed dict is
-// not JSON-serializable either, so this defines the canonical encoding).
+// positionEntryJSON flattens the composite-keyed positions map for JSON (Go
+// maps with struct keys cannot marshal natively, so this defines the canonical
+// encoding).
 type positionEntryJSON struct {
 	StrategyID string `json:"strategy_id"`
 	Symbol     string `json:"symbol"`

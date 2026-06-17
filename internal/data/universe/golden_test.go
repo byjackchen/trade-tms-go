@@ -1,10 +1,9 @@
 package universe
 
-// golden_test.go replays the exact inputs of the Python reference screener
-// (universe.sepa_screener + strategies.sepa.trend_template, executed by
-// tmp/gen_universe_ref.py over the 48-ticker P0 import subset, as_of
-// 2026-05-27) and requires bit-identical output: ranking order, scores,
-// breakout proximities, trend-template rule flags and the market-cap cap.
+// golden_test.go replays the pinned golden screener inputs (the 48-ticker P0
+// import subset, as_of 2026-05-27) and requires bit-identical output: ranking
+// order, scores, breakout proximities, trend-template rule flags and the
+// market-cap cap.
 
 import (
 	"encoding/json"
@@ -86,8 +85,8 @@ func goldenRows(t *testing.T, g *goldenFile, ticker string) []OHLCV {
 	return out
 }
 
-// warmGoldenScreener feeds the golden warmup bars (the exact tail the
-// Python screener state held) into a fresh Go screener.
+// warmGoldenScreener feeds the golden warmup bars (the exact tail the pinned
+// golden screener state held) into a fresh Screener.
 func warmGoldenScreener(t *testing.T, g *goldenFile) *Screener {
 	t.Helper()
 	scr, err := NewScreener(ScreenerConfig{MarketCapLookup: staticCaps(g.MarketCaps)})
@@ -127,7 +126,7 @@ func TestGoldenTrendTemplateDiagnostics(t *testing.T) {
 		require.True(t, ok, ticker)
 		assert.Equal(t, want.Rules, res.Rules, "%s rule flags", ticker)
 		assert.Equal(t, want.Close, res.Close, "%s close", ticker)
-		assert.Equal(t, want.MA50, res.MA50, "%s ma50 (pandas rolling-mean bit parity)", ticker)
+		assert.Equal(t, want.MA50, res.MA50, "%s ma50 (rolling-mean bit-exact)", ticker)
 		assert.Equal(t, want.MA150, res.MA150, "%s ma150", ticker)
 		assert.Equal(t, want.MA200, res.MA200, "%s ma200", ticker)
 		assert.Equal(t, want.High52w, res.High52w, "%s high_52w", ticker)

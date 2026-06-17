@@ -1,7 +1,7 @@
 // Package moomoo is a native Go client for the moomoo / FutuOpenD gateway and
 // the home of a protocol-faithful in-repo mock OpenD server (subpackage mock).
 //
-// It speaks the OpenD wire protocol directly — no Python sidecar — implementing
+// It speaks the OpenD wire protocol directly, implementing
 // both the MARKET-DATA + SESSION surface and the TRADING (Trd_*) surface:
 //
 //	InitConnect (1001), GetGlobalState (1002), KeepAlive (1004),
@@ -20,14 +20,13 @@
 //
 // # Wire protocol
 //
-// The framing is replicated EXACTLY from the vendored Python SDK
-// (.venv/.../moomoo/common/{constant,utils,network_manager}.py): a 44-byte
+// The framing follows the moomoo OpenD wire protocol EXACTLY: a 44-byte
 // little-endian header (magic 'FT', protoID uint32, protoFmtType uint8=0
 // Protobuf, protoVer uint8=0, serialNo uint32, bodyLen uint32, SHA-1(body)
 // [20]byte, reserved [8]byte) followed by the protobuf body. Encryption is off
-// (localhost, no RSA key file), matching the SDK's default path. The protocol
-// conformance test (conformance_test.go) asserts byte-for-byte parity with the
-// SDK's own encoder; the reply test asserts the decoder parses SDK output.
+// (localhost, no RSA key file), the OpenD default path. The protocol
+// conformance test (conformance_test.go) asserts byte-for-byte agreement with
+// the reference encoder; the reply test asserts the decoder parses OpenD output.
 //
 // # Generated code & .proto vendoring
 //

@@ -85,8 +85,8 @@ func TestResolveFileWinsWhenNoDBRow(t *testing.T) {
 }
 
 func TestResolvePartialFileDirFallsBackToBaselinePerStrategy(t *testing.T) {
-	// Mirror Python test_load_partial_env_dir_falls_back_to_baseline_per_strategy:
-	// a dir holding ONLY a tuned sepa.json still serves pairs/sector from the
+	// Per-strategy fallback: a dir holding ONLY a tuned sepa.json still serves
+	// pairs/sector from the
 	// embedded baseline rather than failing.
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "sepa.json"), sepaDoc(99.9), 0o644); err != nil {
@@ -175,8 +175,8 @@ func TestResolveUnknownStrategyFromBaseline(t *testing.T) {
 	}
 }
 
-// TestParseDocumentRejectsStrategyMismatch mirrors the Python loader rejecting a
-// file whose declared strategy differs from the requested one.
+// TestParseDocumentRejectsStrategyMismatch asserts the loader rejects a file
+// whose declared strategy differs from the requested one.
 func TestParseDocumentRejectsStrategyMismatch(t *testing.T) {
 	raw := sepaDoc(1.0) // declares strategy "sepa"
 	if _, err := params.ParseDocument(raw, "pairs"); err == nil {

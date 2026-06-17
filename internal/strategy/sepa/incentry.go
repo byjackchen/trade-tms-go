@@ -6,13 +6,13 @@ package sepa
 // (same constants, same strict comparisons, same NaN/fallback semantics) but
 // consumes the per-generator incState (fresh-sum MAs + the maintained MA200
 // series + the 252 high/low accumulators) instead of recomputing O(n*window)
-// batch indicators every bar. See incstate.go for the parity contract.
+// batch indicators every bar. See incstate.go for the batch-agreement contract.
 //
-// PARITY: confirmed against the batch source —
+// BATCH AGREEMENT: confirmed byte-for-byte against the batch source —
 //   - indicators.ClassifyStage (trend_template.go:141)
 //   - indicators.EvaluateTrendTemplate (trend_template.go:66)
 //   - indicators.MASlopePct / FractionAbove (ma.go)
-// The fixtures keep TestSEPAGoldenParity at 0 mismatches.
+// The fixtures keep the SEPA golden test at 0 mismatches.
 
 import (
 	"math"
@@ -20,7 +20,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/indicators"
 )
 
-// classifyStageInc mirrors indicators.ClassifyStage(g.close) exactly using the
+// classifyStageInc matches indicators.ClassifyStage(g.close) exactly using the
 // incremental state. Returns "1"/"2"/"3"/"4"/"unknown".
 func (g *Generator) classifyStageInc() string {
 	close := g.close
@@ -69,7 +69,7 @@ func (g *Generator) classifyStageInc() string {
 	return "unknown"
 }
 
-// maSlopePct200x20 mirrors indicators.MASlopePct(g.close, 200, 20) using the
+// maSlopePct200x20 matches indicators.MASlopePct(g.close, 200, 20) using the
 // maintained MA200 series: last = ma200[-1]; prev = ma200[-1-20]; guard
 // (prev==0||NaN||last NaN) -> 0.0; else (last-prev)/prev*100.
 func (g *Generator) maSlopePct200x20() float64 {
@@ -86,11 +86,11 @@ func (g *Generator) maSlopePct200x20() float64 {
 	return (last - prev) / prev * 100.0
 }
 
-// fractionAbove200 mirrors indicators.FractionAbove(g.close, MA(close,200), 200)
+// fractionAbove200 matches indicators.FractionAbove(g.close, MA(close,200), 200)
 // over the maintained MA200 series: fraction of the last 200 bars whose close
-// exceeds the aligned MA200 value (NaN MA counts as False, like pandas).
+// exceeds the aligned MA200 value (NaN MA counts as False).
 //
-// PARITY across trim: the batch recomputes MA(g.close,200) over the CURRENT
+// BATCH AGREEMENT across trim: the batch recomputes MA(g.close,200) over the CURRENT
 // (trimmed) buffer, so MA200 is NaN for the first 200-1==199 buffer indices
 // (warmup). The maintained ma200 series carries pre-trim real values at those
 // positions, so we must mask any buffer index < 199 back to NaN to match batch.
@@ -126,7 +126,7 @@ func (g *Generator) fractionAbove200() float64 {
 	return float64(count) / float64(n)
 }
 
-// trendTemplatePassInc mirrors indicators.EvaluateTrendTemplate(...).Passed()
+// trendTemplatePassInc matches indicators.EvaluateTrendTemplate(...).Passed()
 // for the entry path (n >= 200 guaranteed by maybeEnter's n<200 guard). Only the
 // 8 boolean rules are needed; MA200UptrendDays (a diagnostic) is not read in the
 // entry path so it is not computed. Byte-identical rule evaluation.
@@ -163,10 +163,10 @@ func (g *Generator) trendTemplatePassInc() bool {
 	return rule1 && rule2 && rule3 && rule4 && rule5 && rule6 && rule7 && rule8
 }
 
-// meanTail returns Mean(close[len-off-w : len-off]) skipping NaN, mirroring
-// pandas Series.mean (skipna). off is the count of trailing bars to exclude;
-// w is the window size. The SEPA momentum windows are NaN-free so this matches
-// indicators.Mean over the same slice exactly.
+// meanTail returns Mean(close[len-off-w : len-off]) skipping NaN. off is the
+// count of trailing bars to exclude; w is the window size. The SEPA momentum
+// windows are NaN-free so this matches indicators.Mean over the same slice
+// exactly.
 func meanTail(close []float64, w, off int) float64 {
 	n := len(close)
 	hi := n - off

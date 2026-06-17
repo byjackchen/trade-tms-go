@@ -1,7 +1,7 @@
 package runner
 
-// rs_rank.go is a TMS ENHANCEMENT (not present in the Python SEPA reference): the
-// cross-sectional Relative-Strength stamping pass of the EOD refresh. After the
+// rs_rank.go is the cross-sectional Relative-Strength stamping pass of the EOD
+// refresh. After the
 // as-of SEPA intents are persisted (idempotent UPSERT, eod.go step 4), this pass:
 //
 //  1. loads the universe's trailing adjusted closes (close_adj) ending at as_of in
@@ -12,9 +12,7 @@ package runner
 //     buy_readiness composite (which depends on RS) — both written into the
 //     signal_intents.intent JSONB — in one batched UPDATE pass.
 //
-// The Python oracle never computes an RS rank (SEPASignalIntent.rs_rank is
-// reserved-and-always-null); this is a deliberate TMS divergence to make every
-// forming signal rankable on the watchlist.
+// This makes every forming signal rankable on the watchlist.
 
 import (
 	"context"
@@ -38,8 +36,6 @@ const rsHistoryDays = 370
 // RS-dependent buy_readiness) onto the persisted SEPA intent rows. It is a no-op
 // when the pool is nil or the universe is empty. Errors are returned so the EOD
 // run surfaces them, but a missing-history symbol is simply skipped (not ranked).
-//
-// TMS enhancement — not in the Python SEPA reference.
 func stampRSRank(ctx context.Context, pool *pgxpool.Pool, asOf time.Time, universe []string) (int, error) {
 	if pool == nil || len(universe) == 0 {
 		return 0, nil

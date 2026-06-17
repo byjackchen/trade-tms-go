@@ -1,11 +1,11 @@
 -- 000004_research: backtest runs + hyperopt studies.
 --
--- DB counterpart of the Python reference's runs/{ts}/ dumps and
--- runs/hyperopt/{study_ts}/ artifact trees (docs/spec/hyperopt-metrics.md
--- §6-§9, api-ws-redis.md §3.11-§3.22). Money columns are BIGINT fixed-point
--- at 1e-4 USD scale (stored = dollars * 10000); sharpe/calmar/max_drawdown
--- stay DOUBLE PRECISION because the reference computes them in IEEE-754
--- float64 and parity is asserted at float64 precision (hyperopt spec §1).
+-- DB store for runs/{ts}/ dumps and runs/hyperopt/{study_ts}/ artifact trees
+-- (docs/spec/hyperopt-metrics.md §6-§9, api-ws-redis.md §3.11-§3.22). Money
+-- columns are BIGINT fixed-point at 1e-4 USD scale (stored = dollars * 10000);
+-- sharpe/calmar/max_drawdown stay DOUBLE PRECISION because metrics are
+-- computed in IEEE-754 float64 and defined at float64 precision
+-- (hyperopt spec §1).
 
 -- ---------------------------------------------------------------------------
 -- runs — one row per backtest run (meta.json equivalent).
@@ -194,7 +194,7 @@ CREATE TABLE tms.hyperopt_trials (
 
 COMMENT ON TABLE tms.hyperopt_trials IS
     'Hyperopt trial artifacts (trial_%04d.json, hyperopt spec §7.4). number = artifact number 0..n_trials-1 (file identity, re-run/overwritten when not COMPLETE on resume — §6.5); optuna_number = sampler-side trial number, drifts across resumes (Q3). params = pre-constraint-clamp suggested values (§2.3/Q5); folds = per-fold metric payloads in fold order, [] when single-window or FAIL.';
-COMMENT ON COLUMN tms.hyperopt_trials.sharpe IS 'Denormalized from metrics for current_best / Pareto queries; float64 parity with the reference.';
+COMMENT ON COLUMN tms.hyperopt_trials.sharpe IS 'Denormalized from metrics for current_best / Pareto queries; stored at float64 precision.';
 COMMENT ON COLUMN tms.hyperopt_trials.error IS 'FAIL detail; timeouts use the "timeout: trial timeout after <N>s" shape (hyperopt spec §5.4).';
 
 CREATE INDEX hyperopt_trials_state_idx ON tms.hyperopt_trials (study_ts, state);

@@ -5,8 +5,8 @@ package params
 // with searched values overlaid. The optimizer resolves the baseline defaults,
 // overlays the clamped per-trial overrides for the searched keys, and calls one
 // of these to obtain the same typed *Params struct the engine assembly consumes
-// — running the identical __post_init__-equivalent validation (typed.go) so an
-// out-of-bounds suggested value FAILs the trial exactly as Python would.
+// — running the same config validation (typed.go) so an out-of-bounds
+// suggested value FAILs the trial.
 //
 // The input map is the merged {name: Go value} map (numbers as float64, lists as
 // []any, strings as string) — i.e. Document.Defaults() with searched keys

@@ -261,7 +261,7 @@ func TestPyDecimalStr(t *testing.T) {
 	cases := map[string]string{
 		"120.46": "120.46",
 		"120.6":  "120.6",
-		"58":     "58.0", // integer-valued close -> ".0" like Python Decimal(str(float))
+		"58":     "58.0", // integer-valued close -> ".0" surface form
 		"250.12": "250.12",
 	}
 	for in, want := range cases {

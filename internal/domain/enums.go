@@ -1,15 +1,15 @@
 package domain
 
 // enums.go defines the string-valued enumerations shared across the system.
-// Values are MUST-MATCH copies of the Python reference StrEnums / literals
-// (docs/spec/domain-types-money.md §2.1, §2.4, §2.6, §2.15, §7.6): the enum
-// value IS the wire/log string. Every enum validates on parse and on JSON
-// decode (via encoding.TextUnmarshaler) and rejects unknown values.
+// The values are fixed by docs/spec/domain-types-money.md (§2.1, §2.4, §2.6,
+// §2.15, §7.6): the enum value IS the wire/log string. Every enum validates on
+// parse and on JSON decode (via encoding.TextUnmarshaler) and rejects unknown
+// values.
 
 import "fmt"
 
 // ---------------------------------------------------------------------------
-// SignalSide — src/strategies/sepa/signal.py:62-67 [MUST-MATCH]
+// SignalSide
 // ---------------------------------------------------------------------------
 
 // SignalSide is the strategy-level direction shared by all four strategies
@@ -32,7 +32,7 @@ func (s SignalSide) IsValid() bool {
 	return false
 }
 
-// String returns the exact Python StrEnum value.
+// String returns the wire value.
 func (s SignalSide) String() string { return string(s) }
 
 // ParseSignalSide validates and returns the SignalSide for s.
@@ -58,7 +58,7 @@ func (s *SignalSide) UnmarshalText(b []byte) error {
 }
 
 // ---------------------------------------------------------------------------
-// OrderSide — broker-level direction (Nautilus OrderSide names)
+// OrderSide — broker-level direction
 // ---------------------------------------------------------------------------
 
 // OrderSide is the broker order direction. SignalSide LONG → BUY,
@@ -113,7 +113,7 @@ func OrderSideFor(s SignalSide) (OrderSide, error) {
 }
 
 // CloseSideFor returns the order side that flattens a net position per the
-// reference FLAT translation (§7.4): SELL when net > 0, BUY when net < 0.
+// FLAT translation rule (§7.4): SELL when net > 0, BUY when net < 0.
 // ok is false when net == 0 (no order is emitted).
 func CloseSideFor(net Qty) (side OrderSide, ok bool) {
 	switch {
@@ -127,12 +127,12 @@ func CloseSideFor(net Qty) (side OrderSide, ok bool) {
 }
 
 // ---------------------------------------------------------------------------
-// OrderType — §7.6: the reference system uses MARKET orders exclusively
+// OrderType — §7.6: the system uses MARKET orders exclusively
 // ---------------------------------------------------------------------------
 
-// OrderType is the order kind. The reference system submits MARKET orders
-// only (stops are strategy-evaluated, §7.6); the remaining kinds are defined
-// for forward compatibility and validate like any other value.
+// OrderType is the order kind. The system submits MARKET orders only (stops
+// are strategy-evaluated, §7.6); the remaining kinds are defined for forward
+// compatibility and validate like any other value.
 type OrderType string
 
 const (
@@ -177,11 +177,11 @@ func (t *OrderType) UnmarshalText(b []byte) error {
 }
 
 // ---------------------------------------------------------------------------
-// TimeInForce — §7.6: all reference orders are GTC
+// TimeInForce — §7.6: all orders are GTC
 // ---------------------------------------------------------------------------
 
-// TimeInForce is the order lifetime policy. The reference system uses GTC
-// for every order.
+// TimeInForce is the order lifetime policy. The system uses GTC for every
+// order.
 type TimeInForce string
 
 const (
@@ -286,8 +286,7 @@ func (s OrderStatus) IsTerminal() bool {
 }
 
 // ---------------------------------------------------------------------------
-// SignalState — shared intent state machine [MUST-MATCH]
-// (src/strategies/*/intent.py, identical in all four strategies)
+// SignalState — shared intent state machine (identical in all four strategies)
 // ---------------------------------------------------------------------------
 
 // SignalState is the SignalIntent state machine value.
@@ -311,7 +310,7 @@ func (s SignalState) IsValid() bool {
 	return false
 }
 
-// String returns the exact Python StrEnum value.
+// String returns the wire value.
 func (s SignalState) String() string { return string(s) }
 
 // ParseSignalState validates and returns the SignalState for s.
@@ -337,7 +336,7 @@ func (s *SignalState) UnmarshalText(b []byte) error {
 }
 
 // ---------------------------------------------------------------------------
-// Regime — market regime values [MUST-MATCH] (src/data/custom_data.py:27-42)
+// Regime — market regime values
 // ---------------------------------------------------------------------------
 
 // Regime is the market regime published via RegimeUpdate.
@@ -385,8 +384,7 @@ func (r *Regime) UnmarshalText(b []byte) error {
 }
 
 // ---------------------------------------------------------------------------
-// MarketSession — QuoteUpdate session values [MUST-MATCH]
-// (src/data/custom_data.py:215-238)
+// MarketSession — QuoteUpdate session values
 // ---------------------------------------------------------------------------
 
 // MarketSession is the trading-session phase carried by quote updates.
@@ -434,7 +432,7 @@ func (s *MarketSession) UnmarshalText(b []byte) error {
 }
 
 // ---------------------------------------------------------------------------
-// LegRole — pairs leg role [MUST-MATCH] (src/strategies/pairs/intent.py)
+// LegRole — pairs leg role
 // ---------------------------------------------------------------------------
 
 // LegRole identifies which leg of a pair an intent describes.

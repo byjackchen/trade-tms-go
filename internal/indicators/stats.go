@@ -2,11 +2,10 @@ package indicators
 
 import "math"
 
-// FMean is the arithmetic mean over a slice computed as sum/n in float64,
-// mirroring Python's statistics.fmean as used by the Pairs OLS/z-score path
-// (signal.py:199, 515-516). Empty input returns NaN. Unlike Mean (pandas
-// skipna), FMean does NOT skip NaN — it follows Python's fmean which would
-// propagate NaN; the Pairs path guarantees finite inputs upstream.
+// FMean is the arithmetic mean over a slice computed as sum/n in float64, used
+// by the Pairs OLS/z-score path. Empty input returns NaN. Unlike Mean (which
+// skips NaN), FMean does NOT skip NaN — it propagates NaN; the Pairs path
+// guarantees finite inputs upstream.
 func FMean(x []float64) float64 {
 	n := len(x)
 	if n == 0 {
@@ -19,10 +18,9 @@ func FMean(x []float64) float64 {
 	return sum / float64(n)
 }
 
-// PStdev is the POPULATION standard deviation (ddof=0): sqrt(Σ(x-mean)²/N).
-// Mirrors Python's statistics.pstdev used by the Pairs z-score
-// (signal.py:200). Requires len(x) >= 1; len(x) == 0 returns NaN. A single
-// element returns 0.0 (population std of one point).
+// PStdev is the POPULATION standard deviation (ddof=0): sqrt(Σ(x-mean)²/N),
+// used by the Pairs z-score. Requires len(x) >= 1; len(x) == 0 returns NaN. A
+// single element returns 0.0 (population std of one point).
 func PStdev(x []float64) float64 {
 	n := len(x)
 	if n == 0 {
@@ -42,7 +40,7 @@ func PStdev(x []float64) float64 {
 }
 
 // Stdev is the SAMPLE standard deviation (ddof=1): sqrt(Σ(x-mean)²/(N-1)).
-// Mirrors Python statistics.stdev / pandas default std. len(x) < 2 returns NaN.
+// len(x) < 2 returns NaN.
 func Stdev(x []float64) float64 {
 	n := len(x)
 	if n < 2 {
@@ -63,9 +61,9 @@ func Stdev(x []float64) float64 {
 
 // ZScore returns the population z-score of the last element of `window`
 // relative to the whole window: (window[-1] - fmean(window)) / pstdev(window).
-// This is exactly the Pairs spread z-score (signal.py:199-203) when `window` is
-// the spread series. Returns NaN if len < 2 or pstdev == 0 (the Pairs path
-// returns no signal in the std==0 case).
+// This is exactly the Pairs spread z-score when `window` is the spread series.
+// Returns NaN if len < 2 or pstdev == 0 (the Pairs path returns no signal in
+// the std==0 case).
 func ZScore(window []float64) float64 {
 	if len(window) < 2 {
 		return NaN
@@ -127,8 +125,7 @@ type OLSResult struct {
 }
 
 // OLSSlope computes only the slope b of y = a + b·x via the closed-form
-// covariance/variance ratio, mirroring the Pairs reference _ols_slope
-// (signal.py:505-521) EXACTLY:
+// covariance/variance ratio, as used by the Pairs hedge ratio:
 //
 //	n      = len(x); require n == len(y) and n >= 2, else !OK
 //	mean_x = fmean(x); mean_y = fmean(y)
@@ -173,8 +170,8 @@ func OLS(x, y []float64) OLSResult {
 }
 
 // Correlation computes the Pearson correlation coefficient between x and y
-// (numpy/pandas corr; population covariance/std cancel the N so ddof is
-// irrelevant). Returns NaN when n < 2 or either series has zero variance.
+// (population covariance/std cancel the N so ddof is irrelevant). Returns NaN
+// when n < 2 or either series has zero variance.
 func Correlation(x, y []float64) float64 {
 	n := len(x)
 	if n != len(y) || n < 2 {
@@ -198,8 +195,8 @@ func Correlation(x, y []float64) float64 {
 }
 
 // Spread computes the per-bar Pairs spread series given long-leg and short-leg
-// price slices and a hedge ratio beta: spread_i = long_i - beta·short_i
-// (signal.py:196). Panics on length mismatch (the reference uses strict zip).
+// price slices and a hedge ratio beta: spread_i = long_i - beta·short_i.
+// Panics on length mismatch (legs must align positionally).
 func Spread(long, short []float64, beta float64) []float64 {
 	if len(long) != len(short) {
 		panic("indicators: Spread requires equal-length legs")

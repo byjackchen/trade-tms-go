@@ -3,7 +3,7 @@ package exec
 // executor.go is the SimExecutor: it accepts order submissions from strategies
 // during bar processing, simulates fills via the configured FillModel, and
 // emits Fill events. It maintains the L1 "book" implicitly through the bar it
-// processes (the nautilus-compat model reads the bar close; the realistic model
+// processes (the close-fill model reads the bar close; the realistic model
 // reads the next bar open).
 //
 // Order id assignment is deterministic: client order ids are derived from a
@@ -47,9 +47,9 @@ type SimExecutor struct {
 	// end-of-timestamp flush (FlushThisBar). Cross-symbol orders are supported:
 	// an order for symbol X submitted while symbol Y's bar is dispatching fills
 	// at X's close for THIS timestamp (X's bar was already observed earlier in
-	// the same timestamp, registration order), mirroring Nautilus's matching
-	// engine, which fills a market order at the instrument's latest bar close at
-	// the submission timestamp — not one bar later. (A multi-leg strategy like
+	// the same timestamp, registration order): a market order fills at the
+	// instrument's latest bar close at the submission timestamp — not one bar
+	// later. (A multi-leg strategy like
 	// Pairs submits both legs while the 2nd leg's bar is dispatching; both legs
 	// must fill at THIS timestamp's closes.)
 	submittedThisBar []domain.Order
@@ -117,7 +117,7 @@ func (e *SimExecutor) Submit(order domain.Order) error {
 //     order submitted during that timestamp against ITS OWN symbol's close at
 //     that timestamp. This supports cross-symbol same-timestamp fills (a Pairs
 //     leg submitted while the other leg's bar dispatches fills at THIS ts's
-//     close, not one bar later), matching Nautilus.
+//     close, not one bar later).
 //   - next-bar model: the engine calls ProcessBar(bar) FIRST (filling orders
 //     pending from prior bars against this bar's open), THEN the strategy
 //     on_bar (which Submits orders pending for the next bar).
@@ -189,13 +189,12 @@ func (e *SimExecutor) FlushThisBar() (int, error) {
 
 // FillAtBar prices and emits fills for one order against a specific bar
 // immediately (bypassing the per-timestamp queue), in leg order. The engine uses
-// it for END-OF-RUN LIQUIDATION: after the last bar, Nautilus's on_stop
-// close_all_positions submits a flattening market order per open net position
-// that fills against the instrument's last bar — there is no future bar, so the
-// order cannot route through the normal this-bar/next-bar queue. Filling against
-// the symbol's LAST bar (real close + volume) reproduces the same depth-walk
-// (nautilus-compat) or slippage/commission (realistic) the in-loop path applies.
-// The order must be a validated MARKET order.
+// it for END-OF-RUN LIQUIDATION: after the last bar, a flattening market order
+// per open net position fills against the instrument's last bar — there is no
+// future bar, so the order cannot route through the normal this-bar/next-bar
+// queue. Filling against the symbol's LAST bar (real close + volume) applies the
+// same depth-walk (close-fill) or slippage/commission (realistic) the
+// in-loop path applies. The order must be a validated MARKET order.
 func (e *SimExecutor) FillAtBar(order domain.Order, bar domain.Bar) error {
 	if err := order.Validate(); err != nil {
 		return fmt.Errorf("executor liquidation fill: %w", err)
@@ -209,8 +208,8 @@ func (e *SimExecutor) FillAtBar(order domain.Order, bar domain.Bar) error {
 
 // fill prices the order against bar (possibly across several price legs) and
 // emits one domain.Fill per leg, in leg order. Each leg gets the same venue
-// order id (one order) and a distinct trade id (leg index appended), mirroring
-// the reference's per-execution trade ids.
+// order id (one order) and a distinct trade id (leg index appended): one trade
+// id per execution.
 func (e *SimExecutor) fill(order domain.Order, bar domain.Bar) error {
 	legs, err := e.model.Fill(order, bar)
 	if err != nil {

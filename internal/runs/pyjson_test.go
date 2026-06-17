@@ -3,7 +3,7 @@ package runs
 import "testing"
 
 func TestFormatPyFloat(t *testing.T) {
-	// Golden pairs from CPython json.dumps(<float>).
+	// Golden pairs pinning this repo's float surface form.
 	cases := []struct {
 		in   float64
 		want string

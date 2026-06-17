@@ -3,13 +3,13 @@ package study
 // space.go bridges the loader's search-space semantics (hyperopt §2.3/§2.6) to
 // the self-written NSGA-II optimizer (internal/hyperopt/nsga2). It builds an
 // ordered nsga2.SearchSpace from the embedded baseline JSON of one (or all
-// three, for "joint") strategies, preserving the EXACT parameter order the
-// Python suggest_with / suggest_joint_params iterate in — that order fixes the
-// genome layout and therefore the seeded PRNG consumption order (so a given seed
+// three, for "joint") strategies, preserving the EXACT parameter order
+// suggest_with / suggest_joint_params iterate in — that order fixes the genome
+// layout and therefore the seeded PRNG consumption order (so a given seed
 // reproduces an identical population trajectory; locked decision 1).
 //
-// The optimizer searches over the prefixed param names ("<strategy>.<param>")
-// just like Optuna's NSGAIISampler. Decoding a candidate back into the per-fold
+// The optimizer searches over the prefixed param names ("<strategy>.<param>").
+// Decoding a candidate back into the per-fold
 // backtest overrides reuses the loader's SuggestWith constraint pass: the raw
 // genome values feed a synthetic trial whose SuggestFloat/SuggestInt simply
 // echo the optimizer's already-decoded values, and SuggestWith then applies the

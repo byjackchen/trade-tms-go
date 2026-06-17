@@ -37,7 +37,7 @@ func NewFrameReader(r io.Reader) *FrameReader {
 
 // ReadFrame blocks until a full frame is read, the stream ends, or an error
 // occurs. On clean EOF it returns io.EOF. The returned body's SHA-1 is
-// verified against the header (mirrors the SDK's sha20 guard); a mismatch
+// verified against the header (the protocol's sha20 guard); a mismatch
 // returns ErrSHAMismatch with the frame discarded.
 func (fr *FrameReader) ReadFrame() (Frame, error) {
 	if _, err := io.ReadFull(fr.r, fr.hdr[:]); err != nil {

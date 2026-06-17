@@ -166,9 +166,9 @@ func runScheduler(ctx context.Context, env *runtimeEnv, healthAddr, dailyAt, tz 
 	// Note (compose): the NASDAQ_DATA_LINK_API_KEY does NOT need to reach the
 	// scheduler — it only ENQUEUES data.refresh source=api jobs; the WORKER
 	// (which holds the key, cmd/tms/worker.go) runs the actual Nasdaq Data
-	// Link sync. The key is documented on the scheduler service for parity and
-	// so the catch-up/manual paths surface a clear error if a future inline
-	// mode is added.
+	// Link sync. The key is documented on the scheduler service so the
+	// catch-up/manual paths surface a clear error if a future inline mode is
+	// added.
 
 	runErr := sched.Run(ctx)
 

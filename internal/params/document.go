@@ -1,9 +1,9 @@
 package params
 
 // document.go layers the document-level display block on top of the searchable
-// parameter spec parsed by internal/hyperopt. The Python loader.py intentionally
-// ignores display (it only reads strategy, schema_version, metadata, parameters,
-// constraints), but it is part of the on-disk JSON and the P0 DB payload
+// parameter spec parsed by internal/hyperopt. The searchable spec only reads
+// strategy, schema_version, metadata, parameters and constraints, but the
+// display block is part of the on-disk JSON and the P0 DB payload
 // (migrations/000003_strategy.up.sql stores the FULL document). Document
 // therefore preserves it verbatim while delegating param parsing/validation to
 // hyperopt.ParseStrategyParams.
@@ -39,7 +39,7 @@ type Document struct {
 	Source Origin
 }
 
-// Origin tags where a resolved Document came from, mirroring the Python
+// Origin tags where a resolved Document came from, following the
 // resolution order (db active_params / file env-dir / embedded baseline).
 type Origin string
 
@@ -50,7 +50,7 @@ const (
 )
 
 // ParseDocument parses a full parameter document for the requested strategy. It
-// runs hyperopt's [MUST-MATCH] validation (strategy field present + matching,
+// runs hyperopt's validation (strategy field present + matching,
 // schema_version allowed, type allowlist, search-only-on-numeric, constraint
 // kind allowlist, default required) and additionally decodes the document-level
 // display block. Raw is set to the input bytes verbatim.

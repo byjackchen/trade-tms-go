@@ -16,14 +16,14 @@ func mustDate(s string) time.Time {
 	return t.UTC()
 }
 
-// TestContextParity replays golden outputs of compute_regime /
-// load_sf1_market_caps / load_earnings_calendar captured from the Python
-// reference across edge cases (warmup, NaN poisoning, as_of look-ahead,
-// dimension filter, datekey ties, blackout boundaries).
-func TestContextParity(t *testing.T) {
-	raw, err := os.ReadFile("testdata/context_parity.json")
+// TestContextGolden replays golden outputs of compute_regime /
+// load_sf1_market_caps / load_earnings_calendar across edge cases (warmup, NaN
+// poisoning, as_of look-ahead, dimension filter, datekey ties, blackout
+// boundaries). The values are this repo's golden regression baseline.
+func TestContextGolden(t *testing.T) {
+	raw, err := os.ReadFile("testdata/context_golden.json")
 	if err != nil {
-		t.Skipf("context parity fixture missing (%v)", err)
+		t.Skipf("context golden fixture missing (%v)", err)
 	}
 	var fixture struct {
 		Regime []struct {
@@ -126,8 +126,8 @@ func TestContextParity(t *testing.T) {
 				tk, hasTk := r["ticker"]
 				dateVal, hasDate := r[c.DateColumn]
 				if !hasTk || !hasDate {
-					// mirror Python: a frame missing ticker or the date column
-					// yields {} — represent by emitting no rows so the loader
+					// a frame missing ticker or the date column yields {} —
+					// represent by emitting no rows so the loader
 					// returns empty (the loader itself can't know the column was
 					// named differently; the missing-column case is exercised by
 					// the empty Want).

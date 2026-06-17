@@ -1,16 +1,15 @@
 package domain
 
 // fixed.go implements the shared int64 fixed-point engine (scale 1e-4) that
-// backs Price and Money, plus the CPython-compatible float rounding helpers.
+// backs Price and Money, plus the correctly-rounded float rounding helpers.
 //
 // Numeric model (see docs/spec/domain-types-money.md §1):
 //
 //   - Prices and monetary amounts are int64 counts of 1e-4 units
 //     ("ten-thousandths of a dollar"). Equity prices from the data layer are
-//     2-decimal exact (Nautilus price_precision=2), so the 4-decimal scale
-//     holds them exactly with headroom for adapter fill prices, which the
-//     Python reference formats at 4 decimals (f"{last_px:.4f}",
-//     src/adapters/moomoo/exec_client.py).
+//     2-decimal exact (price_precision=2), so the 4-decimal scale holds them
+//     exactly with headroom for adapter fill prices, which are formatted at
+//     4 decimals (f"{last_px:.4f}").
 //   - Representable range: ±922,337,203,685,477.5807 (and the single extra
 //     negative value -922,337,203,685,477.5808 = MinInt64). All arithmetic is
 //     overflow-checked; helpers return ErrOverflow instead of wrapping.
@@ -18,16 +17,14 @@ package domain
 //     1e-4 scale yields ErrInexact (never silent rounding). Conversions from
 //     float64 are the only place rounding happens, and they round
 //     HALF-TO-EVEN on the decimal digits of the float's shortest
-//     representation — exactly Python's
-//     Decimal(str(x)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_EVEN),
-//     the project default per Python's decimal module (ROUND_HALF_EVEN).
+//     representation — the decimal-string bridge quantized to 0.0001 with
+//     ROUND_HALF_EVEN, this library's default rounding mode.
 //     This is deliberately NOT half-up: 0.00005 -> 0.0000, 0.00015 -> 0.0002.
-//   - PyRound replicates CPython round(float, ndigits): correctly-rounded
-//     half-to-even on the EXACT binary value (so round(2.675, 2) == 2.67,
-//     because the double 2.675 is really 2.67499999...). Note this can differ
-//     from the Decimal(str(x)) bridge above on values whose shortest repr is
-//     a decimal tie; both behaviors exist in the Python reference and both
-//     are reproduced here, each by its dedicated helper.
+//   - PyRound performs correctly-rounded half-to-even on the EXACT binary value
+//     (so round(2.675, 2) == 2.67, because the double 2.675 is really
+//     2.67499999...). Note this can differ from the decimal-string bridge above
+//     on values whose shortest repr is a decimal tie; both behaviors are
+//     supported, each by its dedicated helper.
 
 import (
 	"errors"
@@ -128,8 +125,8 @@ type roundMode uint8
 const (
 	// roundExact errors (ErrInexact) when any precision would be lost.
 	roundExact roundMode = iota
-	// roundHalfEven rounds half-to-even at the 4th decimal digit, matching
-	// Python decimal.ROUND_HALF_EVEN (the decimal module default).
+	// roundHalfEven rounds half-to-even at the 4th decimal digit
+	// (ROUND_HALF_EVEN, this library's default rounding mode).
 	roundHalfEven
 )
 
@@ -367,8 +364,7 @@ func roundHalfEvenDiv(v, d int64) int64 {
 }
 
 // formatFixedDP renders v (1e-4 units) with exactly dp decimal places.
-// dp < 4 rounds half-to-even (matching Python decimal display rounding);
-// dp > 4 pads with zeros; dp < 0 is treated as 0.
+// dp < 4 rounds half-to-even; dp > 4 pads with zeros; dp < 0 is treated as 0.
 func formatFixedDP(v int64, dp int) string {
 	if dp < 0 {
 		dp = 0
@@ -430,11 +426,10 @@ func formatFixedExact(v int64) string {
 	return string(b)
 }
 
-// fixed4FromFloat converts a float64 to 1e-4 fixed point with the
-// Decimal(str(x)) bridge semantics of the Python reference (§1.2): take the
-// float's shortest round-trip decimal representation (identical digits to
-// CPython str(float)), then quantize to 4 decimals rounding HALF-TO-EVEN
-// (Python decimal default ROUND_HALF_EVEN).
+// fixed4FromFloat converts a float64 to 1e-4 fixed point via the
+// decimal-string bridge (§1.2): take the float's shortest round-trip decimal
+// representation, then quantize to 4 decimals rounding HALF-TO-EVEN
+// (ROUND_HALF_EVEN).
 func fixed4FromFloat(f float64) (int64, error) {
 	if math.IsNaN(f) || math.IsInf(f, 0) {
 		return 0, fmt.Errorf("%w: %v", ErrNotFinite, f)
@@ -448,9 +443,9 @@ func fixed4FromFloat(f float64) (int64, error) {
 }
 
 // fixed4ToFloat converts 1e-4 fixed point to the nearest float64 with a
-// single correctly-rounded step (via the exact decimal string), matching
-// Python float(Decimal) for every representable value, including those
-// beyond 2^53 raw units where a naive float64(v)/1e4 would double-round.
+// single correctly-rounded step (via the exact decimal string), correct for
+// every representable value, including those beyond 2^53 raw units where a
+// naive float64(v)/1e4 would double-round.
 func fixed4ToFloat(v int64) float64 {
 	f, err := strconv.ParseFloat(formatFixed4(v), 64)
 	if err != nil {
@@ -461,19 +456,16 @@ func fixed4ToFloat(v int64) float64 {
 }
 
 // ---------------------------------------------------------------------------
-// CPython round(float, ndigits) replication
+// round(float, ndigits)
 // ---------------------------------------------------------------------------
 
-// PyRound replicates CPython's round(x, ndigits) for ndigits >= 0:
-// correctly-rounded, half-to-even on the EXACT binary value of x (CPython
-// implements this via _Py_dg_dtoa mode 3; Go's strconv fixed-precision
-// formatting uses the same correctly-rounded ties-to-even algorithm).
-// NaN and ±Inf are returned unchanged, as in CPython (round(nan) raises only
-// without ndigits; round(nan, n) returns nan). Negative ndigits is not used
-// anywhere in the reference system and returns ErrInvalidArgument.
+// PyRound rounds x to ndigits decimal places for ndigits >= 0:
+// correctly-rounded, half-to-even on the EXACT binary value of x (Go's strconv
+// fixed-precision formatting uses the correctly-rounded ties-to-even
+// algorithm). NaN and ±Inf are returned unchanged. Negative ndigits is not
+// used anywhere and returns ErrInvalidArgument.
 //
-// Validated against golden vectors generated from the reference CPython
-// virtualenv (see testdata/pyround_golden.txt).
+// Pinned by golden vectors (see testdata/pyround_golden.txt).
 func PyRound(x float64, ndigits int) (float64, error) {
 	if ndigits < 0 {
 		return 0, fmt.Errorf("%w: PyRound ndigits must be >= 0, got %d", ErrInvalidArgument, ndigits)
@@ -490,8 +482,8 @@ func PyRound(x float64, ndigits int) (float64, error) {
 	return v, nil
 }
 
-// PyRound4 is the spec-mandated pyround4 helper (§1.3): CPython round(x, 4),
-// used by SEPA stop computation. Equivalent to PyRound(x, 4).
+// PyRound4 is the spec-mandated pyround4 helper (§1.3): round(x, 4), used by
+// SEPA stop computation. Equivalent to PyRound(x, 4).
 func PyRound4(x float64) float64 {
 	v, _ := PyRound(x, 4) // ndigits is constant and valid; no error path
 	return v

@@ -3,8 +3,8 @@
  *
  * Every host port and credential the suite touches is reserved by this project
  * (see compose.yaml): UI 13000, API 18080, postgres 55432, redis 56379. These
- * are deliberately non-default so the suite never collides with the sibling
- * Python reference stack on the same machine.
+ * are deliberately non-default so the suite never collides with a separate
+ * stack on the same machine.
  *
  * All values are overridable via env vars so the suite runs unchanged in CI,
  * against a remote stack, or with a rotated bearer token. Nothing here is a

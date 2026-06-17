@@ -30,7 +30,7 @@ func snapshotFixture() PortfolioSnapshot {
 func TestPortfolioSnapshotDerived(t *testing.T) {
 	a := snapshotFixture()
 
-	// strategy_position: positions.get((sid, sym), 0) [MUST-MATCH].
+	// strategy_position: lookup (sid, sym), missing -> 0.
 	if got := a.StrategyPosition("SEPARunner-000", "AAPL"); got != 150 {
 		t.Errorf("StrategyPosition = %d", got)
 	}
@@ -41,7 +41,7 @@ func TestPortfolioSnapshotDerived(t *testing.T) {
 		t.Errorf("missing strategy must be 0, got %d", got)
 	}
 
-	// net_position_across_strategies: sum over all strategies [MUST-MATCH].
+	// net_position_across_strategies: sum over all strategies.
 	if net, err := a.NetPositionAcrossStrategies("AAPL"); err != nil || net != 90 {
 		t.Errorf("net AAPL = %d, %v; want 150 + (-60) = 90", net, err)
 	}
@@ -52,8 +52,8 @@ func TestPortfolioSnapshotDerived(t *testing.T) {
 		t.Errorf("net UNKNOWN = %d, %v", net, err)
 	}
 
-	// gross_exposure_for_strategy: Σ |qty| * last_close.get(sym, 0)
-	// [MUST-MATCH]: 150*101.50 + 40*400.00 + (NOPX: no price → 0) + (FLAT0:
+	// gross_exposure_for_strategy: Σ |qty| * last_close.get(sym, 0):
+	// 150*101.50 + 40*400.00 + (NOPX: no price → 0) + (FLAT0:
 	// qty 0 → skipped) = 15225 + 16000 = 31225.
 	if g, err := a.GrossExposureForStrategy("SEPARunner-000"); err != nil || g != MustMoney("31225") {
 		t.Errorf("gross SEPA = %s, %v; want 31225", g, err)
@@ -66,7 +66,7 @@ func TestPortfolioSnapshotDerived(t *testing.T) {
 		t.Errorf("gross unknown strategy = %s, %v; want 0", g, err)
 	}
 
-	// total_pnl_today = realized + unrealized [MUST-MATCH].
+	// total_pnl_today = realized + unrealized.
 	b := a
 	b.RealizedPnLToday = MustMoney("-120.50")
 	b.UnrealizedPnLToday = MustMoney("45.25")
@@ -109,8 +109,8 @@ func TestPortfolioSnapshotImmutability(t *testing.T) {
 	lc := map[string]Price{"AAPL": MustPrice("100")}
 	a := NewPortfolioSnapshot(1, 1, 0, 0, src, lc)
 
-	// Mutating the source maps must not affect the snapshot (the Python glue
-	// copies last_close; the constructor deep-copies both).
+	// Mutating the source maps must not affect the snapshot (the constructor
+	// deep-copies both maps).
 	src[StrategySymbol{"S", "AAPL"}] = 999
 	lc["AAPL"] = MustPrice("1")
 	if a.StrategyPosition("S", "AAPL") != 100 || a.LastClose["AAPL"] != MustPrice("100") {
@@ -125,7 +125,7 @@ func TestPortfolioSnapshotImmutability(t *testing.T) {
 		t.Error("Clone shares storage with the original")
 	}
 
-	// Nil maps become empty maps (Python default_factory=dict).
+	// Nil maps become empty maps.
 	empty := NewPortfolioSnapshot(0, 0, 0, 0, nil, nil)
 	if empty.Positions == nil || empty.LastClose == nil {
 		t.Error("nil maps must become empty maps")

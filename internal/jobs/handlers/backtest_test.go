@@ -83,7 +83,7 @@ func TestBuildConfigValidation(t *testing.T) {
 		require.NoError(t, err)
 		assert.Nil(t, asm) // scripted path: no real-strategy assembly
 		assert.Equal(t, []string{"AAPL", "KO"}, cfg.Tickers)
-		assert.Equal(t, engine.ProfileNautilusCompat, cfg.Profile)
+		assert.Equal(t, engine.ProfileRealistic, cfg.Profile) // default profile is now realistic
 		assert.Equal(t, domain.MustMoney("100000.00"), cfg.StartingBalance) // default
 		assert.NotEmpty(t, runTS)
 	})

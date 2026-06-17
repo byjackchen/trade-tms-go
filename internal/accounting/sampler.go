@@ -1,8 +1,8 @@
 package accounting
 
-// sampler.go is the equity-curve sampler, the Go port of the Python
-// EquityCurveSamplerActor. On each daily bar it records, per strategy, the
-// strategy's total PnL (realized + unrealized for open positions; flat
+// sampler.go is the equity-curve sampler. On each daily bar it records, per
+// strategy, the strategy's total PnL (realized + unrealized for open
+// positions; flat
 // strategies contribute realized only) and the account's total equity. The
 // samples back the runs artifacts strategy_equity/{id}.json (per-strategy
 // cumulative PnL, §7.7) and account.json (total equity curve, §7.4).
@@ -53,8 +53,8 @@ func NewEquitySampler(acct *Account) *EquitySampler {
 // Sample records one point per known strategy and one total-equity point at ts.
 // Strategy total PnL = realized + (unrealized for open positions). A strategy
 // is "known" once any position has been opened under it; flat strategies still
-// receive a point carrying their realized PnL (matching the Python actor, which
-// samples every tracked strategy each bar).
+// receive a point carrying their realized PnL (every tracked strategy is
+// sampled each bar).
 func (s *EquitySampler) Sample(ts time.Time) error {
 	// Discover strategies from the account's position book and aggregate.
 	perStrat := make(map[string]domain.Money)

@@ -64,7 +64,7 @@ func (s *Strategy) Generator() *pairs.Generator { return s.sg }
 // OnBar feeds the bar to the generator and submits one order per emitted signal
 // in the SG's emitted order (per pair: long_leg then short_leg; closes emit one
 // FLAT per non-zero leg). The bar's canonical close string is derived from the
-// fixed-point Price via the SG's Python-decimal bridge (exact for the <=4dp
+// fixed-point Price via the SG's decimal-string bridge (exact for the <=4dp
 // price domain).
 func (s *Strategy) OnBar(sub engine.OrderSubmitter, bar domain.Bar) error {
 	for _, sig := range s.sg.OnDomainBar(bar) {

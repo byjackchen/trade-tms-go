@@ -2,17 +2,17 @@ package study
 
 // fixer_round2_test.go covers the FIXER round-2 hardening:
 //
-//   finding 1 (objective parity / gate): the single-strategy hyperopt objective
-//   path must gate the optimized sub-strategy under the canonical MULTI-strategy
+//   finding 1 (objective gate): the single-strategy hyperopt objective path
+//   must gate the optimized sub-strategy under the canonical MULTI-strategy
 //   portfolio (SEPA 40 / Sector 30 / Pairs 20; single-name 50%, concentration
-//   40%, daily-loss 10%) — exactly what scripts/multi_strategy_backtest.run_backtest
-//   always installs, even for a single-strategy trial — NOT the lone-strategy
-//   100%-budget / default-caps gate. The two gates admit/reject DIFFERENT order
-//   sets, so using the wrong one makes the objective vector diverge from Python.
+//   40%, daily-loss 10%) — exactly what run_backtest always installs, even for
+//   a single-strategy trial — NOT the lone-strategy 100%-budget / default-caps
+//   gate. The two gates admit/reject DIFFERENT order sets, so using the wrong
+//   one makes the objective vector wrong.
 //
 //   finding 2 (num_filled_orders): the objective path must count orders that
-//   produced at least one fill (Nautilus is_closed, derived from res.Fills), NOT
-//   orders whose Status == FILLED — the engine never mutates a submitted order's
+//   produced at least one fill (is_closed, derived from res.Fills), NOT orders
+//   whose Status == FILLED — the engine never mutates a submitted order's
 //   status to FILLED, so the old counter was ALWAYS 0 despite real fills.
 //
 // Both are proven over a deterministic synthetic 3-pair dataset (no DB / net)
@@ -104,9 +104,9 @@ func triplePairDefaults() map[string]any {
 // runPairsEngineLoneGate assembles + runs the pairs strategy over [start, end]
 // on the shared dataset under the pairs-only Composition's lone gate (100% budget,
 // the pairs default risk caps) and returns the whole run Result. It mirrors
-// Evaluator.run so the two can be compared directly. With parity abandoned the
-// pairs objective now uses exactly this lone gate (it no longer force-installs
-// the multi-strategy gate — docs/concept-alignment.md §3.2, D1).
+// Evaluator.run so the two can be compared directly. The pairs objective now
+// uses exactly this lone gate (it no longer force-installs the multi-strategy
+// gate).
 func runPairsEngineLoneGate(t *testing.T, ds *Dataset, defaults map[string]any, start, end calendar.Date, startBal float64) *engine.Result {
 	t.Helper()
 	pp, err := params.PairsFromMap(defaults)
@@ -134,19 +134,19 @@ func runPairsEngineLoneGate(t *testing.T, ds *Dataset, defaults map[string]any, 
 		Start:              start,
 		End:                end,
 		StartingBalance:    sb,
-		Profile:            engine.ProfileNautilusCompat,
+		Profile:            engine.ProfileCloseFill,
 		Gate:               asm.Gate,
 		Context:            asm.Context,
 		SPYSymbol:          asm.SPYSymbol,
 		PrebuiltStrategies: asm.Strategies,
 		Tickers:            asm.ExtraTickers,
 	}
-	// Parity-correct feed: the engine replays ONLY [start, end]. Pairs receives
-	// NO warmup priming (its adapter is not a WarmupConsumer), mirroring Python
-	// where the Pairs loader pulls run-window-only bars — so the reference engine
-	// here uses the same WindowFeed the Evaluator.run uses. (Replaying the 400d
-	// warmup tail through the loop, as the old ds.Feed did, would WARM Pairs'
-	// rolling state and inflate its admitted/rejected order set vs Python.)
+	// Correct feed: the engine replays ONLY [start, end]. Pairs receives NO
+	// warmup priming (its adapter is not a WarmupConsumer) — the Pairs loader
+	// pulls run-window-only bars — so this engine uses the same WindowFeed the
+	// Evaluator.run uses. (Replaying the 400d warmup tail through the loop, as
+	// the old ds.Feed did, would WARM Pairs' rolling state and inflate its
+	// admitted/rejected order set.)
 	feed := ds.WindowFeed()
 	eng, err := engine.New(context.Background(), cfg, feed)
 	if err != nil {
@@ -188,11 +188,11 @@ func emptyPairsDecoded() Decoded {
 	return Decoded{Overrides: map[string]map[string]float64{"pairs": {}}}
 }
 
-// TestObjectiveUsesLoneGate proves the post-parity contract: the single-strategy
+// TestObjectiveUsesLoneGate proves the current contract: the single-strategy
 // pairs objective path gates under the pairs-only Composition's LONE gate (100% budget
 // + the pairs default risk caps), NOT the multi-strategy portfolio gate. The old
-// MultiStrategyGate force-install is gone (parity abandoned), so the Evaluator's
-// counters must equal a lone-gate engine run over the same dataset.
+// MultiStrategyGate force-install is gone, so the Evaluator's counters must
+// equal a lone-gate engine run over the same dataset.
 func TestObjectiveUsesLoneGate(t *testing.T) {
 	const startBal = 100000.0
 	start := calendar.NewDate(2023, 1, 2)
@@ -220,8 +220,8 @@ func TestObjectiveUsesLoneGate(t *testing.T) {
 }
 
 // engineMetricsSharpe recomputes a run's Sharpe the same way the objective path
-// does (equity curve -> metrics.Compute), so the gate test can assert
-// objective-VALUE parity, not just counter parity.
+// does (equity curve -> metrics.Compute), so the gate test can assert the
+// objective VALUE matches, not just the counters.
 func engineMetricsSharpe(t *testing.T, r *engine.Result, startBal float64) float64 {
 	t.Helper()
 	pts := r.TotalEquityCurve
@@ -243,8 +243,8 @@ func engineMetricsSharpe(t *testing.T, r *engine.Result, startBal float64) float
 
 // TestObjectiveObjectiveValuesMatchLoneGate proves the objective VECTOR (sharpe,
 // calmar) computed by the Evaluator equals the lone-gate engine run's metrics
-// exactly — the post-parity contract at the value level (the objective uses the
-// pairs-only Composition's gate, not the multi gate).
+// exactly — the contract at the value level (the objective uses the pairs-only
+// Composition's gate, not the multi gate).
 func TestObjectiveObjectiveValuesMatchLoneGate(t *testing.T) {
 	const startBal = 100000.0
 	start := calendar.NewDate(2023, 1, 2)

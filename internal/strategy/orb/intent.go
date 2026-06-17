@@ -1,16 +1,15 @@
 package orb
 
-// intent.go ports evaluate_intent (intraday_breakout/signal.py:307-399) — the
-// single per-symbol UI snapshot (NOT a list, unlike sector_rotation). Each call
-// increments the generation counter.
+// intent.go computes evaluate_intent — the single per-symbol UI snapshot (NOT a
+// list, unlike sector_rotation). Each call increments the generation counter.
 
 import (
 	"math"
 	"time"
 )
 
-// EvaluateIntent returns the typed ORB intent as of asOf, exactly matching
-// signal.py:307-399. The short-circuit order is: NO_SETUP (range not locked) ->
+// EvaluateIntent returns the typed ORB intent as of asOf. The short-circuit
+// order is: NO_SETUP (range not locked) ->
 // HOLD (in position) -> NO_SETUP (past EOD) -> FORMING (no last close) ->
 // BUY (last > orb_high) -> FORMING (otherwise). generation increments first.
 func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
@@ -36,7 +35,6 @@ func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
 		StrategyID:     StrategyID,
 		ORBHigh:        decPtrString(g.rangeHigh),
 		ORBLow:         decPtrString(g.rangeLow),
-		ATRAtOpen:      "", // reserved, always nil
 		EntryWindowEnd: windowEndUTC,
 	}
 

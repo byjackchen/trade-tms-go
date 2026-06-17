@@ -23,8 +23,8 @@
 // immutable dataset, and TOLD BACK IN ASCENDING ID ORDER — so the population
 // trajectory and every artifact are independent of trial completion order.
 // Re-running the same seed over the same dataset reproduces identical trials.
-// Walk-forward splits match the Python splitter exactly; objective values match
-// Python exactly for a given param set (the proven P2/P3 engine + metrics).
+// Walk-forward splits and objective values are deterministic for a given param
+// set (the proven P2/P3 engine + metrics).
 //
 // # Persistence
 //
@@ -32,8 +32,8 @@
 //     folded into one row) + research.hyperopt_trials (trial artifacts), upserted
 //     as trials complete, idempotent on (study_ts)/(study_ts, number).
 //   - Legacy artifacts (artifacts.go): runs/hyperopt/<study_ts>/{study.json,
-//     progress.json, trials/trial_%04d.json, best_params/<strat>.json}, byte
-//     compatible with the Python reference schemas (shared pyjson encoder).
+//     progress.json, trials/trial_%04d.json, best_params/<strat>.json},
+//     rendered by the shared pyjson encoder.
 //   - Progress (gen/trial %) streamed to the jobs Redis channel via the handler's
 //     reporting sink.
 //

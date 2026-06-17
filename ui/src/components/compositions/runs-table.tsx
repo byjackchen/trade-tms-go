@@ -52,7 +52,7 @@ const STATUS_OPTIONS = ["", "RUNNING", "COMPLETE", "INTERRUPTED", "FAIL"];
 
 /** Column definitions for the backtest-runs ResponsiveTable. The `#id` and
  * Status columns are the always-visible primaries on the mobile card; the rest
- * (full parity) fold under "More". */
+ * (full feature set) fold under "More". */
 function buildColumns(
   selectedId: number | null | undefined,
   onSelect: ((id: number) => void) | undefined,
@@ -181,7 +181,7 @@ function buildColumns(
  * highlights the open run.
  *
  * Rendered via <ResponsiveTable>: the shadcn table on desktop, a stacked card
- * list on mobile (full parity — every column carried, secondary columns under
+ * list on mobile (full feature set — every column carried, secondary columns under
  * "More").
  */
 export function RunsTable({

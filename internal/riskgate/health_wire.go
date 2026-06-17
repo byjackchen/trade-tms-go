@@ -2,9 +2,9 @@ package riskgate
 
 // health_wire.go exposes the PortfolioHealthSnapshot's exact-decimal ratio
 // fields as float64 for the live publish path. The PortfolioHealthUpdate WS /
-// Redis-stream wire carries floats (api-ws-redis.md §5.11; reference
-// src/data/custom_data.py:241-268), so the live publisher reads these
-// accessors and emits floats; the REST endpoint stringifies the wire value.
+// Redis-stream wire carries floats (api-ws-redis.md §5.11), so the live
+// publisher reads these accessors and emits floats; the REST endpoint
+// stringifies the wire value.
 //
 // These are read-only projections (Float64 == nearest float64 of the exact
 // dec). The DailyLossHalt bool is already exported on the struct.

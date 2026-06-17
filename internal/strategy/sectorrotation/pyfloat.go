@@ -6,15 +6,14 @@ import (
 	"strings"
 )
 
-// pyFloatRepr reproduces CPython's repr(float) / str(float), which the
-// reference uses to serialize history/last_close closes:
+// pyFloatRepr renders a shortest round-trip float repr (repr(float) /
+// str(float)), used to serialize history/last_close closes:
 //
 //	state_dict stores str(Decimal) where the Decimal came from Decimal(str(f)),
-//	so the stored string is exactly str(f) — Python's float repr.
+//	so the stored string is exactly str(f) — the float repr.
 //
-// CPython float_repr uses "shortest string that round-trips" (PyOS_double_to_
-// string with format 'r'), with these surface rules that differ from Go's
-// strconv.FormatFloat:
+// The repr uses "shortest string that round-trips", with these surface rules
+// on top of Go's strconv.FormatFloat:
 //   - integral values carry a trailing ".0" (Go's 'g' drops it): 142 -> "142.0".
 //   - exponential form uses a lowercase 'e' with an explicit sign and a
 //     minimum-2-digit exponent ("1e-05" not "1e-5"); Go uses the same 'e' code
@@ -36,12 +35,11 @@ func pyFloatRepr(f float64) string {
 		return "nan"
 	}
 
-	// CPython 'r' format: shortest round-trip. Go's 'g' with precision -1 is the
-	// same shortest-round-trip digit selection. We then reconcile the decimal-
-	// point / exponent surface rules.
+	// Go's 'g' with precision -1 is the shortest-round-trip digit selection. We
+	// then reconcile the decimal-point / exponent surface rules.
 	s := strconv.FormatFloat(f, 'g', -1, 64)
 
-	// Exponent present: normalise to CPython's "<mantissa>e<sign><2+ digits>".
+	// Exponent present: normalise to "<mantissa>e<sign><2+ digits>".
 	if i := strings.IndexAny(s, "eE"); i >= 0 {
 		mant := s[:i]
 		exp := s[i+1:]
@@ -55,7 +53,7 @@ func pyFloatRepr(f float64) string {
 		for len(exp) < 2 {
 			exp = "0" + exp
 		}
-		// CPython keeps a bare integral mantissa (e.g. "1e+16", not "1.0e+16").
+		// Keep a bare integral mantissa (e.g. "1e+16", not "1.0e+16").
 		return mant + "e" + sign + exp
 	}
 

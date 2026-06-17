@@ -13,12 +13,12 @@ import (
 
 // priceTol is the float tolerance for price-derived floats (returns, weights,
 // proximity, strength). Per the task acceptance bar: prices within 1e-6,
-// everything else exact. We use a much tighter bound (1e-12) because the Go
-// ratioReturn path is byte-identical to CPython's Decimal-then-float path on
-// these fixtures; the looser 1e-6 is the contractual ceiling.
+// everything else exact. We use a much tighter bound (1e-12) because the
+// ratioReturn path is deterministic to the last bit on these fixtures; the
+// looser 1e-6 is the contractual ceiling.
 const priceTol = 1e-9
 
-// --- reference JSON schema (mirrors tmp/parity_sector_rotation/dump_py.py) ---
+// --- reference JSON schema ---
 
 type refRoot struct {
 	Config struct {
@@ -90,13 +90,13 @@ type refStateDict struct {
 
 func loadRef(t *testing.T) refRoot {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("testdata", "parity.json"))
+	b, err := os.ReadFile(filepath.Join("testdata", "golden.json"))
 	if err != nil {
-		t.Fatalf("read parity.json: %v", err)
+		t.Fatalf("read golden.json: %v", err)
 	}
 	var r refRoot
 	if err := json.Unmarshal(b, &r); err != nil {
-		t.Fatalf("decode parity.json: %v", err)
+		t.Fatalf("decode golden.json: %v", err)
 	}
 	return r
 }
@@ -108,11 +108,12 @@ func floatEq(a, b float64) bool {
 	return math.Abs(a-b) <= priceTol
 }
 
-// TestParity_SectorRotation replays the exact multi-symbol merged bar stream
-// the Python dump harness used, and asserts the Go SignalGenerator reproduces
-// the FULL ordered sequence of on_bar signals, evaluate_intent results, and
-// state_summary snapshots — signal-by-signal, plus the final state_dict.
-func TestParity_SectorRotation(t *testing.T) {
+// TestGolden_SectorRotation replays a fixed multi-symbol merged bar stream and
+// asserts the SignalGenerator reproduces the FULL ordered sequence of on_bar
+// signals, evaluate_intent results, and state_summary snapshots —
+// signal-by-signal, plus the final state_dict. The reference values pin this
+// repo's behavior; any drift is a regression.
+func TestGolden_SectorRotation(t *testing.T) {
 	ref := loadRef(t)
 
 	cfg := Config{
@@ -301,6 +302,6 @@ func TestParity_SectorRotation(t *testing.T) {
 		}
 	}
 
-	t.Logf("parity OK: bars=%d signals=%d intents=%d summaries=%d",
+	t.Logf("golden OK: bars=%d signals=%d intents=%d summaries=%d",
 		barsCompared, signalsCompared, intentsCompared, summariesCompared)
 }

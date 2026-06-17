@@ -1,0 +1,14 @@
+# parity-guard allowlist
+#
+# Each line whitelists ONE path that is allowed to contain otherwise-forbidden
+# Python/parity vocabulary, with a mandatory reason. Format:
+#
+#   <repo-relative-path>    <reason for the residual>
+#
+# Aim to keep this file EMPTY. An entry is technical debt, not a feature: it
+# means a retired-vocabulary word genuinely must remain in that file. The
+# cross-platform numeric-determinism mechanisms (math/big exact arithmetic in
+# internal/metrics/metrics.go and FMA suppression in internal/domain/intent.go)
+# were reworded away from CPython wording in PR-3, so they do NOT need entries.
+#
+# (intentionally empty)

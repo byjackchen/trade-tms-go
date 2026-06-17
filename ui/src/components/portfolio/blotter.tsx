@@ -184,7 +184,7 @@ export function Blotter({
   const rowId = withActions ? "manual-blotter-order-row" : "live-blotter-order-row";
   const countId = withActions ? "manual-orders-count" : "orders-count";
 
-  // Column defs drive desktop table + mobile card list (full parity). Symbol +
+  // Column defs drive desktop table + mobile card list (full feature set). Symbol +
   // Status lead each mobile card; the cancel Action (desk only) stays primary so
   // it is a tap away without expanding "More".
   const columns: ColumnDef<Row>[] = [

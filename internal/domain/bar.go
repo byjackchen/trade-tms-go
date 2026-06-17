@@ -1,8 +1,7 @@
 package domain
 
-// bar.go defines the project-wide OHLCV bar contract, mirroring the frozen
-// Python dataclass Bar (src/strategies/sepa/signal.py:70-84, spec §2.2),
-// reused by all four strategies.
+// bar.go defines the project-wide OHLCV bar contract (spec §2.2), reused by
+// all four strategies.
 
 import (
 	"fmt"
@@ -12,12 +11,12 @@ import (
 // Bar is one OHLCV bar. Immutable by convention: pass by value, never mutate
 // a received Bar.
 //
-// Invariants (spec §2.2 [MUST-MATCH]):
+// Invariants (spec §2.2):
 //   - Symbol is the plain ticker (e.g. "AAPL", no venue suffix), taken from
 //     the bar type's instrument id at translation time.
 //   - TS is timezone-aware UTC.
-//   - OHLC prices come from the data layer 2-decimal exact (Nautilus
-//     price_precision=2) and are held exactly by the 1e-4 fixed point.
+//   - OHLC prices come from the data layer 2-decimal exact
+//     (price_precision=2) and are held exactly by the 1e-4 fixed point.
 //   - Volume is a truncating cast from the source quantity.
 type Bar struct {
 	Symbol string    `json:"symbol"`
@@ -29,8 +28,8 @@ type Bar struct {
 	Volume int64     `json:"volume"`
 }
 
-// Validate checks the Bar invariants. It is opt-in (the Python reference
-// performs no validation on construction); call it at ingestion boundaries.
+// Validate checks the Bar invariants. It is opt-in (bars are not validated on
+// construction); call it at ingestion boundaries.
 func (b Bar) Validate() error {
 	if b.Symbol == "" {
 		return fmt.Errorf("%w: bar has empty symbol", ErrInvalidArgument)

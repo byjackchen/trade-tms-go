@@ -1,29 +1,27 @@
 package params
 
 // typed.go defines the per-strategy resolved parameter structs each Go strategy
-// consumes, plus the runtime validation that mirrors the Python
-// *SignalGeneratorConfig.__post_init__ bodies EXACTLY (same predicates, same
-// error messages). These are the [MUST-MATCH] config-validation rules:
+// consumes, plus the runtime validation each config enforces at load. These are
+// the config-validation rules:
 //
-//   sepa     (signal.py:155-163): risk_pct in (0,100]; hard_stop_pct > 0.
-//   pairs    (signal.py:92-104):  pairs non-empty; lookback >= 5;
-//                                 entry_z > 0 and exit_z >= 0;
-//                                 exit_z < entry_z; capital_per_pair_pct in (0,1].
-//   sector   (signal.py:80-92):   universe non-empty; momentum_lookback >= 2;
-//                                 top_k in [1, len(universe)].
-//   intraday (signal.py:65-91):   risk_pct in (0,100]; range_minutes >= 1;
-//                                 vol_multiple > 0; profit_target_r > 0;
-//                                 hard_stop_pct in (0,50]; eod_exit_time HH:MM
-//                                 with 0<=h<=23, 0<=m<=59; timezone IANA-loadable.
+//   sepa:     risk_pct in (0,100]; hard_stop_pct > 0.
+//   pairs:    pairs non-empty; lookback >= 5;
+//             entry_z > 0 and exit_z >= 0;
+//             exit_z < entry_z; capital_per_pair_pct in (0,1].
+//   sector:   universe non-empty; momentum_lookback >= 2;
+//             top_k in [1, len(universe)].
+//   intraday: risk_pct in (0,100]; range_minutes >= 1;
+//             vol_multiple > 0; profit_target_r > 0;
+//             hard_stop_pct in (0,50]; eod_exit_time HH:MM
+//             with 0<=h<=23, 0<=m<=59; timezone IANA-loadable.
 //
 // equity_provider validation is intentionally NOT modeled here: it is an
-// injected runtime closure (Python validates only callability), supplied by the
-// engine at construction, not a declared parameter.
+// injected runtime closure supplied by the engine at construction, not a
+// declared parameter.
 //
-// Numbers are decoded as float64/int64 mirroring Python float/int. A param
-// declared "int" whose JSON default is a whole number decodes cleanly; a
-// non-integral value for an int param is a load error (Python would have an int
-// there by construction).
+// Numbers are decoded as float64/int64. A param declared "int" whose JSON
+// default is a whole number decodes cleanly; a non-integral value for an int
+// param is a load error.
 
 import (
 	"fmt"
@@ -32,16 +30,15 @@ import (
 	"time"
 )
 
-// Pair is one pairs-trading leg pair (pairs/signal.py Pair). long_leg /
+// Pair is one pairs-trading leg pair. long_leg /
 // short_leg labels are arbitrary; the strategy trades the spread both ways.
 type Pair struct {
 	LongLeg  string
 	ShortLeg string
 }
 
-// SEPAParams is the resolved SEPA configuration (sepa/signal.py
-// SEPASignalGeneratorConfig minus symbol/equity_provider, which the engine
-// injects per-instrument at construction).
+// SEPAParams is the resolved SEPA configuration (minus symbol/equity_provider,
+// which the engine injects per-instrument at construction).
 type SEPAParams struct {
 	RiskPct                float64
 	MarketCapMinUSD        float64
@@ -53,8 +50,7 @@ type SEPAParams struct {
 	Timezone               string
 }
 
-// PairsParams is the resolved Pairs configuration (pairs/signal.py
-// PairsSignalGeneratorConfig minus equity_provider).
+// PairsParams is the resolved Pairs configuration (minus equity_provider).
 type PairsParams struct {
 	Pairs             []Pair
 	Lookback          int64
@@ -65,7 +61,7 @@ type PairsParams struct {
 }
 
 // SectorRotationParams is the resolved Sector Rotation configuration
-// (sector_rotation/signal.py minus equity_provider).
+// (minus equity_provider).
 type SectorRotationParams struct {
 	Universe         []string
 	MomentumLookback int64
@@ -74,7 +70,7 @@ type SectorRotationParams struct {
 }
 
 // IntradayBreakoutParams is the resolved Intraday ORB configuration
-// (intraday_breakout/signal.py minus symbol/equity_provider).
+// (minus symbol/equity_provider).
 type IntradayBreakoutParams struct {
 	RiskPct       float64
 	RangeMinutes  int64
@@ -105,8 +101,8 @@ func (m pmap) float(name string) (float64, error) {
 }
 
 // integer pulls a parameter that must be an exact integer. JSON numbers decode
-// to float64; a non-integral value is rejected (Python's int() over a declared
-// int param never silently truncates a tuned float — the param type is int).
+// to float64; a non-integral value is rejected — an int param never silently
+// truncates a tuned float.
 func (m pmap) integer(name string) (int64, error) {
 	f, err := m.float(name)
 	if err != nil {
@@ -213,7 +209,7 @@ func sepaFromMap(m pmap) (SEPAParams, error) {
 	return p, nil
 }
 
-// Validate mirrors SEPASignalGeneratorConfig.__post_init__ (signal.py:155-163).
+// Validate enforces the SEPA config bounds: risk_pct in (0,100]; hard_stop_pct > 0.
 func (p SEPAParams) Validate() error {
 	if !(p.RiskPct > 0 && p.RiskPct <= 100) {
 		return fmt.Errorf("risk_pct must be in (0, 100]")
@@ -251,7 +247,8 @@ func pairsFromMap(m pmap) (PairsParams, error) {
 	return p, nil
 }
 
-// Validate mirrors PairsSignalGeneratorConfig.__post_init__ (signal.py:92-104).
+// Validate enforces the Pairs config bounds: pairs non-empty; lookback >= 5;
+// entry_z > 0; exit_z >= 0; exit_z < entry_z; capital_per_pair_pct in (0,1].
 func (p PairsParams) Validate() error {
 	if len(p.Pairs) == 0 {
 		return fmt.Errorf("pairs must not be empty")
@@ -292,8 +289,9 @@ func sectorFromMap(m pmap) (SectorRotationParams, error) {
 	return p, nil
 }
 
-// Validate mirrors SectorRotationSignalGeneratorConfig.__post_init__
-// (signal.py:80-92). The top_k message embeds len(universe), exactly as Python.
+// Validate enforces the Sector Rotation config bounds: universe non-empty;
+// momentum_lookback >= 2; top_k in [1, len(universe)]. The top_k message
+// embeds len(universe).
 func (p SectorRotationParams) Validate() error {
 	if len(p.Universe) == 0 {
 		return fmt.Errorf("universe must not be empty")
@@ -337,8 +335,8 @@ func intradayFromMap(m pmap) (IntradayBreakoutParams, error) {
 	return p, nil
 }
 
-// Validate mirrors IntradayBreakoutSignalGeneratorConfig.__post_init__
-// (signal.py:65-91): numeric bounds, eod_exit_time HH:MM parse, IANA timezone.
+// Validate enforces the Intraday ORB config bounds: numeric bounds,
+// eod_exit_time HH:MM parse, IANA timezone.
 func (p IntradayBreakoutParams) Validate() error {
 	if p.RiskPct <= 0 || p.RiskPct > 100 {
 		return fmt.Errorf("risk_pct must be in (0, 100]")

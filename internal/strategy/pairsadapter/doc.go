@@ -1,8 +1,7 @@
 // Package pairsadapter bridges the PURE Pairs SignalGenerator
 // (internal/strategy/pairs) to the engine-facing Strategy seam
 // (internal/engine), translating each emitted Signal into a market order
-// exactly as the reference PairsRunner._submit_for_signal
-// (strategy-pairs.md §10, nautilus_runner.py):
+// (strategy-pairs.md §10):
 //
 //   - LONG  -> market BUY of target_qty
 //   - SHORT -> market SELL of target_qty (margin account)
@@ -12,8 +11,8 @@
 //     intervention.
 //
 // This package — NOT the pure pairs package — is the only place that imports
-// engine, preserving the Eng-D2 two-layer constraint: the core strategy
-// package never imports broker/engine code. It implements the P3 capability
+// engine, preserving the two-layer constraint: the core strategy package never
+// imports broker/engine code. It implements the P3 capability
 // seams (IntentEvaluator, StateSummarizer, StatePersister) the engine probes by
 // type assertion. Pairs consumes no per-bar context, so ContextConsumer is
 // intentionally NOT implemented.

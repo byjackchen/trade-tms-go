@@ -77,7 +77,7 @@ func TestVolumeCell(t *testing.T) {
 		nulled bool
 	}{
 		{"whole float", 1234.0, true, int64(1234), false},
-		{"truncates toward zero like Python int()", 12.9, true, int64(12), false},
+		{"truncates toward zero", 12.9, true, int64(12), false},
 		{"negative fraction truncates to zero", -0.5, true, int64(0), false},
 		{"zero", 0.0, true, int64(0), false},
 		{"null", 0, false, nil, false},

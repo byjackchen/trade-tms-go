@@ -24,9 +24,8 @@ func relClose(t *testing.T, name string, got, want float64) {
 	}
 }
 
-// goldenVectors are produced by the Python reference (research.metrics) over
-// the §1 test curves and a few randomized ones; see the build harness in the
-// builder notes. Each asserts sharpe/calmar/mdd parity to 1e-12 relative.
+// goldenVectors pin this repo's metrics over the §1 test curves and a few
+// randomized ones. Each asserts sharpe/calmar/mdd to 1e-12 relative.
 var goldenVectors = []struct {
 	name     string
 	curve    []float64
@@ -161,8 +160,8 @@ func TestCompute(t *testing.T) {
 	}
 }
 
-func TestExactMeanMatchesCPython(t *testing.T) {
-	// Exact-rational mean reproduces CPython statistics.mean bit-for-bit. The
+func TestExactMeanIsBitExact(t *testing.T) {
+	// Exact-rational mean is bit-identical across platforms (arm64 vs x86). The
 	// load-bearing case: bit-identical non-binary-exact returns must mean to
 	// EXACTLY 0.1 (the float), not 0.10000000000000002, so that the deviations
 	// are exactly 0 and pstdev==0 (covered by TestSharpeBitIdenticalReturns).
@@ -195,8 +194,8 @@ func TestExactPstdevZeroOnBitIdentical(t *testing.T) {
 // TestSharpeBitIdenticalReturns is the regression for finding #1: a curve whose
 // per-period returns are all the same non-binary-exact float (a constant
 // compounding rate — exactly the hyperopt fold-stitch path stitched[-1]*(1+ret))
-// must yield Sharpe 0.0, matching CPython compute_sharpe. The previous Neumaier
-// mean made vol != 0 and produced ~1.14e17.
+// must yield Sharpe 0.0. The previous Neumaier mean made vol != 0 and produced
+// ~1.14e17.
 func TestSharpeBitIdenticalReturns(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -222,15 +221,14 @@ func TestSharpeBitIdenticalReturns(t *testing.T) {
 	}
 }
 
-// TestSharpeStitchCompoundParity asserts Go matches CPython even when the
-// fold-stitch recurrence stitched[-1]*(1+r) does NOT produce bit-identical
-// returns (floating error accumulates): both languages yield the same large
-// value. Captured from research.metrics.compute_sharpe on the same curve.
-func TestSharpeStitchCompoundParity(t *testing.T) {
+// TestSharpeStitchCompoundGolden pins Sharpe even when the fold-stitch
+// recurrence stitched[-1]*(1+r) does NOT produce bit-identical returns
+// (floating error accumulates): the value is stable and reproducible.
+func TestSharpeStitchCompoundGolden(t *testing.T) {
 	curve := []float64{100000.0}
 	for i := 0; i < 5; i++ {
 		curve = append(curve, curve[len(curve)-1]*1.1)
 	}
-	// Python: compute_sharpe(curve) == 2.0968316539602468e+16
+	// Golden: Sharpe(curve) == 2.0968316539602468e+16
 	relClose(t, "sharpe", Sharpe(curve), 2.0968316539602468e+16)
 }

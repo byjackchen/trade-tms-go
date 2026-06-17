@@ -22,13 +22,14 @@ func healthPortfolio(t *testing.T, haltPct float64) *Gate {
 	return NewGate(alloc, rc)
 }
 
-// TestHealthSnapshotParity replays golden PortfolioHealthSnapshot values captured
-// from the Python reference (incl. non-terminating 28-sig-digit divisions) and
-// asserts the Go snapshot is numerically identical for every field.
-func TestHealthSnapshotParity(t *testing.T) {
-	raw, err := os.ReadFile("testdata/health_parity.json")
+// TestHealthSnapshotGolden replays golden PortfolioHealthSnapshot values (incl.
+// non-terminating 28-sig-digit divisions) and asserts the snapshot is
+// numerically identical for every field. The values are this repo's golden
+// regression baseline.
+func TestHealthSnapshotGolden(t *testing.T) {
+	raw, err := os.ReadFile("testdata/health_golden.json")
 	if err != nil {
-		t.Skipf("health parity fixture missing (%v)", err)
+		t.Skipf("health golden fixture missing (%v)", err)
 	}
 	var cases []struct {
 		Name      string `json:"name"`

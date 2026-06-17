@@ -83,8 +83,7 @@ func (s *Strategy) OnBar(sub engine.OrderSubmitter, bar domain.Bar) error {
 
 // EvaluateIntentJSON returns the single ORB intent for asOf, already bridged to
 // the canonical domain.IntradayBreakoutIntent wire shape (engine.IntentEvaluator).
-// It increments the SG's generation counter, exactly as the reference runner's
-// publish path does.
+// It increments the SG's generation counter, as the publish path does.
 //
 // The adapter is the SANCTIONED domain bridge (modularization-review.md §E3): the
 // local→domain normalization (formerly publish.normalizeORB) lives in
@@ -114,10 +113,10 @@ func (s *Strategy) LoadStateJSON(b []byte) error {
 }
 
 // toORBBar translates a domain.Bar (2-dp exact 1e-4 fixed point, UTC) to an
-// orb.Bar whose OHLC reproduce the reference runner's Decimal(str(price))
-// translation. The engine renders prices at Nautilus price_precision=2, so the
-// 2-dp string is the exact value Python's Decimal(str(x)) consumes — preserving
-// the scale that propagates into the ORB reason / state strings.
+// orb.Bar whose OHLC reproduce the runner's Decimal(str(price)) translation. The
+// engine renders prices at a 2-dp precision, so the 2-dp string is the exact
+// value Decimal(str(x)) consumes — preserving the scale that propagates into the
+// ORB reason / state strings.
 func toORBBar(bar domain.Bar) orb.Bar {
 	ob, _ := orb.NewBarFromStrings(
 		bar.Symbol, bar.TS,

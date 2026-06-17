@@ -1,8 +1,7 @@
 package orb
 
-// signal_test.go ports the unit-level semantics of the Python reference tests
-// (tests/strategies/intraday_breakout/test_signal.py and test_intent.py) that
-// the end-to-end parity fixture does not exercise in isolation: config
+// signal_test.go covers the unit-level semantics that the end-to-end golden
+// fixture does not exercise in isolation: config
 // validation message anchoring, the symbol filter, the no-signal-in-range
 // invariant, the two breakout-gate negatives, the stop selection branches,
 // no-entry-after-EOD, session reset/flatten, state_dict round-trip, and the

@@ -15,14 +15,15 @@ func mustDate(s string) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-// TestExpandingAnchoredParity replays 300+ (start,end,folds,embargo) cases
-// captured from the Python research.walkforward.expanding_anchored and asserts
-// exact date equality on every segment boundary plus matching error behavior.
-// Includes the spec §3.1 golden worked example and the four ValueError paths.
-func TestExpandingAnchoredParity(t *testing.T) {
-	raw, err := os.ReadFile("testdata/wf_parity.json")
+// TestExpandingAnchoredGoldenCases replays 300+ (start,end,folds,embargo) cases
+// through expanding_anchored and asserts exact date equality on every segment
+// boundary plus matching error behavior. Includes the spec §3.1 golden worked
+// example and the four ValueError paths. The values are this repo's golden
+// regression baseline.
+func TestExpandingAnchoredGoldenCases(t *testing.T) {
+	raw, err := os.ReadFile("testdata/wf_golden.json")
 	if err != nil {
-		t.Skipf("parity fixture missing (%v)", err)
+		t.Skipf("golden fixture missing (%v)", err)
 	}
 	var cases []struct {
 		Start    string `json:"start"`
@@ -62,7 +63,7 @@ func TestExpandingAnchoredParity(t *testing.T) {
 			}
 		}
 	}
-	t.Logf("%d walk-forward cases parity-verified", len(cases))
+	t.Logf("%d walk-forward cases golden-verified", len(cases))
 }
 
 // TestExpandingAnchoredGolden is the spec §3.1 worked example (start=2022-01-01,
@@ -70,7 +71,7 @@ func TestExpandingAnchoredParity(t *testing.T) {
 // reference output. NOTE: the spec doc's printed fold boundaries
 // ([2022-06-06..], buffer=365) are stale — the live research.walkforward yields
 // buffer = 1096//3 = 365 from 2022-01-01 => first test_start 2023-01-06. These
-// values were captured from the venv and match the 305-case parity fixture.
+// values match the 305-case golden fixture.
 func TestExpandingAnchoredGolden(t *testing.T) {
 	segs, err := ExpandingAnchored(mustDate("2022-01-01"), mustDate("2024-12-31"), 3, 5)
 	if err != nil {

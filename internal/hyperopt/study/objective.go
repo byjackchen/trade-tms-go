@@ -6,7 +6,7 @@ package study
 // internal/metrics, and aggregates them per spec §4 (concat-and-recompute over
 // the stitched return curve — NEVER averages per-fold values). The objective
 // vector reported to NSGA-II is (sharpe, calmar) of the aggregated curve (§1.1
-// to_objectives), matching Python EXACTLY for a given param set (locked decision
+// to_objectives), deterministic for a given param set (locked decision
 // 3: identical params through identical folds -> identical metrics).
 //
 // Single-window mode (no folds) runs one backtest over [start, end] and reports
@@ -221,8 +221,7 @@ func (e *Evaluator) buildAssemblyInput(dec Decoded) (strategyassembly.Input, err
 		// (single tune, or older queued joint payload) it falls back to the
 		// strategy's SEED Composition: joint -> default-multi, each single -> its
 		// *-only single-member Composition. The allocator + risk come from that
-		// Composition; the old MultiStrategyGate parity flag is gone (parity is
-		// abandoned — docs/concept-alignment.md §3.2/§3.3, D1).
+		// Composition; the old MultiStrategyGate flag is gone (D1).
 		Composition:     comp,
 		StartingBalance: e.startBal,
 		SEPAStocks:      e.sepaStock,
@@ -289,7 +288,7 @@ func (e *Evaluator) run(ctx context.Context, in strategyassembly.Input, start, e
 		Start:              start,
 		End:                end,
 		StartingBalance:    startBal,
-		Profile:            engine.ProfileNautilusCompat,
+		Profile:            engine.ProfileCloseFill,
 		Gate:               asm.Gate,
 		Context:            asm.Context,
 		SPYSymbol:          asm.SPYSymbol,
@@ -297,13 +296,13 @@ func (e *Evaluator) run(ctx context.Context, in strategyassembly.Input, start, e
 	}
 	cfg.Tickers = unionTickers(asm.ExtraTickers, e.sepaStock)
 
-	// Parity-correct feed: the engine replays ONLY [start, end]. SEPA's 400d
+	// Window-correct feed: the engine replays ONLY [start, end]. SEPA's 400d
 	// warmup tail is injected OUT OF BAND (engine.WarmupConfig) and primes only
 	// the SEPA SignalGenerators — never replayed through the loop, so it produces
 	// no orders and no equity samples. Pairs/Sector get NO warmup (their adapters
-	// are not WarmupConsumers), mirroring Python's warmup_by_ticker (SEPA stocks
-	// only). SPY regime warmup is carried separately by the ContextProvider's own
-	// full SPY history (buildContext loads SPY from start-500d).
+	// are not WarmupConsumers); warmup applies to SEPA stocks only. SPY regime
+	// warmup is carried separately by the ContextProvider's own full SPY history
+	// (buildContext loads SPY from start-500d).
 	if len(e.sepaStock) > 0 && wantSEPA {
 		cfg.Warmup = &engine.WarmupConfig{
 			Bars: e.ds.WarmupSlices(e.sepaStock, start, warmupDaysDefault),
@@ -323,9 +322,8 @@ func (e *Evaluator) run(ctx context.Context, in strategyassembly.Input, start, e
 	curve := equityCurveFloats(res, e.startBal)
 	// Whole-book counters via the engine's single source of truth (shared with the
 	// P2/P3 backtest path). num_filled_orders is derived from res.Fills (orders
-	// that produced ≥1 fill = Nautilus is_closed), NOT Order.Status which the
-	// engine never mutates to FILLED — matching multi_strategy_backtest.py's
-	// `sum(1 for o in all_orders if o.is_closed)`.
+	// that produced ≥1 fill = closed), NOT Order.Status which the engine never
+	// mutates to FILLED.
 	ec := res.Counts("")
 	counts := metrics.Counts{
 		NumOrders:         ec.NumOrders,

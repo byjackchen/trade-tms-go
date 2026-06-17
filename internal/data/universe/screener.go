@@ -1,8 +1,8 @@
 package universe
 
-// screener.go ports universe/sepa_screener.py: O(1)-per-bar rolling state,
+// screener.go is the SEPA universe screener: O(1)-per-bar rolling state,
 // breakout proximity, trend-template scoring and the deterministic top_k
-// ranking (docs/spec/calendar-universe.md §3 [MUST-MATCH]).
+// ranking (docs/spec/calendar-universe.md §3).
 
 import (
 	"fmt"
@@ -14,7 +14,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
-// Screener defaults (sepa_screener.py:30-50 [MUST-MATCH]).
+// Screener defaults.
 const (
 	// DefaultHistoryMaxBars caps the per-ticker rolling bar tail
 	// (~1 trading year; MA200 + the 252-bar 52w window need >= 252).
@@ -54,8 +54,8 @@ type OHLCV struct {
 	Volume float64
 }
 
-// Candidate mirrors ScreenedCandidate (screener.py:23-34 [MUST-MATCH]):
-// instrument id, composite score and an intentionally untyped metadata bag
+// Candidate is one screened candidate: instrument id, composite score and an
+// intentionally untyped metadata bag
 // with exactly the reference keys.
 type Candidate struct {
 	InstrumentID string
@@ -91,7 +91,7 @@ func (st *tickerState) at(i int) tickerBar {
 }
 
 // append pushes a bar, evicting the oldest when full, then recomputes the
-// trailing min(count, 60)-bar high/low with Python max()/min() comparison
+// trailing min(count, 60)-bar high/low with strict max/min comparison
 // semantics (NaN never wins a comparison; a leading NaN sticks).
 func (st *tickerState) append(b tickerBar) {
 	if st.count == len(st.ring) {
@@ -154,9 +154,8 @@ func (s *Screener) state(ticker string) *tickerState {
 	return st
 }
 
-// Update folds one live bar into the rolling state — O(1) per call
-// (sepa_screener.py:90-104). Prices go through the exact fixed-point ->
-// float64 bridge (Price.Float64), matching Python float(Decimal).
+// Update folds one live bar into the rolling state — O(1) per call. Prices go
+// through the exact fixed-point -> float64 bridge (Price.Float64).
 func (s *Screener) Update(bar domain.Bar) {
 	s.state(bar.Symbol).append(tickerBar{
 		ts:     bar.TS,
@@ -169,7 +168,7 @@ func (s *Screener) Update(bar domain.Bar) {
 }
 
 // Warmup pre-fills the rolling state from history, keeping only the latest
-// HistoryMaxBars rows (sepa_screener.py:106-141 [MUST-MATCH]).
+// HistoryMaxBars rows.
 //
 // A nil/empty slice is a no-op and the ticker stays untracked. A non-finite
 // volume fails the whole warmup before any row is appended — the pandas
@@ -216,8 +215,7 @@ func (s *Screener) BarsSeen(ticker string) int {
 }
 
 // BreakoutProximity is (close - low60) / (high60 - low60) clamped to
-// [0, 1]; 0.0 for unknown tickers and degenerate flat ranges
-// (sepa_screener.py:150-164 [MUST-MATCH]).
+// [0, 1]; 0.0 for unknown tickers and degenerate flat ranges.
 func (s *Screener) BreakoutProximity(ticker string) float64 {
 	st, ok := s.states[ticker]
 	if !ok || st.last60High <= st.last60Low {
@@ -264,8 +262,7 @@ func (s *Screener) TrendTemplateCount(ticker string) int {
 
 // TopK ranks every tracked ticker by score = tt*10 + proximity*5 with the
 // deterministic sort key (score DESC, market cap DESC, ticker ASC) and
-// returns the first k (sepa_screener.py:205-243 [MUST-MATCH]). asOf is
-// informational metadata only.
+// returns the first k. asOf is informational metadata only.
 //
 // [IMPROVE, output-identical] the market-cap lookup runs once per ticker
 // per ranking pass instead of twice.
@@ -286,8 +283,9 @@ func (s *Screener) TopK(k int, asOf calendar.Date) []Candidate {
 		prox := s.BreakoutProximity(ticker)
 		// The float64 conversions force IEEE rounding of each product
 		// before the add: without them Go may contract a*b+c into one FMA
-		// (legal per spec, observed on arm64), drifting the score by an
-		// ulp from CPython's strictly-rounded `tt * 10.0 + prox * 5.0`.
+		// (legal per spec, observed on arm64 but not x86), which would drift
+		// the score by an ulp across platforms. Explicit rounding keeps the
+		// score bit-identical on arm64 and x86 for reproducible rankings.
 		score := float64(float64(tt)*scoreWeightTrendTemplate) + float64(prox*scoreWeightProximity)
 		rows = append(rows, scored{
 			ticker: ticker,

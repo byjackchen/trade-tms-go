@@ -4,10 +4,9 @@ Next.js 16 (App Router, React 19, Tailwind v4) cockpit for the TMS control
 plane. P1 ships the **Data** workspace; Backtests / Hyperopt / Live / Ops render
 "coming in P2+" placeholders.
 
-Aesthetics are ported from the Python reference UI
-(`trade-multi-strategies/src/ui`): the neutral oklch "base-nova" palette with a
-dark cockpit default. The design tokens are inlined in `src/app/globals.css`
-(no fragile `shadcn/tailwind.css` import) so the build is hermetic.
+Aesthetics use the neutral oklch "base-nova" palette with a dark cockpit
+default. The design tokens are inlined in `src/app/globals.css` (no fragile
+`shadcn/tailwind.css` import) so the build is hermetic.
 
 ## Security model — the token never reaches the browser
 

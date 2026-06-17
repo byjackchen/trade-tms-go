@@ -3,8 +3,8 @@ package study
 // types.go declares the study coordinator's public configuration and the
 // artifact-shaped value types (StudyConfig, Progress, TrialArtifact) that mirror
 // study.json / progress.json / trial_%04d.json (spec §7). The same structs feed
-// both the legacy JSON artifact writer (artifacts.go, byte-compatible with the
-// Python schemas) and the DB store (store.go).
+// both the legacy JSON artifact writer (artifacts.go) and the DB store
+// (store.go).
 
 import (
 	"time"

@@ -1,13 +1,12 @@
 // Package engine implements the deterministic per-bar dispatch that drives
-// backtests and live/paper trading from the same shared core — the Go port of
-// the Python reference's src/runner/backtest_runner.py and live_runner.py
-// orchestration. It feeds bars to strategies, collects signals, and routes them
-// through portfolio sizing and on to execution.
+// backtests and live/paper trading from the same shared core. It feeds bars to
+// strategies, collects signals, and routes them through portfolio sizing and on
+// to execution.
 //
 // # Two consumers, one shared core
 //
 // There are two consumers of this package's machinery, and they intentionally
-// share the parity-sensitive code while running on distinct loop drivers:
+// share the determinism-sensitive code while running on distinct loop drivers:
 //
 //   - engine.Engine (this package) is the BATCH driver. It owns its own simulated
 //     venue (the concrete *exec.SimExecutor) and the bar-replay loop, including

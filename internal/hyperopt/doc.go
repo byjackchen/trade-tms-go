@@ -1,22 +1,20 @@
-// Package hyperopt ports the Python reference's hyper-parameter
-// optimization workflow (src/research/ + scripts/run_hyperopt): parameter
-// space definition per strategy, search/trial scheduling over the backtest
-// engine, scoring, and persistence of studies and best_params in the same
-// layout the reference writes under runs/hyperopt/ so the UI source
-// selector keeps working.
+// Package hyperopt implements the hyper-parameter optimization workflow:
+// parameter space definition per strategy, search/trial scheduling over the
+// backtest engine, scoring, and persistence of studies and best_params under
+// the runs/hyperopt/ layout the UI source selector expects.
 //
 // Rules:
 //   - Trials run the real engine — no shortcut evaluation paths.
 //   - Studies are resumable; trial results are persisted as they complete.
 //
-// Top-level (this package), all parity-gated against the Python reference:
+// Top-level (this package), each pinned by golden fixtures:
 //   - walkforward.go: expanding_anchored split (spec §3, exact calendar-day
-//     arithmetic incl. the vestigial-embargo quirk; 305-case parity fixture).
+//     arithmetic incl. the vestigial-embargo quirk; 305-case golden fixture).
 //   - search_spaces.go / loader.go / safe_eval.go: the per-strategy search-space
 //     registry, the params loader (ordered parse + validation + defaults_dict +
 //     suggest_with with in-order constraint clamping) and the AST-whitelisted
 //     constraint expression evaluator (spec §2; baseline JSONs embedded;
-//     suggest/safe_eval/validation parity fixtures).
+//     suggest/safe_eval/validation golden fixtures).
 //
 // Subpackages (built and wired):
 //   - nsga2/: the NSGA-II optimizer/coordinator (non-dominated sorting, crowding

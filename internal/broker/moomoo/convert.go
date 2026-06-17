@@ -5,10 +5,10 @@ package moomoo
 // (market-qualified codes like "US.AAPL", New-York-local "YYYY-MM-DD HH:MM:SS"
 // K-line time strings, and float64 prices).
 //
-// Conventions mirror the Python reference src/adapters/moomoo/data_client.py:
-//   - instrument_id_to_moomoo_code: "US.<symbol>" (data_client.py:81)
+// moomoo wire conventions:
+//   - instrument_id_to_moomoo_code: "US.<symbol>"
 //   - intraday K-line time strings are New-York-local naive
-//     (data_client.py:112 tz_localize("America/New_York"))
+//     ("America/New_York")
 //   - daily K-line time strings are "YYYY-MM-DD" at NY midnight.
 
 import (
@@ -60,10 +60,10 @@ func SymbolForSecurity(s *qotcommon.Security) string {
 	return s.GetCode()
 }
 
-// MoomooCode renders the user-facing "US.AAPL" form (data_client.py:81).
+// MoomooCode renders the user-facing "US.AAPL" form.
 func MoomooCode(symbol string) string { return "US." + symbol }
 
-// SymbolFromMoomooCode parses "US.AAPL" -> "AAPL" (data_client.py:87). A code
+// SymbolFromMoomooCode parses "US.AAPL" -> "AAPL". A code
 // with no market prefix is returned unchanged.
 func SymbolFromMoomooCode(code string) string {
 	if i := strings.IndexByte(code, '.'); i >= 0 {

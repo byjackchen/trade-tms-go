@@ -34,7 +34,7 @@ func bar(sym string, ts time.Time, close float64) domain.Bar {
 }
 
 // driveDays replays `days` daily bars across all universe symbols in canonical
-// order, mirroring the Python _drive_sequential_days helper.
+// order.
 func driveDays(sg *SignalGenerator, start time.Time, days int, closes map[string][]float64) []domain.Signal {
 	var out []domain.Signal
 	for day := 0; day < days; day++ {
@@ -102,7 +102,7 @@ func TestConfigValidation(t *testing.T) {
 			t.Errorf("top_k=%d: %v", k, err)
 		}
 	}
-	// top_k message embeds len(universe), exactly as Python.
+	// top_k message embeds len(universe).
 	bad = base
 	bad.TopK = 99
 	if err := bad.Validate(); !strings.Contains(err.Error(), "top_k must be in [1, 4], got 99") {

@@ -1,20 +1,19 @@
 package sepa
 
-// mathhelpers.go holds the arithmetic primitives whose CPython semantics the
-// SEPA sizing path depends on bit-for-bit.
+// mathhelpers.go holds the arithmetic primitives the SEPA sizing path depends on
+// bit-for-bit.
 
 import (
 	"math"
 	"strconv"
 )
 
-// pyFloorDiv reproduces int(a // b) for Python floats: CPython's
-// float.__floordiv__ (Objects/floatobject.c float_divmod) computes
+// pyFloorDiv computes int(a // b) for floats: it takes
 // mod = fmod(a, b); div = (a - mod) / b; floordiv = floor(div); and nudges up
-// when (div - floordiv) > 0.5 (a correction for the rounded division). The
-// reference then int()-truncates the float result; for the non-negative
-// equity/risk operands SEPA uses, that truncation equals the floordiv value.
-// b == 0 is guarded by the caller (stop_distance <= 0 -> 0 shares).
+// when (div - floordiv) > 0.5 (a correction for the rounded division), then
+// int()-truncates. For the non-negative equity/risk operands SEPA uses, that
+// truncation equals the floordiv value. b == 0 is guarded by the caller
+// (stop_distance <= 0 -> 0 shares).
 func pyFloorDiv(a, b float64) int {
 	mod := math.Mod(a, b)
 	div := (a - mod) / b

@@ -1,21 +1,19 @@
 package pairs
 
-// config.go: PairsSignalGeneratorConfig and its construction-time validation,
-// mirroring src/strategies/pairs/signal.py:72-103 (spec §4).
+// config.go: PairsSignalGeneratorConfig and its construction-time validation
+// (spec §4).
 
 import (
 	"errors"
 	"fmt"
 )
 
-// EquityProvider returns LIVE account equity in USD as a float64. It mirrors
-// the Python `equity_provider: Callable[[], Decimal]` — called at SIZING TIME
-// on every entry, never cached (signal.py:76-79, 320-336). The Python path
-// immediately does float(equity_provider()), so a float64 provider is exact
-// for the magnitudes used (tests inject lambda: Decimal("100000")).
+// EquityProvider returns LIVE account equity in USD as a float64. It is called
+// at SIZING TIME on every entry, never cached. A float64 provider is exact for
+// the magnitudes used.
 type EquityProvider func() float64
 
-// Config is the immutable Pairs configuration (signal.py:72-103, spec §4.1).
+// Config is the immutable Pairs configuration (spec §4.1).
 // All fields are required; defaults come from the JSON param file (spec §5),
 // resolved upstream by internal/params.
 type Config struct {
@@ -36,12 +34,11 @@ type Config struct {
 	Timezone string
 }
 
-// Validate runs the construction-time checks in the EXACT order and with the
-// EXACT (substring-compatible) messages of __post_init__ (signal.py:89-103,
-// spec §4.2). It returns errors rather than panicking. Rule 1 (provider not
-// callable) is represented by a nil EquityProvider and wraps a distinct
-// sentinel so callers can distinguish the type error from the value errors;
-// the provider is NOT invoked during validation.
+// Validate runs the construction-time checks in order, with substring-stable
+// messages (spec §4.2). It returns errors rather than panicking. Rule 1
+// (provider not callable) is represented by a nil EquityProvider and wraps a
+// distinct sentinel so callers can distinguish the type error from the value
+// errors; the provider is NOT invoked during validation.
 func (c Config) Validate() error {
 	if c.EquityProvider == nil {
 		return fmt.Errorf("%w: equity_provider must be a callable returning Decimal", ErrConfigType)
@@ -64,7 +61,6 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// ErrConfigType is the Go analogue of Python's TypeError for a non-callable
-// equity_provider (signal.py:92-93). Value errors (rules 2-6) are plain errors,
-// preserving the TypeError/ValueError distinction (spec §4.2).
+// ErrConfigType flags a non-callable (nil) equity_provider. Value errors
+// (rules 2-6) are plain errors, preserving the type/value distinction (spec §4.2).
 var ErrConfigType = errors.New("pairs config type error")

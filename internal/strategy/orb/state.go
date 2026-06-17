@@ -13,18 +13,18 @@ func errInvalidStateDate(s string) error {
 // monthOf converts a 1..12 month number to time.Month.
 func monthOf(m int) time.Month { return time.Month(m) }
 
-// state.go ports state_summary (signal.py:401-424), state_dict (signal.py:430
-// -460) and load_state (signal.py:462-478). These are the persistence and
-// UI-monitoring surfaces; field names, ordering, null/"0" conventions and
-// str(Decimal) rendering match the reference exactly.
+// state.go provides state_summary, state_dict and load_state. These are the
+// persistence and UI-monitoring surfaces; field names, ordering, null/"0"
+// conventions and str(Decimal) rendering are this package's serialization
+// contract.
 //
 // The structs use the encoding/json "omit nothing" convention with explicit
-// pointers/strings for the Python None vs "0" distinctions:
+// pointers/strings for the nil vs "0" distinctions:
 //   - state_summary entry/stop/target are null when flat (pointer-to-string);
 //   - state_dict entry/stop/target are ALWAYS strings (Decimal(0) -> "0" flat).
 
-// StateSummary is the light user-visible state (signal.py:401-424). Exactly 10
-// keys; JSON tags reproduce the dict key order.
+// StateSummary is the light user-visible state. Exactly 10 keys; JSON tags fix
+// the dict key order.
 type StateSummary struct {
 	Symbol      string  `json:"symbol"`
 	SessionDate *string `json:"session_date"` // ISO date or null
@@ -38,7 +38,7 @@ type StateSummary struct {
 	TargetPrice *string `json:"target_price"` // ditto
 }
 
-// StateSummary returns the UI snapshot (signal.py:401-424).
+// StateSummary returns the UI snapshot.
 func (g *Generator) StateSummary() StateSummary {
 	inPos := g.positionQty > 0
 	s := StateSummary{
@@ -70,8 +70,8 @@ func (g *Generator) StateSummary() StateSummary {
 	return s
 }
 
-// StateConfig is the config sub-block of state_dict (signal.py:447-459).
-// equity_at_snapshot is pulled fresh; account_size is intentionally absent.
+// StateConfig is the config sub-block of state_dict. equity_at_snapshot is
+// pulled fresh; account_size is intentionally absent.
 type StateConfig struct {
 	Symbol           string  `json:"symbol"`
 	RiskPct          float64 `json:"risk_pct"`
@@ -84,9 +84,9 @@ type StateConfig struct {
 	EquityAtSnapshot float64 `json:"equity_at_snapshot"`
 }
 
-// StateDict is the full persistence snapshot (signal.py:430-460). entry/stop/
-// target are always strings ("0" when flat). last_seen_close and
-// intent_generation are NOT persisted (reference).
+// StateDict is the full persistence snapshot. entry/stop/target are always
+// strings ("0" when flat). last_seen_close and intent_generation are NOT
+// persisted.
 type StateDict struct {
 	CurrentSessionDate *string     `json:"current_session_date"` // ISO date or null
 	RangeBarsCount     int         `json:"range_bars_count"`
@@ -102,7 +102,7 @@ type StateDict struct {
 	Config             StateConfig `json:"config"`
 }
 
-// StateDict returns the persistence snapshot (signal.py:430-460).
+// StateDict returns the persistence snapshot.
 func (g *Generator) StateDict() StateDict {
 	sd := StateDict{
 		RangeBarsCount:   g.rangeBarsCount,
@@ -140,10 +140,10 @@ func (g *Generator) StateDict() StateDict {
 	return sd
 }
 
-// LoadState restores session-level state from a StateDict (signal.py:462-478).
-// config is NOT restored from the dict (the caller injects a fresh config +
-// equity_provider). Missing fields fall back to the Python defaults. Returns an
-// error if a Decimal string is malformed.
+// LoadState restores session-level state from a StateDict. config is NOT
+// restored from the dict (the caller injects a fresh config + equity_provider).
+// Missing fields fall back to the cold-start defaults. Returns an error if a
+// Decimal string is malformed.
 func (g *Generator) LoadState(sd StateDict) error {
 	if sd.CurrentSessionDate != nil && *sd.CurrentSessionDate != "" {
 		d, ok := parseISODate(*sd.CurrentSessionDate)
@@ -168,7 +168,7 @@ func (g *Generator) LoadState(sd StateDict) error {
 }
 
 // parseDecPtr parses a *string (str(Decimal) or nil/"") into a *pydec.
-// Mirrors the reference's `Decimal(rh) if rh else None` (empty/None -> None).
+// Empty/nil -> nil.
 func parseDecPtr(s *string) *pydec {
 	if s == nil || *s == "" {
 		return nil

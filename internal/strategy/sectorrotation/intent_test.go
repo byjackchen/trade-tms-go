@@ -25,7 +25,7 @@ func intentSG(t *testing.T, topK, lookback int) *SignalGenerator {
 }
 
 // seedHistory seeds each symbol so first-vs-last close yields the desired return
-// (mirrors the Python _seed_history helper: lookback 100s then 100*(1+r)).
+// (lookback 100s then 100*(1+r)).
 func seedHistory(t *testing.T, sg *SignalGenerator, returns map[string]float64, lookback int) {
 	t.Helper()
 	for sym, r := range returns {

@@ -17,14 +17,13 @@ import (
 )
 
 // newSyncCmd declares `tms sync`: the live Nasdaq Data Link sync engine's
-// CLI entry point (the relational counterpart of the Python
-// `make sync-universe`, spec docs/spec/data-sharadar.md §8/§9). It is the
+// CLI entry point (spec docs/spec/data-sharadar.md §8/§9). It is the
 // operator-facing twin of the worker's data.refresh source=api handler:
 // both drive internal/data/sharadar.Syncer.
 //
 //   - `tms sync bootstrap --start --end [--ticker ...]` backfills all five
 //     datasets over a bounded window (TICKERS->SEP->SFP->SF1->EVENTS); a
-//     failed step aborts (CLI parity, spec §9).
+//     failed step aborts (spec §9).
 //   - `tms sync catchup` runs the watermark-driven incremental catchup
 //     through T-1 (EnsureFresh / ensure_cache_fresh, spec §8); warn-and-
 //     continue, never auto-bootstraps.
@@ -137,7 +136,7 @@ func withSyncNowScheduler(cmd *cobra.Command, env *runtimeEnv, fn func(ctx conte
 
 // withSyncer builds a live Syncer (client + NYSE calendar + pgStore) for one
 // CLI invocation and hands it to fn. The API key is required here (fail loud
-// before any work, spec §1 [MUST-MATCH]).
+// before any work, spec §1).
 func withSyncer(cmd *cobra.Command, env *runtimeEnv, fn func(ctx context.Context, s *sharadar.Syncer) error) error {
 	ctx := cmd.Context()
 

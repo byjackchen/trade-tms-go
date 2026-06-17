@@ -98,8 +98,8 @@ func (r PlaceOrderRequest) Validate() error {
 
 // PlaceOrderResult is the synchronous reply to PlaceOrder: the venue order id
 // for correlation. The order is NOT yet known-accepted — the executor waits for
-// the Trd_UpdateOrder push (Submitted) to emit a domain ACCEPTED event,
-// matching the Python adapter (which does not emit OrderAccepted on submit).
+// the Trd_UpdateOrder push (Submitted) to emit a domain ACCEPTED event —
+// submit alone does not emit OrderAccepted.
 type PlaceOrderResult struct {
 	VenueOrderID string
 }

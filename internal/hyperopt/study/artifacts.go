@@ -1,17 +1,16 @@
 package study
 
 // artifacts.go writes the legacy runs/hyperopt/<study_ts>/ artifact tree
-// (study.json, progress.json, trials/trial_%04d.json, best_params/<strat>.json),
-// byte-compatible with the Python reference schemas (spec §7, §8.2 [MUST-MATCH]).
-// JSON is rendered with the shared Python-compatible encoder (internal/runs
-// pyjson: 2-space indent, insertion-order keys, Python repr float surface form,
-// no trailing newline). Writes are atomic (tmp + fsync + rename), the spec's
-// §7.1 IMPROVE applied (durable writes).
+// (study.json, progress.json, trials/trial_%04d.json, best_params/<strat>.json)
+// per spec §7, §8.2. JSON is rendered with the shared pyjson encoder
+// (internal/runs: 2-space indent, insertion-order keys, shortest float surface
+// form, no trailing newline). Writes are atomic (tmp + fsync + rename), the
+// spec's §7.1 IMPROVE applied (durable writes).
 //
-// Timestamps follow the spec conventions: wall-clock instants use
-// datetime.now(UTC).isoformat() form (microsecond precision when sub-second,
-// else seconds, +00:00 suffix; §conventions). The study directory name is the
-// UTC %Y-%m-%d_%H-%M-%S study_ts.
+// Timestamps follow the spec conventions: wall-clock instants use the
+// ISO-8601 UTC form (microsecond precision when sub-second, else seconds,
+// +00:00 suffix; §conventions). The study directory name is the UTC
+// %Y-%m-%d_%H-%M-%S study_ts.
 
 import (
 	"fmt"
@@ -38,7 +37,7 @@ func bestParamsPath(dir, strat string) string {
 // name (§6.2; identical format to a run_ts).
 func NewStudyTS(now time.Time) string { return now.UTC().Format("2006-01-02_15-04-05") }
 
-// isoUTC renders t as Python datetime.isoformat() with +00:00 offset
+// isoUTC renders t as an ISO-8601 UTC timestamp with +00:00 offset
 // (microsecond precision when sub-second, else seconds), matching §conventions.
 func isoUTC(t time.Time) string {
 	u := t.UTC()

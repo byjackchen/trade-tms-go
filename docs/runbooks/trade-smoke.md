@@ -74,7 +74,7 @@
 > carries the minute's FINAL OHLCV in strict TS order; pending map bounded to
 > `#symbols`; daily path verified un-coalesced. Full `go test ./... -race`,
 > livengine cross-path (`TestLiveStreamEqualsBatchReplay`,
-> `TestBatchEqualsStreamingIntents`), determinism, and Nautilus parity all green.
+> `TestBatchEqualsStreamingIntents`), determinism, and the engine golden all green.
 >
 > **Real-OpenD sustained-cadence re-verify** (2026-06-15, market OPEN, ~11:04 ET):
 > `tmsgo-live` signal mode → real OpenD (`host.docker.internal:11111`),
@@ -156,17 +156,17 @@ records the exact manual steps + acceptance for that deferred smoke.
 
 ## moomoo client / protocol fidelity (proven, no OpenD needed)
 
-- **Protocol conformance gate** (`internal/adapters/moomoo`): the Go client's
-  encoded request frames are byte-for-byte identical to the vendored Python
-  moomoo SDK's `pack_pb_req` output (`TestEncodeFrameMatchesPythonSDK`), and the
-  Go decoder parses SDK-encoded reply/push frames
+- **Protocol conformance gate** (`internal/adapters/moomoo`): the client's
+  encoded request frames are byte-for-byte identical to captured reference frames
+  (`TestEncodeFrameMatchesProtocol`), and the decoder parses captured reply/push
+  frames
   (`TestDecodeSDK{InitConnectReply,HistoryReply,UpdateKLPush}`). Regenerate the
   golden bytes after a proto change:
 
   ```sh
-  # from the trade-multi-strategies venv:
-  .venv/bin/python tmp/conformance/dump_frames.py  > internal/adapters/moomoo/testdata/conformance_frames.json
-  .venv/bin/python tmp/conformance/dump_replies.py > internal/adapters/moomoo/testdata/conformance_replies.json
+  # regenerate from the reference moomoo SDK capture tooling:
+  dump_frames  > internal/adapters/moomoo/testdata/conformance_frames.json
+  dump_replies > internal/adapters/moomoo/testdata/conformance_replies.json
   ```
 
 - **Client <-> mock round trip** (`internal/adapters/moomoo/mock`,
@@ -206,7 +206,7 @@ PATH="$PWD/bin:$PATH" protoc \
 - `internal/livengine` signal-mode session: reuses the SAME strategy / portfolio
   / context / warmup code as backtest, with a `NoopExecutor` (records a
   `SignalIntent` per strategy per bar, submits NO orders).
-- **Consistency proof** (the accuracy anchor, no Python live golden exists):
+- **Consistency proof** (the accuracy anchor):
   `TestLiveStreamEqualsBatchReplay` + `TestLiveWarmupConsistency` assert the
   streaming (virtual-clock) live path emits SignalIntents IDENTICAL to a batch
   replay of the same bars.

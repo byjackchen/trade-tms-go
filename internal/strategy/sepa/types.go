@@ -2,18 +2,16 @@ package sepa
 
 // types.go defines the SEPA-layer value types: the plain Bar at the contract
 // boundary, the target-position Signal, the per-symbol SignalIntent (UI
-// snapshot), and the SignalState / Grade enums. These mirror the frozen Python
-// dataclasses in sepa/signal.py and sepa/intent.py field-for-field. The pure
-// SEPA layer does NOT import internal/domain (the reference keeps signal.py /
-// intent.py free of engine types); the engine adapter translates between these
-// and domain.Bar / domain.Signal.
+// snapshot), and the SignalState / Grade enums. The pure SEPA layer does NOT
+// import internal/domain (the signal/intent types stay free of engine types);
+// the engine adapter translates between these and domain.Bar / domain.Signal.
 
 import (
 	"time"
 )
 
-// SignalSide is the strategy-level direction (sepa/signal.py:62-67). SHORT is
-// declared but unused (long-only SEPA).
+// SignalSide is the strategy-level direction. SHORT is declared but unused
+// (long-only SEPA).
 type SignalSide string
 
 const (
@@ -25,7 +23,7 @@ const (
 	SideShort SignalSide = "SHORT"
 )
 
-// Grade is the SEPA setup grade (sepa/grade.py:13): "A+", "B", or "skip".
+// Grade is the SEPA setup grade: "A+", "B", or "skip".
 type Grade string
 
 const (
@@ -37,13 +35,12 @@ const (
 	GradeSkip Grade = "skip"
 )
 
-// Bar is the plain-Python bar at the contract boundary (sepa/signal.py:70-83).
-// The reference holds OHLC as Decimal and volume as int; the internal kline
-// buffer stores them float64/int (signal.py:360-369). We carry OHLC as float64
-// directly: every downstream computation (and the stored entry-price string)
-// derives from float(bar.X) / Decimal(str(close)), and the reference's bar
-// closes are always Decimal(str(float)), so float64 here is lossless and the
-// entry-price string is reproduced via pyFloatRepr(close).
+// Bar is the plain bar at the contract boundary. The internal kline buffer
+// stores OHLC as float64 and volume as int. We carry OHLC as float64 directly:
+// every downstream computation (and the stored entry-price string) derives from
+// float(bar.X) / Decimal(str(close)), and bar closes are always
+// Decimal(str(float)), so float64 here is lossless and the entry-price string
+// is reproduced via pyFloatRepr(close).
 type Bar struct {
 	Symbol string
 	TS     time.Time // tz-aware UTC
@@ -54,9 +51,9 @@ type Bar struct {
 	Volume int64
 }
 
-// Signal is the target-position signal (sepa/signal.py:86-101). TargetQty is
-// signed (positive long, 0 flat). Grade is "" when unset; StopPrice is the
-// canonical Python str(Decimal) form ("" when nil).
+// Signal is the target-position signal. TargetQty is signed (positive long, 0
+// flat). Grade is "" when unset; StopPrice is the canonical str(Decimal) form
+// ("" when nil).
 type Signal struct {
 	Symbol     string
 	TS         time.Time
@@ -68,7 +65,7 @@ type Signal struct {
 	StopPrice  string  // str(Decimal); "" == nil
 }
 
-// SignalState is the per-symbol UI state (sepa/intent.py SignalState).
+// SignalState is the per-symbol UI state.
 type SignalState string
 
 const (
@@ -80,18 +77,18 @@ const (
 	StateBuy SignalState = "buy"
 	// StateHold means a position is held normally.
 	StateHold SignalState = "hold"
-	// StateExit is declared for completeness (unused by the reference path).
+	// StateExit is declared for completeness (unused by the SEPA path).
 	StateExit SignalState = "exit"
 	// StateStopHit means a held position is below its stop.
 	StateStopHit SignalState = "stop_hit"
 )
 
-// StrategyID is the SEPA strategy id, constant "sepa" (intent.py:27).
+// StrategyID is the SEPA strategy id, constant "sepa".
 const StrategyID = "sepa"
 
-// SignalIntent is the typed UI snapshot (sepa/intent.py:30-56). Optional
-// numeric/Decimal fields are pointers so the JSON null/absent distinction is
-// preserved (Decimal fields encode as str(Decimal)).
+// SignalIntent is the typed UI snapshot. Optional numeric/Decimal fields are
+// pointers so the JSON null/absent distinction is preserved (Decimal fields
+// encode as str(Decimal)).
 type SignalIntent struct {
 	Symbol              string
 	State               SignalState
@@ -107,10 +104,10 @@ type SignalIntent struct {
 	VolumeDryup         *bool
 	PivotPrice          string // str(Decimal); "" == nil
 	StopPrice           string // str(Decimal); "" == nil
-	RSRank              *int   // cross-sectional RS rank [1,99]; stamped by the EOD refresh (TMS enhancement)
+	RSRank              *int   // cross-sectional RS rank [1,99]; stamped by the EOD refresh
 
-	// --- TMS ENHANCEMENT (not in the Python SEPA reference) -------------------
-	// Actionable trade-plan fields. For state=forming these are ALWAYS non-nil
+	// --- Actionable trade-plan fields -----------------------------------------
+	// For state=forming these are ALWAYS non-nil
 	// (the swing-high/low fallback guarantees a pivot/stop when no VCP); they are
 	// computed analogously for buy/hold. RSRank above is filled cross-sectionally
 	// by the EOD refresh, not here. See indicators/tradeplan.go for the formulas.

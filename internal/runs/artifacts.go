@@ -1,9 +1,8 @@
 package runs
 
-// artifacts.go writes the legacy runs/{ts}/*.json artifact set, byte-compatible
-// with the Python reference dumper (src/runs/dumper.py) as specified in
-// api-ws-redis.md §7 [MUST-MATCH] (locked decision 4: emit alongside the DB
-// source of truth for parity diffing + UI back-compat).
+// artifacts.go writes the legacy runs/{ts}/*.json artifact set in the format
+// specified by api-ws-redis.md §7 (locked decision 4: emit alongside the DB
+// source of truth for tooling/diffing + UI back-compat).
 //
 // Layout (api-ws-redis.md §7):
 //
@@ -16,9 +15,9 @@ package runs
 //	  strategy_summaries/{sanitized_strategy_id}.json
 //	  strategy_equity/{sanitized_strategy_id}.json   # only when non-empty
 //
-// {ts} is the UTC %Y-%m-%d_%H-%M-%S directory name. All files use
-// json.dumps(payload, indent=2)-compatible bytes (no trailing newline), with
-// Python repr float surface form (pyjson.go).
+// {ts} is the UTC %Y-%m-%d_%H-%M-%S directory name. All files use the
+// indent=2 artifact wire format (no trailing newline), with the float surface
+// form from pyjson.go.
 
 import (
 	"fmt"
@@ -223,10 +222,10 @@ func strategySummaryArr(ts string, summary map[string]any) *Arr {
 	return a
 }
 
-// ordersArr builds orders.json from the engine's domain.Orders. The reference
-// dumps full Nautilus order serializations; the Go engine emits the subset it
-// genuinely models (the API passes these through opaquely, §7.2). Quantities
-// are strings, prices numbers, matching the reference field typing.
+// ordersArr builds orders.json from the engine's domain.Orders. The engine
+// emits the subset of order fields it genuinely models (the API passes these
+// through opaquely, §7.2). Quantities are strings, prices numbers, per the §7.2
+// field typing.
 func ordersArr(orders []domain.Order) *Arr {
 	a := NewArr()
 	for _, o := range orders {
@@ -333,14 +332,14 @@ func hasEquity(m map[string][]EquityPoint) bool {
 	return false
 }
 
-// isoUTC renders t as Python datetime.isoformat() with +00:00 offset
-// (microsecond precision when sub-second, else seconds), matching §7.4.
+// isoUTC renders t as an ISO 8601 instant with +00:00 offset (microsecond
+// precision when sub-second, else seconds), per §7.4.
 func isoUTC(t time.Time) string {
 	u := t.UTC()
 	if u.Nanosecond() == 0 {
 		return u.Format("2006-01-02T15:04:05+00:00")
 	}
-	// Python isoformat uses microseconds.
+	// Sub-second values carry microsecond precision.
 	return u.Format("2006-01-02T15:04:05.000000+00:00")
 }
 
@@ -430,9 +429,9 @@ func atomicWrite(path string, body []byte) error {
 }
 
 // NewRunTS returns a fresh UTC run-ts directory name at SECOND resolution
-// (%Y-%m-%d_%H-%M-%S). This is the exact byte-compatible Python dumper dir name
-// and is used by the single-threaded parity runner (which pins an explicit
-// Timestamp, so it never collides). It is NOT collision-free under concurrency
+// (%Y-%m-%d_%H-%M-%S). This is the legacy artifact directory name, used by the
+// single-threaded golden runner (which pins an explicit Timestamp, so it never
+// collides). It is NOT collision-free under concurrency
 // — concurrent backtest jobs MUST use NewRunID instead.
 func NewRunTS(now time.Time) string {
 	return now.UTC().Format("2006-01-02_15-04-05")

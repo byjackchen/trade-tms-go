@@ -41,8 +41,8 @@ type Account struct {
 // NewAccount returns an account seeded with startingBalance. bus may be nil
 // (no observers); when non-nil, an AccountState is published on each fill. The
 // caller (engine assembler) is responsible for publishing the INITIAL
-// AccountState at the starting balance before the first fill, mirroring the
-// Nautilus venue's run-start event.
+// AccountState at the starting balance before the first fill (the run-start
+// event).
 func NewAccount(startingBalance domain.Money, bus *core.MsgBus) *Account {
 	return &Account{
 		startingBalance: startingBalance,
@@ -58,13 +58,12 @@ func (a *Account) StartingBalance() domain.Money { return a.startingBalance }
 // RealizedPnL returns cumulative realized PnL across all positions.
 func (a *Account) RealizedPnL() domain.Money { return a.realized }
 
-// Cash returns the current base-currency balance = starting + realized. This is
-// the Go equivalent of the Nautilus margin account's balance_total(USD): the
+// Cash returns the current base-currency balance = starting + realized: the
 // SETTLED cash balance, which moves only on realized PnL (and commissions) — it
 // does NOT mark open positions to market. Unrealized PnL lives in Equity()/
-// Unrealized(), never in the cash balance. The reference equity_provider and the
-// portfolio gate snapshot both read balance_total, so this — not Equity() — is
-// the parity source for sizing and gating.
+// Unrealized(), never in the cash balance. Sizing and the portfolio gate both
+// read this settled balance, so this — not Equity() — is the source for sizing
+// and gating.
 func (a *Account) Cash() (domain.Money, error) {
 	v, err := a.startingBalance.Add(a.realized)
 	if err != nil {
@@ -73,11 +72,10 @@ func (a *Account) Cash() (domain.Money, error) {
 	return v, nil
 }
 
-// CashFloat returns Cash() as a float64 (= Nautilus balance_total), falling back
-// to the starting balance on the never-expected error path so a sizing closure
-// built over it degrades gracefully rather than panicking. This is the value the
-// strategy assemblers bind as the generators' EquityProvider — mirroring the
-// reference _live_equity() that reads account(VENUE).balance_total(USD).
+// CashFloat returns Cash() as a float64, falling back to the starting balance
+// on the never-expected error path so a sizing closure built over it degrades
+// gracefully rather than panicking. This is the value the strategy assemblers
+// bind as the generators' EquityProvider (the live-equity reading).
 func (a *Account) CashFloat() float64 {
 	c, err := a.Cash()
 	if err != nil {
@@ -122,8 +120,8 @@ func (a *Account) Position(strategyID, symbol string) (domain.Position, bool) {
 // ApplyFill settles a fill: it routes the fill to its (strategy, symbol)
 // position, moves the cash balance by the realized delta, refreshes the
 // symbol's last price to the fill price, and publishes an AccountState (cadence:
-// one per fill, matching Nautilus). Returns the position's resulting snapshot
-// and the fill outcome.
+// one per fill). Returns the position's resulting snapshot and the fill
+// outcome.
 func (a *Account) ApplyFill(f domain.Fill) (domain.Position, FillOutcome, error) {
 	if err := f.Validate(); err != nil {
 		return domain.Position{}, FillOutcome{}, fmt.Errorf("account apply fill: %w", err)
@@ -168,8 +166,7 @@ func (a *Account) emitAccountState(ts time.Time) error {
 }
 
 // EmitInitialState publishes the starting-balance AccountState at ts (the
-// engine calls this once before the run, mirroring the Nautilus venue's
-// run-start event).
+// engine calls this once before the run, the run-start event).
 func (a *Account) EmitInitialState(ts time.Time) error { return a.emitAccountState(ts) }
 
 // Unrealized returns total unrealized PnL across all open positions, marked at
@@ -271,18 +268,15 @@ func (a *Account) AllPositions() []domain.Position {
 	return out
 }
 
-// Snapshot builds a domain.PortfolioSnapshot for the risk pipeline. Per the
-// reference glue (runner/portfolio_glue.py:build_snapshot_from_nautilus), NAV is
-// the venue account's balance_total(USD) — the SETTLED cash balance (starting +
-// realized), NOT the mark-to-market equity. Nautilus's balance_total does not
-// fold unrealized PnL of open positions into the balance, so the allocator
-// budget (capital_pct * NAV) and the risk-constraint caps gate against cash, not
-// equity. Using Equity() here would inflate/deflate every strategy's budget by
-// the live unrealized PnL and admit/reject a DIFFERENT order set than Python,
-// breaking objective parity (FIXER round-3 finding 1). Cash is set equal to NAV
-// (the glue sets cash == nav) and the today P&L fields default to 0 (daily-loss-
-// halt dormant in backtest). The positions map carries signed quantities;
-// last_close carries the last seen price per symbol.
+// Snapshot builds a domain.PortfolioSnapshot for the risk pipeline. NAV is the
+// SETTLED cash balance (starting + realized), NOT the mark-to-market equity:
+// unrealized PnL of open positions is not folded into the balance, so the
+// allocator budget (capital_pct * NAV) and the risk-constraint caps gate
+// against cash, not equity. Using Equity() here would inflate/deflate every
+// strategy's budget by the live unrealized PnL and admit/reject a different
+// order set. Cash is set equal to NAV and the today P&L fields default to 0
+// (daily-loss-halt dormant in backtest). The positions map carries signed
+// quantities; last_close carries the last seen price per symbol.
 func (a *Account) Snapshot() (domain.PortfolioSnapshot, error) {
 	nav, err := a.Cash()
 	if err != nil {
@@ -291,7 +285,7 @@ func (a *Account) Snapshot() (domain.PortfolioSnapshot, error) {
 	positions := make(map[domain.StrategySymbol]domain.Qty, len(a.positions))
 	for key, p := range a.positions {
 		if p.IsFlat() {
-			continue // skip flat (signed == 0), matching the reference glue
+			continue // skip flat (signed == 0)
 		}
 		positions[key] = p.SignedQty()
 	}

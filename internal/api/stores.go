@@ -210,7 +210,7 @@ type TickerMeta struct {
 	DelistDate     string `json:"delist_date"`
 }
 
-// SyncWatermark mirrors one tms.dataset_sync row (CacheMeta parity).
+// SyncWatermark mirrors one tms.dataset_sync row (the cache-metadata watermark).
 type SyncWatermark struct {
 	Dataset       string     `json:"dataset"`
 	LastSync      *time.Time `json:"last_sync"`

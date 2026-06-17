@@ -1,28 +1,20 @@
 package pairs
 
-// golden_test.go is the SIGNAL-PARITY PROOF for the Pairs strategy. It replays
-// the identical fixed bar series the Python reference dumper
-// (tmp/parity_pairs/dump_golden.py) drove through the PURE Python
-// PairsSignalGenerator, then diffs the Go generator's full ordered per-bar
-// output — on_bar() signals, evaluate_intent(), state_summary() — and the final
-// state_dict() against the embedded reference (testdata/pairs_parity.json),
-// signal by signal: dates, side, qty/sizing, z-score, hedge ratio, reason
-// strings (incl the Greek β and +.2f/.3f formats), state-machine states, and
-// intent fields. Prices/floats match within priceTol; everything else (qty,
-// states, generations, strings) matches exactly.
+// golden_test.go is the SIGNAL GOLDEN-REGRESSION test for the Pairs strategy. It
+// replays a fixed bar series through the generator, then diffs the full ordered
+// per-bar output — on_bar() signals, evaluate_intent(), state_summary() — and
+// the final state_dict() against the embedded reference
+// (testdata/pairs_golden.json), signal by signal: dates, side, qty/sizing,
+// z-score, hedge ratio, reason strings (incl the Greek β and +.2f/.3f formats),
+// state-machine states, and intent fields. Prices/floats match within priceTol;
+// everything else (qty, states, generations, strings) matches exactly. The
+// reference values pin this repo's behavior; any drift is a regression.
 //
 // The fixture is a representative COVID-dislocation window (2020) over the 3
 // default pairs (KO/PEP, MA/V, XOM/CVX) across 3 parameter scenarios
 // (baseline, aggressive, exit_zero) — exercising entries in both spread
 // directions, mean-reversion closes, divergence (loss-cap) closes, and
-// re-entries. Full-history parity (9048 bars, 1644 signals, 162864 intents, 0
-// mismatches) was additionally proven against tmp/parity_pairs/dump_py.py
-// during construction.
-//
-// Regenerate the reference (after a deliberate reference change) with:
-//
-//	cd /Users/byjackchen/codespace/trade-multi-strategies && \
-//	  .venv/bin/python <repo>/tmp/parity_pairs/dump_golden.py
+// re-entries.
 
 import (
 	_ "embed"
@@ -35,7 +27,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
-//go:embed testdata/pairs_parity.json
+//go:embed testdata/pairs_golden.json
 var goldenJSON []byte
 
 const priceTol = 1e-6
@@ -68,7 +60,6 @@ type gIntent struct {
 	ZEntry     float64  `json:"z_entry_threshold"`
 	ZExit      float64  `json:"z_exit_threshold"`
 	Hedge      float64  `json:"hedge_ratio"`
-	HalfLife   float64  `json:"half_life_days"`
 }
 type gStep struct {
 	Bar     gBar            `json:"bar"`
@@ -104,8 +95,8 @@ func gParseTS(t *testing.T, s string) time.Time {
 	return ts.UTC()
 }
 
-// TestGoldenParity is the locked, embedded signal-parity proof.
-func TestGoldenParity(t *testing.T) {
+// TestGolden is the locked, embedded signal golden-regression proof.
+func TestGolden(t *testing.T) {
 	var d gDump
 	if err := json.Unmarshal(goldenJSON, &d); err != nil {
 		t.Fatalf("unmarshal golden: %v", err)
@@ -169,8 +160,7 @@ func TestGoldenParity(t *testing.T) {
 					g.Generation != w.Generation || g.StrategyID != w.StrategyID ||
 					g.PairID != w.PairID || string(g.LegRole) != w.LegRole ||
 					!gFloatEq(g.ZScore, w.ZScore) || !gFloatEq(g.ZEntryThreshold, w.ZEntry) ||
-					!gFloatEq(g.ZExitThreshold, w.ZExit) || !gFloatEq(g.HedgeRatio, w.Hedge) ||
-					g.HalfLifeDays != w.HalfLife {
+					!gFloatEq(g.ZExitThreshold, w.ZExit) || !gFloatEq(g.HedgeRatio, w.Hedge) {
 					t.Fatalf("[%s step %d] intent %d:\n got=%+v\nwant=%+v", sc.Name, si, k, g, w)
 				}
 			}
@@ -189,7 +179,7 @@ func TestGoldenParity(t *testing.T) {
 			t.Fatalf("[%s] state_dict: %s", sc.Name, diff)
 		}
 	}
-	t.Logf("GOLDEN PARITY: scenarios=%d bars=%d signals=%d intents=%d summaries=%d mismatches=0",
+	t.Logf("GOLDEN OK: scenarios=%d bars=%d signals=%d intents=%d summaries=%d mismatches=0",
 		len(d.Scenarios), bars, sigs, intents, summaries)
 }
 

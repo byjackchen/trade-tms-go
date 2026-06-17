@@ -196,7 +196,7 @@ export function PositionsTable({
   const panelId = withActions ? "manual-positions" : "positions-panel";
 
   // Column definitions drive both the desktop table and the mobile card list
-  // (full parity — every column ports). Symbol + Side are `primary` so each
+  // (full feature set — every column ports). Symbol + Side are `primary` so each
   // mobile card leads with the at-a-glance line; the rest fold under "More".
   const columns: ColumnDef<Row>[] = [
     {

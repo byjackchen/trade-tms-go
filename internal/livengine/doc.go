@@ -14,8 +14,8 @@
 //
 // # Consistency contract (the accuracy anchor)
 //
-// Because there is no Python live golden, INTERNAL consistency is the accuracy
-// anchor: a streaming run over a VirtualClock must emit SignalIntents IDENTICAL
+// INTERNAL consistency is the accuracy anchor: a streaming run over a
+// VirtualClock must emit SignalIntents IDENTICAL
 // to what a batch replay of the same bars produces (consistency_test.go). This
 // holds because both paths:
 //

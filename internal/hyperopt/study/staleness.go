@@ -1,8 +1,8 @@
 package study
 
-// staleness.go implements the read-side staleness override (spec §9.2,
-// hyperopt_reader.py:9-38 [MUST-MATCH]): when a study row reads RUNNING but its
-// heartbeat is stale (> 60s) AND its coordinator PID is nil or not alive, the
+// staleness.go implements the read-side staleness override (spec §9.2): when a
+// study row reads RUNNING but its heartbeat is stale (> 60s) AND its
+// coordinator PID is nil or not alive, the
 // reader PRESENTS the status as INTERRUPTED without modifying the stored row.
 // This catches a crashed/killed coordinator that left the study permanently
 // RUNNING (a zombie study), and provides the liveness signal the spec relies on

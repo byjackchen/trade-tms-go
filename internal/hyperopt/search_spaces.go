@@ -1,6 +1,6 @@
 package hyperopt
 
-// search_spaces.go ports src/research/search_spaces.py (spec §2.6 [MUST-MATCH])
+// search_spaces.go defines the per-strategy search spaces (spec §2.6)
 // plus the baseline param JSONs (§2.5). The registry keys are exactly
 // {"sepa","sector_rotation","pairs"} (intraday_breakout exists in baseline but
 // is NOT registered for hyperopt — ADR-006 "Known limitations"). The baseline
@@ -16,9 +16,8 @@ import (
 var baselineFS embed.FS
 
 // SearchSpaceStrategies is the registered set, in the fixed joint-sampling
-// order (search_spaces.py:SEARCH_SPACES + suggest_joint_params). The ORDER
-// matters: suggest_joint_params samples sepa -> sector_rotation -> pairs, which
-// determines optimizer RNG consumption order.
+// order. The ORDER matters: joint sampling draws sepa -> sector_rotation ->
+// pairs, which determines optimizer RNG consumption order.
 var SearchSpaceStrategies = []string{"sepa", "sector_rotation", "pairs"}
 
 func isRegistered(strategy string) bool {
@@ -33,7 +32,7 @@ func isRegistered(strategy string) bool {
 // BaselineRaw returns the embedded baseline JSON bytes for strategy verbatim
 // (for callers that need the full document, including the display/allocation
 // blocks that ParseStrategyParams ignores — e.g. internal/params). The error
-// message matches the reference's "not found in env dir nor baseline".
+// message is "not found in env dir nor baseline".
 func BaselineRaw(strategy string) ([]byte, error) {
 	raw, err := baselineFS.ReadFile("baseline/" + strategy + ".json")
 	if err != nil {
@@ -53,8 +52,8 @@ func LoadBaselineParams(strategy string) (*StrategyParams, error) {
 	return ParseStrategyParams(raw, strategy)
 }
 
-// SuggestParams samples one registered strategy's params (search_spaces.py
-// suggest_params); unknown -> ValueError("unknown strategy: <name>").
+// SuggestParams samples one registered strategy's params;
+// unknown -> error "unknown strategy: <name>".
 func SuggestParams(strategy string, trial TrialLike) (map[string]float64, error) {
 	if !isRegistered(strategy) {
 		return nil, fmt.Errorf("unknown strategy: %s", strategy)
@@ -67,8 +66,8 @@ func SuggestParams(strategy string, trial TrialLike) (map[string]float64, error)
 }
 
 // SuggestJointParams samples all three registered spaces from one trial in the
-// fixed order sepa -> sector_rotation -> pairs (search_spaces.py
-// suggest_joint_params), returning the nested map keyed by strategy.
+// fixed order sepa -> sector_rotation -> pairs, returning the nested map keyed
+// by strategy.
 func SuggestJointParams(trial TrialLike) (map[string]map[string]float64, error) {
 	out := make(map[string]map[string]float64, len(SearchSpaceStrategies))
 	for _, s := range SearchSpaceStrategies {

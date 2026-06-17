@@ -110,7 +110,7 @@ func TestFiveModesShareOneAssembly(t *testing.T) {
 			Start:              calendar.NewDate(2025, 1, 1),
 			End:                calendar.NewDate(2025, 1, 31),
 			StartingBalance:    startBal,
-			Profile:            engine.ProfileNautilusCompat,
+			Profile:            engine.ProfileCloseFill,
 			PrebuiltStrategies: strategies,
 		}
 	}

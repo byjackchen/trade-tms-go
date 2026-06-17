@@ -2,14 +2,14 @@ package nsga2
 
 // param.go defines the parameter-encoding model the optimizer searches over.
 //
-// The encoding mirrors the search-space semantics the Python Optuna
-// NSGAIISampler operates on (docs/spec/hyperopt-metrics.md §2.3, §6.4): each
-// parameter is a bounded numeric distribution — float (uniform) or int (uniform
-// inclusive, step 1) — plus an optional categorical axis. Log scaling is
-// supported for completeness (Optuna's FloatDistribution/IntDistribution carry a
-// `log` flag and the NSGA-II uniform crossover operates in the transformed
-// internal space). The shipped baseline spaces (sepa/sector_rotation/pairs) are
-// all linear; log is exercised by the synthetic correctness tests only.
+// The encoding follows standard NSGA-II search-space semantics
+// (docs/spec/hyperopt-metrics.md §2.3, §6.4): each parameter is a bounded
+// numeric distribution — float (uniform) or int (uniform inclusive, step 1) —
+// plus an optional categorical axis. Log scaling is supported for completeness
+// (a float/int distribution carries a `log` flag and the NSGA-II uniform
+// crossover operates in the transformed internal space). The shipped baseline
+// spaces (sepa/sector_rotation/pairs) are all linear; log is exercised by the
+// synthetic correctness tests only.
 //
 // Why an internal/external split: Optuna's UniformCrossover swaps parameter
 // values in the *internal* representation produced by _SearchSpaceTransform —

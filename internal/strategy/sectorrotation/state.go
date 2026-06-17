@@ -7,11 +7,10 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
-// StateSummary is the light user-visible state for UI / monitoring (P-UI.1),
-// mirroring signal.py:343-377 [MUST-MATCH]. It excludes the heavy per-symbol
-// history. CurrentHoldings contains ONLY positive-qty entries. LastUniverseDate
-// is the ISO date string (YYYY-MM-DD) or nil. The struct is JSON-serializable
-// to the same shape the reference's state_summary() dict produces.
+// StateSummary is the light user-visible state for UI / monitoring (P-UI.1).
+// It excludes the heavy per-symbol history. CurrentHoldings contains ONLY
+// positive-qty entries. LastUniverseDate is the ISO date string (YYYY-MM-DD) or
+// nil. The struct is JSON-serializable to the state_summary() shape.
 type StateSummary struct {
 	CurrentHoldings  map[string]int64 `json:"current_holdings"`
 	LastUniverseDate *string          `json:"last_universe_date"`
@@ -40,7 +39,7 @@ func (sg *SignalGenerator) StateSummary() StateSummary {
 	}
 }
 
-// StateDictConfig is the config slice of state_dict (signal.py:384-393).
+// StateDictConfig is the config slice of state_dict.
 type StateDictConfig struct {
 	Universe         []string `json:"universe"`
 	MomentumLookback int      `json:"momentum_lookback"`
@@ -49,10 +48,10 @@ type StateDictConfig struct {
 	Timezone         string   `json:"timezone"`
 }
 
-// StateDict is the crash-recovery snapshot (signal.py:382-405 [MUST-MATCH]).
-// History/last_close are serialized as canonical decimal strings (Python
-// str(Decimal)); current_positions covers EVERY universe symbol (including
-// zeros). last_universe_date is an ISO date string or nil.
+// StateDict is the crash-recovery snapshot.
+// History/last_close are serialized as canonical decimal strings (str(Decimal));
+// current_positions covers EVERY universe symbol (including zeros).
+// last_universe_date is an ISO date string or nil.
 type StateDict struct {
 	Config           StateDictConfig     `json:"config"`
 	History          map[string][]string `json:"history"`
@@ -62,7 +61,7 @@ type StateDict struct {
 }
 
 // StateDict returns the serializable state snapshot. The equity snapshot is
-// pulled live (provider is not serialized), exactly like the reference.
+// pulled live (the provider is not serialized).
 func (sg *SignalGenerator) StateDict() StateDict {
 	history := make(map[string][]string, len(sg.history))
 	for sym, deq := range sg.history {
@@ -101,8 +100,8 @@ func (sg *SignalGenerator) StateDict() StateDict {
 	}
 }
 
-// LoadState restores from a StateDict (signal.py:407-433 [MUST-MATCH]). It
-// rebuilds bounded deques (maxlen lookback+1), ensures every universe symbol
+// LoadState restores from a StateDict. It rebuilds bounded deques (maxlen
+// lookback+1), ensures every universe symbol
 // has a deque and a position entry (defaulting to 0), parses last_close and
 // last_universe_date, and replaces current_positions. The equity_provider is
 // not restored (config-supplied). History closes that exceed maxlen are

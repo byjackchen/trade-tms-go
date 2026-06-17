@@ -28,7 +28,7 @@ E2E_ENV := TMS_API_TOKEN=$(TMS_API_TOKEN) \
 	TMS_E2E_API_URL=http://localhost:18080 \
 	$(ITEST_ENV)
 
-.PHONY: all build test vet lint fmt-check itest compose-up compose-down docker-build clean \
+.PHONY: all build test vet lint parity-guard fmt-check itest compose-up compose-down docker-build clean \
 	e2e-install e2e itest-full e2e-seed bench
 
 all: fmt-check vet lint build test
@@ -45,7 +45,7 @@ test:
 # ---------------------------------------------------------------------------
 # Runs every Benchmark* across the repo (engine throughput, hyperopt trials/sec
 # + parallel scaling, live per-bar latency, import wrangle rows/sec, API
-# p50/p99). Hermetic — no DB/Redis/Python needed; benchmarks build their own
+# p50/p99). Hermetic — no DB/Redis/runtime deps needed; benchmarks build their own
 # in-memory inputs. -benchmem records allocs/op (the hotspot signal). Override
 # BENCH (regexp) or BENCHTIME on the CLI, e.g.:
 #   make bench BENCH=Engine BENCHTIME=10x
@@ -68,8 +68,17 @@ vet:
 # works without golangci-lint on PATH.
 GOLANGCI_LINT ?= $(shell command -v golangci-lint 2>/dev/null || echo "$(or $(GOBIN),$(shell go env GOPATH)/bin)/golangci-lint")
 
-lint:
+lint: parity-guard
 	$(GOLANGCI_LINT) run ./...
+
+# Vocabulary gate (Q3): the prose counterpart to the depguard layering gate.
+# The old upstream repo is retired (docs/design/python-parity-cleanup.md); this
+# fails the build if the retired upstream vocabulary reappears anywhere in the
+# tree, preventing the old wording from silently creeping back. The exact
+# keyword list lives in scripts/parity-guard.sh (+ an aim-to-keep-empty
+# allowlist).
+parity-guard:
+	@bash scripts/parity-guard.sh
 
 fmt-check:
 	@out="$$(gofmt -l .)"; \

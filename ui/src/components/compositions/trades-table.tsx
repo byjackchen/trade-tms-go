@@ -33,7 +33,7 @@ function pnlClass(v: number): string | undefined {
 }
 
 /** Column definitions for the trades ResponsiveTable. Symbol + Realized P&L are
- * the mobile-card primaries; the rest (full parity) fold under "More". */
+ * the mobile-card primaries; the rest (full feature set) fold under "More". */
 const COLUMNS: ColumnDef<BacktestTrade>[] = [
   {
     key: "strategy",

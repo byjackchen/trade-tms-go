@@ -1,28 +1,27 @@
 package hyperopt
 
-// walkforward.go ports src/research/walkforward.py (spec §3 [MUST-MATCH]).
-// Strategies are rule-based — there is NO train period — so the splitter emits
-// only evaluation windows. The arithmetic (calendar-day, integer floor) feeds
-// run_backtest fold boundaries and therefore every downstream metric, so it
-// must match the reference exactly, including the "vestigial embargo" quirk
-// (the constant embargo offset shifts all segments later by embargo_days once,
-// it is NOT a per-fold gap; consecutive segments are adjacent).
+// walkforward.go (spec §3). Strategies are rule-based — there is NO train
+// period — so the splitter emits only evaluation windows. The arithmetic
+// (calendar-day, integer floor) feeds run_backtest fold boundaries and
+// therefore every downstream metric, so it is pinned exactly, including the
+// "vestigial embargo" quirk (the constant embargo offset shifts all segments
+// later by embargo_days once, it is NOT a per-fold gap; consecutive segments
+// are adjacent).
 
 import (
 	"fmt"
 	"time"
 )
 
-// EvalSegment is one inclusive evaluation window (walkforward.py:25-30).
+// EvalSegment is one inclusive evaluation window.
 // TestStart and TestEnd are calendar dates (UTC midnight, day-aligned).
 type EvalSegment struct {
 	TestStart time.Time
 	TestEnd   time.Time
 }
 
-// dayDiff returns the inclusive integer day count semantics of Python's
-// (end - start).days: the number of whole days from a to b. Both inputs are
-// normalized to UTC midnight so DST/zone offsets never perturb the count.
+// dayDiff returns the number of whole calendar days from a to b. Both inputs
+// are normalized to UTC midnight so DST/zone offsets never perturb the count.
 func dayDiff(a, b time.Time) int {
 	au := time.Date(a.Year(), a.Month(), a.Day(), 0, 0, 0, 0, time.UTC)
 	bu := time.Date(b.Year(), b.Month(), b.Day(), 0, 0, 0, 0, time.UTC)
@@ -35,14 +34,14 @@ func addDays(t time.Time, n int) time.Time {
 	return u.AddDate(0, 0, n)
 }
 
-// floorDivInt returns Python-style floor division a // b for b > 0 and a >= 0
+// floorDivInt returns floor division a / b for b > 0 and a >= 0
 // (all call sites here use non-negative a).
 func floorDivInt(a, b int) int { return a / b }
 
 // ExpandingAnchored carves [start, end] into nFolds non-overlapping inclusive
-// evaluation segments (walkforward.py:33-71, spec §3.1 [MUST-MATCH]).
+// evaluation segments (spec §3.1).
 //
-// Validation order and messages mirror the reference (all ValueError):
+// Validation order and messages (all errors):
 //
 //	end <= start                                   -> "end must be after start"
 //	n_folds < 1                                    -> "n_folds must be >= 1"

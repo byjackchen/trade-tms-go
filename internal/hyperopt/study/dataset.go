@@ -24,7 +24,7 @@ import (
 )
 
 // warmupDaysDefault is the calendar-day warmup loaded before a window start for
-// ticker history (§1.6 / multi_strategy_backtest.py:404-411).
+// ticker history (§1.6).
 const warmupDaysDefault = 400
 
 // spyWarmupDays is the SPY regime warmup (~500 days; §1.6).
@@ -133,8 +133,8 @@ func (d *Dataset) Tickers() []string {
 // foldFeed is an engine.BarFeed over the shared Dataset, trimming each
 // instrument's series to EXACTLY [start, end] (UTC-midnight calendar bounds) —
 // the run window only, NO preceding warmup tail (warmup is injected out-of-band
-// via WarmupSlices, never replayed through the engine loop; spec §3 / Python's
-// warmup_by_ticker). It is read-only and safe for concurrent use across trials:
+// via WarmupSlices, never replayed through the engine loop; spec §3). It is
+// read-only and safe for concurrent use across trials:
 // every Load returns a fresh slice header over the shared, never-mutated backing
 // array.
 type foldFeed struct {
@@ -142,11 +142,10 @@ type foldFeed struct {
 }
 
 // WindowFeed returns a BarFeed that trims each instrument to EXACTLY the
-// requested [start, end] window — NO preceding warmup tail. This is the
-// engine feed for the parity-correct path: the event loop replays only the
-// test/run window, and SEPA warmup is supplied separately via WarmupSlices
-// (mirroring Python, where the 400d warmup goes to warmup_by_ticker and is
-// never replayed through the Nautilus engine).
+// requested [start, end] window — NO preceding warmup tail. The event loop
+// replays only the test/run window, and SEPA warmup is supplied separately via
+// WarmupSlices (the 400d warmup primes the SignalGenerators out of band and is
+// never replayed through the engine loop).
 func (d *Dataset) WindowFeed() engine.BarFeed {
 	return &foldFeed{ds: d}
 }
@@ -155,8 +154,7 @@ func (d *Dataset) WindowFeed() engine.BarFeed {
 // [start.AddDays(-warmupDays), start) — i.e. strictly BEFORE the run window —
 // for out-of-band warmup priming (engine.WarmupConfig.Bars). Bars are shared
 // (immutable backing array), not copied. Tickers with no pre-window history are
-// omitted. This is the Go equivalent of multi_strategy_backtest.py's
-// warmup_by_ticker (bars < run_start_ts).
+// omitted (only bars strictly before run_start_ts are returned).
 func (d *Dataset) WarmupSlices(tickers []string, start calendar.Date, warmupDays int) map[string][]domain.Bar {
 	if warmupDays <= 0 {
 		warmupDays = warmupDaysDefault

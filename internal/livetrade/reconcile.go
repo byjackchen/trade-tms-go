@@ -7,9 +7,9 @@ package livetrade
 // (cockpit + a tms.halts row when configured to halt) — but NEVER auto-trades to
 // correct (the spec forbids self-healing trades; a human resolves drift).
 //
-// The reconcile algorithm itself lives in internal/riskgate.Reconcile (the
-// faithful port of reconciliation.py, spec §6). This module only sources the two
-// sides from the live system and routes the report to its sinks.
+// The reconcile algorithm itself lives in internal/riskgate.Reconcile (spec §6).
+// This module only sources the two sides from the live system and routes the
+// report to its sinks.
 
 import (
 	"context"

@@ -1,6 +1,6 @@
-// Package config is the single source of truth for runtime configuration,
-// mirroring the Python reference's src/config.py philosophy: load .env
-// (non-overriding, found by walking up from the working directory), expose
+// Package config is the single source of truth for runtime configuration:
+// load .env (non-overriding, found by walking up from the working
+// directory), expose
 // a typed read-only Config snapshot, and fail loud and fast with
 // MissingConfig errors that carry setup hints — catching a missing value at
 // startup beats catching it mid-trading-day.

@@ -1,10 +1,10 @@
 package engine
 
 // strategy.go defines the engine-facing Strategy seam and the ScriptedStrategy
-// test double — the PARITY DRIVER. ScriptedStrategy consumes a deterministic
+// test double — the SCRIPTED DRIVER. ScriptedStrategy consumes a deterministic
 // list of (date, ticker, side, qty) intents and submits the corresponding
-// market orders on the matching bar, so the engine can be gated against
-// Nautilus WITHOUT any real strategy logic (real strategies are P3).
+// market orders on the matching bar, so the engine can be exercised WITHOUT any
+// real strategy logic (real strategies are P3).
 
 import (
 	"fmt"
@@ -21,9 +21,9 @@ import (
 // SubmitMarket is the ungated primitive: it always submits (the caller has
 // already decided side/qty). The real strategy adapters instead use
 // SubmitMarketSignal, which carries the originating strategy-level SignalSide
-// so the engine can run the portfolio gate with exact Python parity (FLAT and
-// qty<=0 bypass the gate; LONG/SHORT are gated against the allocator budget and
-// the aggregate risk rules) — mirroring src/strategies/_base/runner.py:_gate.
+// so the engine can run the portfolio gate (FLAT and qty<=0 bypass the gate;
+// LONG/SHORT are gated against the allocator budget and the aggregate risk
+// rules).
 type OrderSubmitter interface {
 	// SubmitMarket submits a market order for the strategy and returns the
 	// assigned client order id. It does NOT run the portfolio gate — use it for
@@ -35,8 +35,8 @@ type OrderSubmitter interface {
 	// the strategy-level side (LONG/SHORT/FLAT); orderSide is its translated
 	// broker side (BUY/SELL). qty is the absolute share magnitude. It returns
 	// the assigned client order id and whether the order was actually submitted
-	// (false == rejected by the gate, no order placed — the Python _gate returns
-	// False and the runner skips the submit). A gate rejection is NOT an error.
+	// (false == rejected by the gate, no order placed — the runner skips the
+	// submit). A gate rejection is NOT an error.
 	SubmitMarketSignal(strategyID, symbol string, signalSide domain.SignalSide, orderSide domain.OrderSide, qty domain.Qty, reason string, ts time.Time) (coid string, submitted bool, err error)
 }
 
@@ -60,8 +60,7 @@ type Strategy interface {
 // ---------------------------------------------------------------------------
 
 // IntentEvaluator is a strategy that can emit per-leg/per-name SignalIntents
-// for observability after a bar. Mirrors the Python SG.evaluate_intent
-// contract (read-side only; never affects trading).
+// for observability after a bar (read-side only; never affects trading).
 type IntentEvaluator interface {
 	// EvaluateIntentJSON returns the intents for the as-of timestamp as a
 	// JSON-serializable value (the concrete intent slice). It must be a pure
@@ -70,13 +69,13 @@ type IntentEvaluator interface {
 }
 
 // StateSummarizer is a strategy that can publish a JSON-serializable summary
-// of its current state for the UI after every bar (Python SG.state_summary).
+// of its current state for the UI after every bar.
 type StateSummarizer interface {
 	StateSummaryJSON() any
 }
 
 // StatePersister is a strategy that can snapshot and restore its full internal
-// state (Python SG.state_dict / load_state) for warm restarts.
+// state for warm restarts.
 type StatePersister interface {
 	StateDictJSON() any
 	LoadStateJSON(b []byte) error
@@ -120,17 +119,15 @@ type SymbolScoped interface {
 // WarmupConsumer is a strategy that can PRIME its internal indicator/history
 // state from pre-window historical bars OUT OF BAND — i.e. before the engine's
 // event loop runs, WITHOUT submitting any orders and WITHOUT emitting any
-// equity samples. This is the faithful Go port of the Python warmup model
-// (multi_strategy_backtest.py:645-653 SEPAUniverseRunner.warmup_ticker): the
-// 400-calendar-day warmup tail is injected directly into the SignalGenerator's
-// history, NOT replayed through the engine/venue. The engine then replays ONLY
-// the [Start, End] run window.
+// equity samples. The 400-calendar-day warmup tail is injected directly into
+// the SignalGenerator's history, NOT replayed through the engine/venue. The
+// engine then replays ONLY the [Start, End] run window.
 //
-// ONLY strategies whose Python counterpart receives this out-of-band warmup
-// implement it — SEPA (warmup_ticker) does; SectorRotation and Pairs do NOT
-// (their Python loaders pull run-window-only bars and build rolling state from
-// in-window on_bar calls). Preserving that asymmetry is REQUIRED for objective
-// parity: a Pairs lookback=60 SG is intentionally NOT warm at test_start.
+// ONLY strategies that receive this out-of-band warmup implement it — SEPA
+// (warmup_ticker) does; SectorRotation and Pairs do NOT (they pull
+// run-window-only bars and build rolling state from in-window on_bar calls).
+// Preserving that asymmetry is REQUIRED for a correct objective: a Pairs
+// lookback=60 SG is intentionally NOT warm at test_start.
 //
 // WarmupBars receives the historical bars for ONE symbol the strategy trades,
 // ascending by ts, all strictly before the run window. A strategy that trades
@@ -158,8 +155,8 @@ type WarmupConsumer interface {
 // with a backtest over [start-lookback, end].
 //
 // SEPA implements the per-symbol WarmupConsumer instead (its generator is
-// single-symbol and its Python counterpart warms per-ticker). A strategy
-// implements at most ONE of the two warmup seams.
+// single-symbol and warms per-ticker). A strategy implements at most ONE of the
+// two warmup seams.
 type BatchWarmupConsumer interface {
 	// WarmupBatch primes the strategy from the interleaved pre-window bar stream
 	// (ascending by ts, all strictly before the run window). It MUST NOT submit
@@ -181,7 +178,7 @@ type StrategyContext struct {
 // submit a market order of Side for Qty shares. Side is the strategy-level
 // SignalSide; LONG -> BUY, SHORT -> SELL. FLAT closes the strategy's net
 // position in the ticker (qty taken from the live position; the Qty field is
-// ignored for FLAT, mirroring the reference runners).
+// ignored for FLAT).
 type Intent struct {
 	Date   time.Time // trading date; matched against bar.TS (UTC, day-aligned)
 	Ticker string
@@ -190,7 +187,7 @@ type Intent struct {
 }
 
 // PositionReader lets a strategy read its current net position (for FLAT close
-// sizing), mirroring the reference's portfolio.net_position lookup.
+// sizing).
 type PositionReader interface {
 	// NetPosition returns the strategy's signed position in symbol (0 if flat).
 	NetPosition(strategyID, symbol string) domain.Qty
@@ -251,8 +248,7 @@ func (s *ScriptedStrategy) ID() string { return s.id }
 
 // OnBar submits the orders scripted for this bar's (date, ticker), in list
 // order. LONG -> BUY, SHORT -> SELL, FLAT -> a close order sized from the live
-// net position (no order when flat), matching the reference FLAT translation
-// (§7.4).
+// net position (no order when flat), per the FLAT translation (§7.4).
 func (s *ScriptedStrategy) OnBar(sub OrderSubmitter, bar domain.Bar) error {
 	intents := s.byDay[keyOf(bar.TS, bar.Symbol)]
 	for _, in := range intents {

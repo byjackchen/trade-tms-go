@@ -185,7 +185,7 @@ func (a *Assembler) Assemble(ctx context.Context, in AssemblyInput, start, end c
 	// are resolved from the SAME promoted params the session will subscribe (NOT the
 	// hardcoded defaults), so the cap reserves exactly the slots the live subscribe
 	// consumes and can never under-reserve when a promoted sector/pairs param_set
-	// expands the baskets (preflight/live cap parity).
+	// expands the baskets (preflight and live cap stay consistent).
 	if in.SubscriptionCap > 0 && (in.Strategy == "sepa" || in.Strategy == "multi") && len(in.Tickers) > 0 {
 		fixed, err := a.resolveFixedBaskets(ctx, in.Strategy, spy)
 		if err != nil {
@@ -287,7 +287,7 @@ func (a *Assembler) Assemble(ctx context.Context, in AssemblyInput, start, end c
 	// BindEquity to the starting-balance fallback: signal mode has no live
 	// account (the NoopExecutor places no orders, so the engine account never
 	// moves). The fallback equity is the informational NAV — exactly what the
-	// reference signal path sizes against (no real book).
+	// signal-mode path sizes against (no real book).
 	tickers := unionTickers(asm.ExtraTickers, in.Tickers)
 	// The multi-symbol BatchWarmupConsumer strategies (sector / pairs) prime from
 	// the interleaved pre-window history of THEIR instruments — the assembled

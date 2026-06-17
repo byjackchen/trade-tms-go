@@ -17,8 +17,7 @@
 //     from moomoo OrderStatus pushes to domain order-state + per-fill Fill
 //     events. Cumulative dealtQty/dealtAvgPrice are converted to per-fill
 //     deltas; duplicate pushes are no-ops; terminal states are sticky. The
-//     status->event mapping is faithful to the Python reference adapter and the
-//     Trd_Common.OrderStatus enum.
+//     status->event mapping follows the Trd_Common.OrderStatus enum.
 //
 //   - Live-activation safety (executor.go): the constructor REFUSES to bind the
 //     real account unless ALL of {typed confirmation phrase, explicit real acc

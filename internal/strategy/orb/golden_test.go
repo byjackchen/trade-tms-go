@@ -1,18 +1,16 @@
 package orb
 
-// parity_test.go is the permanent signal-parity golden test. It embeds the
-// reference sequence dumped from the PURE Python IntradayBreakoutSignalGenerator
-// (tmp/parity_orb/dump_py.py -> testdata/orb_parity.json) and replays the
-// identical bar series through the Go Generator, asserting the full ordered
-// sequence of (on_bar signals, evaluate_intent, state_summary, state_dict)
-// matches signal-by-signal.
+// golden_test.go is the permanent signal golden-regression test. It embeds a
+// reference sequence (testdata/orb_golden.json) and replays the identical bar
+// series through the Generator, asserting the full ordered sequence of (on_bar
+// signals, evaluate_intent, state_summary, state_dict) matches signal-by-signal.
+// The values pin this repo's behavior; any drift is a regression.
 //
 // Decimal-valued fields are compared as the exact str(Decimal) string the
 // reference produced (the strongest proof: scale-preserving byte equality);
-// float fields are compared exactly (the Go float64 math mirrors Python's);
-// proximity/strength are compared within 1e-9 (they are derived through a
-// Decimal division -> float conversion identical to CPython, so they match to
-// the last bit, but the tolerance documents the contract).
+// float fields are compared exactly; proximity/strength are compared within
+// 1e-9 (they are derived through a Decimal division -> float conversion; the
+// tolerance documents the contract).
 
 import (
 	_ "embed"
@@ -22,8 +20,8 @@ import (
 	"time"
 )
 
-//go:embed testdata/orb_parity.json
-var orbParityJSON []byte
+//go:embed testdata/orb_golden.json
+var orbGoldenJSON []byte
 
 type pjFile struct {
 	Config  pjConfig   `json:"config"`
@@ -81,7 +79,6 @@ type pjIntent struct {
 	StrategyID            string   `json:"strategy_id"`
 	ORBHigh               *string  `json:"orb_high"`
 	ORBLow                *string  `json:"orb_low"`
-	ATRAtOpen             *string  `json:"atr_at_open"`
 	EntryWindowEnd        *string  `json:"entry_window_end"`
 }
 
@@ -98,8 +95,8 @@ type pjStateSummary struct {
 	TargetPrice *string `json:"target_price"`
 }
 
-// pyStr renders a Python str(datetime) UTC instant for comparison: the
-// reference dumped str(ts) ("2024-01-08 14:30:00+00:00").
+// pyDatetimeStr renders a str(datetime) UTC instant for comparison
+// ("2024-01-08 14:30:00+00:00"), matching the golden dump format.
 func pyDatetimeStr(t time.Time) string {
 	u := t.UTC()
 	base := u.Format("2006-01-02") + " " + u.Format("15:04:05")
@@ -134,13 +131,13 @@ func parseRefTS(t *testing.T, s string) time.Time {
 	return time.Time{}
 }
 
-func TestORBParityAgainstPythonReference(t *testing.T) {
+func TestORBGolden(t *testing.T) {
 	var f pjFile
-	if err := json.Unmarshal(orbParityJSON, &f); err != nil {
-		t.Fatalf("decode parity fixture: %v", err)
+	if err := json.Unmarshal(orbGoldenJSON, &f); err != nil {
+		t.Fatalf("decode golden fixture: %v", err)
 	}
 	if len(f.Records) == 0 {
-		t.Fatal("empty parity fixture")
+		t.Fatal("empty golden fixture")
 	}
 
 	equity, ok := parseDec(f.Config.Equity)
@@ -223,7 +220,7 @@ func TestORBParityAgainstPythonReference(t *testing.T) {
 		compareStateDict(t, i, g.StateDict(), rec.StateDict)
 	}
 
-	t.Logf("PARITY OK: bars compared=%d, signals compared=%d, records=%d, mismatches=0",
+	t.Logf("GOLDEN OK: bars compared=%d, signals compared=%d, records=%d, mismatches=0",
 		barsCompared, sigsCompared, len(f.Records))
 }
 
@@ -257,7 +254,6 @@ func compareIntent(t *testing.T, i int, got SignalIntent, want pjIntent) {
 	}
 	compareOptStr(t, i, "intent.orb_high", got.ORBHigh, want.ORBHigh)
 	compareOptStr(t, i, "intent.orb_low", got.ORBLow, want.ORBLow)
-	compareOptStr(t, i, "intent.atr_at_open", got.ATRAtOpen, want.ATRAtOpen)
 	// entry_window_end
 	if (got.EntryWindowEnd == nil) != (want.EntryWindowEnd == nil) {
 		t.Errorf("rec %d intent: entry_window_end nil-ness got=%v want=%v",

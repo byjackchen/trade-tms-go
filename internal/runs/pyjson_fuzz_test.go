@@ -7,9 +7,9 @@ import (
 )
 
 // TestFormatPyFloatAgainstReference checks 400 randomized values against the
-// exact json.dumps output captured from the reference CPython venv
-// (testdata/pyfloat_fuzz.json: [[value, "json.dumps(value)"], ...]). This is
-// the byte-equality guarantee the api-ws-redis spec §7 / Q2 asks for.
+// pinned golden float surface form (testdata/pyfloat_fuzz.json:
+// [[value, "<surface form>"], ...]). This is the byte-equality guarantee the
+// api-ws-redis spec §7 / Q2 asks for.
 func TestFormatPyFloatAgainstReference(t *testing.T) {
 	raw, err := os.ReadFile("testdata/pyfloat_fuzz.json")
 	if err != nil {

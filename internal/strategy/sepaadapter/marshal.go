@@ -1,9 +1,9 @@
 package sepaadapter
 
 // marshal.go converts the pure SEPA StateSummary value type into a
-// JSON-serializable map whose key set and null semantics match the Python
-// reference exactly: the 11-key dict (signal.py:515-539), None for empty
-// optional strings. It feeds the engine's StateSummarizer publish path.
+// JSON-serializable map with a fixed key set and null semantics: the 11-key
+// dict, null for empty optional strings. It feeds the engine's StateSummarizer
+// publish path.
 //
 // NOTE: the SEPA *intent* wire shape is NOT defined here. EvaluateIntentJSON
 // returns the raw sepa.SignalIntent and publish.NormalizeIntent converts it to
@@ -14,7 +14,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/strategy/sepa"
 )
 
-// summaryJSON is the 11-key state_summary dict (signal.py:515-539).
+// summaryJSON is the 11-key state_summary dict.
 type summaryJSON struct {
 	Symbol        string  `json:"symbol"`
 	Regime        string  `json:"regime"`

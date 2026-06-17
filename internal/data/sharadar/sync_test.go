@@ -1,10 +1,9 @@
 package sharadar
 
 // sync_test.go drives the Syncer against a fake client + in-memory store,
-// pinning the ensure_cache_fresh flow to the Python catchup oracle
-// (test_catchup.py: per-day SEP/SFP interleaving, single TICKERS/SF1/EVENTS
-// refresh, warn-and-continue, watermark accumulation) and the bootstrap
-// flow to the sync-universe CLI order with quarter-chunked SEP/SFP calls.
+// pinning the catch-up flow (per-day SEP/SFP interleaving, single
+// TICKERS/SF1/EVENTS refresh, warn-and-continue, watermark accumulation) and
+// the bootstrap flow (dataset order with quarter-chunked SEP/SFP calls).
 
 import (
 	"context"
@@ -337,7 +336,7 @@ func TestEnsureFreshDataFrontierDrivesCatchupAfterImport(t *testing.T) {
 		"SHARADAR/EVENTS":  eventsResponse(1),
 	}}
 	ms := newMemStore()
-	// Importer parity: last_sync = now (today, NY), but the data frontier is
+	// Importer contract: last_sync = now (today, NY), but the data frontier is
 	// 2026-05-27 (the newest imported bar). Clock is Fri 2026-06-12 -> T-1 =
 	// Thu 2026-06-11.
 	lastSyncAt(t, ms, DatasetSEP, 2026, time.June, 12)
@@ -716,7 +715,7 @@ func TestBootstrapAbortsOnError(t *testing.T) {
 		Start: calendar.NewDate(2023, time.January, 1),
 		End:   calendar.NewDate(2023, time.March, 31),
 	})
-	require.Error(t, err, "bootstrap propagates API errors (CLI parity, spec §9)")
+	require.Error(t, err, "bootstrap propagates API errors (spec §9)")
 	assert.Contains(t, err.Error(), "bootstrap SEP")
 	for _, ds := range fc.callDatasets() {
 		assert.NotEqual(t, "SHARADAR/SFP", ds, "abort stops later datasets")
@@ -802,8 +801,8 @@ func TestNewSyncerValidation(t *testing.T) {
 }
 
 func TestCatchupReportErrorsFormat(t *testing.T) {
-	// Error strings follow the Python "DATASET DATE: err" shape so log
-	// scrapers keep working.
+	// Error strings follow the "DATASET DATE: err" shape so log scrapers can
+	// parse them.
 	fc := &fakeClient{responses: map[string]fakeResponse{
 		"SHARADAR/SEP":     {err: errors.New("boom")},
 		"SHARADAR/SFP":     {err: errors.New("boom")},

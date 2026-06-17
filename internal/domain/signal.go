@@ -1,8 +1,7 @@
 package domain
 
 // signal.go defines Signal (the target-position signal emitted by every
-// SignalGenerator), the SEPA Grade model and VCPSnapshot, mirroring the
-// frozen Python dataclasses (spec §2.3-§2.5).
+// SignalGenerator), the SEPA Grade model and VCPSnapshot (spec §2.3-§2.5).
 
 import (
 	"fmt"
@@ -10,7 +9,7 @@ import (
 )
 
 // Signal is the target-position-style signal emitted by every
-// SignalGenerator (spec §2.3 [MUST-MATCH]). Immutable by convention.
+// SignalGenerator (spec §2.3). Immutable by convention.
 //
 // Field semantics:
 //   - TargetQty is signed by convention (positive long, negative short,
@@ -32,7 +31,7 @@ type Signal struct {
 	StopPrice  *Price     `json:"stop_price"`
 }
 
-// NewSignal builds a Signal with the Python default Confidence of 1.0 and
+// NewSignal builds a Signal with the default Confidence of 1.0 and
 // Grade/StopPrice unset. Set the optional fields on the returned value
 // before first use.
 func NewSignal(symbol string, ts time.Time, side SignalSide, targetQty Qty, reason string) Signal {
@@ -46,8 +45,8 @@ func NewSignal(symbol string, ts time.Time, side SignalSide, targetQty Qty, reas
 	}
 }
 
-// Validate checks structural invariants (opt-in; the Python reference does
-// not validate on construction).
+// Validate checks structural invariants (opt-in; signals are not validated on
+// construction).
 func (s Signal) Validate() error {
 	if s.Symbol == "" {
 		return fmt.Errorf("%w: signal has empty symbol", ErrInvalidArgument)
@@ -65,11 +64,10 @@ func (s Signal) Validate() error {
 }
 
 // ---------------------------------------------------------------------------
-// Grade — src/strategies/sepa/grade.py:13 [MUST-MATCH]
+// Grade
 // ---------------------------------------------------------------------------
 
-// Grade is the SEPA setup grade: Literal["A+", "B", "skip"] in the Python
-// reference.
+// Grade is the SEPA setup grade: one of "A+", "B", "skip".
 type Grade string
 
 const (
@@ -87,7 +85,7 @@ func (g Grade) IsValid() bool {
 	return false
 }
 
-// String returns the exact Python literal value.
+// String returns the wire value.
 func (g Grade) String() string { return string(g) }
 
 // ParseGrade validates and returns the Grade for s.
@@ -116,13 +114,13 @@ func (g *Grade) UnmarshalText(b []byte) error {
 func GradePtr(g Grade) *Grade { return &g }
 
 // ---------------------------------------------------------------------------
-// SetupInputs & GradeSetup — src/strategies/sepa/grade.py:16-42 [MUST-MATCH]
+// SetupInputs & GradeSetup
 // ---------------------------------------------------------------------------
 
 // SetupInputs are the inputs to the canonical Minervini grading rules.
-// Stage and Regime stay strings, matching the Python dataclass (the grader
-// compares Stage against the literal "2" and Regime against "bear"/"bull";
-// any other spelling simply fails those comparisons, exactly as in Python).
+// Stage and Regime stay strings (the grader compares Stage against the literal
+// "2" and Regime against "bear"/"bull"; any other spelling simply fails those
+// comparisons).
 type SetupInputs struct {
 	TrendTemplatePass   bool   `json:"trend_template_pass"`
 	EarningsPass        bool   `json:"earnings_pass"`
@@ -132,8 +130,8 @@ type SetupInputs struct {
 	Regime              string `json:"regime"`
 }
 
-// GradeSetup returns "A+", "B" or "skip" per the canonical gating rules
-// (grade.py:26-42 [MUST-MATCH]), evaluated strictly in order:
+// GradeSetup returns "A+", "B" or "skip" per the canonical gating rules,
+// evaluated strictly in order:
 //  1. bear regime or stage != "2"                          → skip
 //  2. not (trend template pass AND earnings pass)          → skip
 //  3. fewer than 2 VCP contractions                        → skip
@@ -156,14 +154,13 @@ func GradeSetup(in SetupInputs) Grade {
 }
 
 // ---------------------------------------------------------------------------
-// VCPSnapshot — src/strategies/sepa/vcp.py:37-51 (spec §2.5)
+// VCPSnapshot — spec §2.5
 // ---------------------------------------------------------------------------
 
 // VCPSnapshot describes a detected volatility-contraction pattern. The
 // detection algorithm lives in the strategies layer; only the value type is
-// defined here. Pivot and depth fields are float64 because the Python
-// reference computes them in IEEE-754 float math (spec §1 [MUST-MATCH] —
-// do not "upgrade" them to fixed point).
+// defined here. Pivot and depth fields are float64 because they are computed
+// in IEEE-754 float math (spec §1 — do not "upgrade" them to fixed point).
 type VCPSnapshot struct {
 	Code                         string    `json:"code"`
 	Contractions                 []float64 `json:"contractions"` // depths %, oldest→newest

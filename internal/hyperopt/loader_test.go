@@ -8,9 +8,8 @@ import (
 	"testing"
 )
 
-// midTrial mirrors the deterministic midpoint trial used by the Python
-// tests/research/test_search_spaces.py: suggest_float returns (low+high)/2,
-// suggest_int returns (low+high)//2 (Python floor div).
+// fracTrial is a deterministic search-space trial: suggest_float returns
+// (low+high)/2 at the midpoint, suggest_int returns (low+high)//2 (floor div).
 type fracTrial struct {
 	frac   float64
 	mid    bool // true => float midpoint, int floor-mid
@@ -30,8 +29,8 @@ func (f *fracTrial) SuggestFloat(name string, low, high float64) float64 {
 		v = (low + high) / 2.0
 	} else {
 		// float64(...) around the product forces a rounding step so Go does
-		// not fuse this into an FMA (CPython never fuses) — matches the
-		// reference FracTrial arithmetic bit-for-bit.
+		// not fuse this into an FMA, keeping the arithmetic bit-identical
+		// across platforms (arm64 vs x86).
 		v = low + float64((high-low)*f.frac)
 	}
 	f.record(name, v)
@@ -41,7 +40,7 @@ func (f *fracTrial) SuggestFloat(name string, low, high float64) float64 {
 func (f *fracTrial) SuggestInt(name string, low, high int64) int64 {
 	var v int64
 	if f.mid {
-		v = (low + high) / 2 // floor for non-negative, matches Python // here
+		v = (low + high) / 2 // floor for non-negative
 	} else {
 		v = int64(float64(low) + float64(high-low)*f.frac)
 	}
@@ -49,8 +48,8 @@ func (f *fracTrial) SuggestInt(name string, low, high int64) int64 {
 	return v
 }
 
-func TestSuggestWithParity(t *testing.T) {
-	raw, err := os.ReadFile("testdata/loader_parity.json")
+func TestSuggestWithGolden(t *testing.T) {
+	raw, err := os.ReadFile("testdata/loader_golden.json")
 	if err != nil {
 		t.Skipf("fixture missing (%v)", err)
 	}
@@ -87,7 +86,7 @@ func TestSuggestWithParity(t *testing.T) {
 	// fractional pairs trials (exercise the exit_z clamp)
 	for _, frac := range []float64{0.0, 0.25, 0.9, 1.0} {
 		key := "pairs_frac_" + strings.TrimRight(strings.TrimRight(jsonFloat(frac), "0"), ".")
-		// match the fixture key naming (Python str(float))
+		// match the fixture key naming (float str form)
 		key = "pairs_frac_" + pyFloatStr(frac)
 		want, ok := fix.Suggest[key]
 		if !ok {
@@ -99,7 +98,7 @@ func TestSuggestWithParity(t *testing.T) {
 
 func jsonFloat(f float64) string { b, _ := json.Marshal(f); return string(b) }
 
-// pyFloatStr renders a float the way Python str(float) does for the fractions
+// pyFloatStr renders a float in the str(float) surface form for the fractions
 // used in the fixture keys (0.0, 0.25, 0.9, 1.0).
 func pyFloatStr(f float64) string {
 	switch f {
@@ -115,8 +114,8 @@ func pyFloatStr(f float64) string {
 	return jsonFloat(f)
 }
 
-func TestSafeEvalParity(t *testing.T) {
-	raw, err := os.ReadFile("testdata/loader_parity.json")
+func TestSafeEvalGolden(t *testing.T) {
+	raw, err := os.ReadFile("testdata/loader_golden.json")
 	if err != nil {
 		t.Skipf("fixture missing (%v)", err)
 	}
@@ -152,8 +151,8 @@ func TestSafeEvalErrors(t *testing.T) {
 	if _, err := safeEval("foo + 1", map[string]float64{}); err == nil || err.Error() != "undefined: foo" {
 		t.Fatalf("undefined: got %v", err)
 	}
-	// unknown function -> "unsupported function" prefix (the Python message
-	// embeds the AST dump; only the prefix is spec'd).
+	// unknown function -> "unsupported function" prefix (only the prefix is
+	// spec'd).
 	if _, err := safeEval("pow(2,3)", map[string]float64{}); err == nil || !strings.HasPrefix(err.Error(), "unsupported function") {
 		t.Fatalf("unknown func: got %v", err)
 	}

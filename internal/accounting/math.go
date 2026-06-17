@@ -40,8 +40,8 @@ func absQtyVal(q domain.Qty) domain.Qty {
 }
 
 // roundMoneyToCents quantizes a 1e-4 Money to 2 decimal places (cents),
-// rounding half-to-even. This matches the precision of Nautilus's USD Money
-// (precision 2), to which realized PnL is quantized on every fill.
+// rounding half-to-even. USD Money has cent precision, to which realized PnL
+// is quantized on every fill.
 func roundMoneyToCents(m domain.Money) domain.Money {
 	// 1e-4 units -> cents: divide by 100 with half-even, then scale back.
 	cents := roundHalfEvenDiv(int64(m), 100)

@@ -1,14 +1,13 @@
 package exec
 
-// fillmodel_depthwalk_test.go locks the nautilus-compat depth-walk rule against
-// the empirically observed Nautilus BacktestEngine matching, captured in
-// tmp/parity/nautilus_out/depthwalk.json by tmp/parity/probe_depthwalk.py.
+// fillmodel_depthwalk_test.go locks this repo's close-fill depth-walk rule
+// against a checked-in golden table.
 //
 // The golden table covers volume/qty/side permutations that exercise both
 // branches of compute_bar_quarter_sizes (large volumes where quarter = vol//4,
 // and small volumes where the quarter floors to min_size=1 and the underflow
 // guard fires). The fixture is checked into testdata/ so the unit test runs
-// without the Python harness; regenerate it with `make parity-depthwalk`.
+// standalone.
 
 import (
 	"encoding/json"
@@ -39,22 +38,22 @@ type depthwalkCase struct {
 	} `json:"legs"`
 }
 
-func TestNautilusCompatDepthWalkGolden(t *testing.T) {
+func TestCloseFillDepthWalkGolden(t *testing.T) {
 	path := filepath.Join("testdata", "depthwalk.json")
 	raw, err := os.ReadFile(path)
-	require.NoError(t, err, "golden depth-walk table must be present (make parity-depthwalk)")
+	require.NoError(t, err, "golden depth-walk table testdata/depthwalk.json must be present")
 
 	var cases []depthwalkCase
 	require.NoError(t, json.Unmarshal(raw, &cases))
 	require.NotEmpty(t, cases)
 
 	const closePx = "105.00" // the probe's bar close
-	model := NautilusCompatModel{}
+	model := CloseFillModel{}
 
 	for _, c := range cases {
 		name := fmt.Sprintf("vol%d_%s_qty%d", c.Volume, c.Side, c.Qty)
 		t.Run(name, func(t *testing.T) {
-			// Assert our close-tick formula matches Nautilus's reported ctv.
+			// Assert our close-tick formula matches the golden ctv.
 			assert.Equal(t, c.CloseTickVol, closeTickVolume(c.Volume),
 				"close_tick_vol(vol=%d)", c.Volume)
 

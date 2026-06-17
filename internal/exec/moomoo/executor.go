@@ -44,8 +44,8 @@ import (
 const LiveConfirmationPhrase = "I CONFIRM LIVE REAL MONEY TRADING TMS-LIVE-REAL-001"
 
 // LiveTraderID is the ONLY trader-id namespace permitted to reach the real
-// account (matches the Python live_runner TMS-LIVE-REAL-001). signal/paper use
-// a different namespace and can never bind the live account.
+// account (TMS-LIVE-REAL-001). signal/paper use a different namespace and can
+// never bind the live account.
 const LiveTraderID = "TMS-LIVE-REAL-001"
 
 // FillSink receives the domain fills the executor produces from broker pushes
@@ -282,7 +282,7 @@ func New(ctx context.Context, cfg Config) (*MoomooExecutor, error) {
 	}
 
 	// Subscribe to pushes BEFORE any order can be placed so we never miss the
-	// SUBMITTED->FILLED transition (mirrors the Python adapter ordering).
+	// SUBMITTED->FILLED transition.
 	if err := cfg.Client.SubscribeOrderUpdates(e.onOrderUpdate); err != nil {
 		return nil, fmt.Errorf("moomoo executor: subscribe order updates: %w", err)
 	}

@@ -26,7 +26,7 @@
 import { withDb } from "./db";
 
 /** A scripted launch: a tiny ~3-month window over two liquid-ish symbols with a
- * single LONG intent, run under the parity (zero-cost) profile so the result is
+ * single LONG intent, run under the close-fill (zero-cost) profile so the result is
  * deterministic. Dates are chosen inside the seed's / a real cache's coverage. */
 export type ScriptedLaunch = {
   tickers: [string, string];

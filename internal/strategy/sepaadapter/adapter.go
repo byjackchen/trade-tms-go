@@ -53,11 +53,10 @@ func (s *Strategy) SymbolsScoped() []string { return []string{s.sym} }
 func (s *Strategy) Generator() *sepa.Generator { return s.gen }
 
 // InjectContext pushes the per-bar context snapshot into the generator's
-// setters before OnBar, mirroring the reference Actors' set_regime /
-// set_market_cap / set_earnings_blackout pushes (spec §9.4). A missing
-// per-ticker entry leaves the prior value (the reference's setters are only
-// called on transitions; absent keys keep the last pushed value), so we only
-// overwrite when the map carries this symbol.
+// setters before OnBar (set_regime / set_market_cap / set_earnings_blackout;
+// spec §9.4). A missing per-ticker entry leaves the prior value (setters are
+// only called on transitions; absent keys keep the last pushed value), so we
+// only overwrite when the map carries this symbol.
 func (s *Strategy) InjectContext(ctx engine.StrategyContext) {
 	if ctx.Regime != "" {
 		s.gen.SetRegime(ctx.Regime)
@@ -75,12 +74,10 @@ func (s *Strategy) InjectContext(ctx engine.StrategyContext) {
 }
 
 // WarmupBars primes the underlying SEPA generator's kline history from the
-// pre-window bars for THIS adapter's symbol, mirroring
-// SEPAUniverseRunner.warmup_ticker -> SignalGenerator.warmup_from_history
-// (universe_runner.py:140-155, signal.py:378-392): pure state-priming, no signal
-// evaluation, no orders. Offered every warmup symbol by the engine; only the
-// matching symbol is consumed (one adapter drives one symbol). An empty history
-// is a no-op.
+// pre-window bars for THIS adapter's symbol (warmup_from_history): pure
+// state-priming, no signal evaluation, no orders. Offered every warmup symbol by
+// the engine; only the matching symbol is consumed (one adapter drives one
+// symbol). An empty history is a no-op.
 func (s *Strategy) WarmupBars(sym string, history []domain.Bar) {
 	if sym != s.sym || len(history) == 0 {
 		return
@@ -93,7 +90,7 @@ func (s *Strategy) WarmupBars(sym string, history []domain.Bar) {
 }
 
 // OnBar feeds the bar to the generator and translates the emitted signals into
-// market orders via the submitter (spec §10 _submit_for_signal).
+// market orders via the submitter (spec §10).
 func (s *Strategy) OnBar(sub engine.OrderSubmitter, bar domain.Bar) error {
 	sigs := s.gen.OnBar(toSepaBar(bar))
 	for _, sig := range sigs {
@@ -115,16 +112,16 @@ func (s *Strategy) submit(sub engine.OrderSubmitter, sig sepa.Signal, ts time.Ti
 			domain.Qty(int64(sig.TargetQty)), sig.Reason, ts)
 		return err
 	case sepa.SideFlat:
-		// Reverse the strategy's live net position to flat. The reference reads
-		// the venue net position and submits a closing market order; a flat
-		// book is a no-op. Close-sizing is delegated to the shared engine helper
-		// (reads the net through the submitter's PositionReader when available).
+		// Reverse the strategy's live net position to flat: read the venue net
+		// position and submit a closing market order; a flat book is a no-op.
+		// Close-sizing is delegated to the shared engine helper (reads the net
+		// through the submitter's PositionReader when available).
 		_, err := engine.CloseToFlat(sub, s.id, sig.Symbol, ts, func(net domain.Qty) string {
 			return fmt.Sprintf("SEPA FLAT (close %d) %s", net, sig.Symbol)
 		})
 		return err
 	default:
-		// SHORT unsupported (long-only SEPA); reference logs + skips.
+		// SHORT unsupported (long-only SEPA); log + skip.
 		return nil
 	}
 }
@@ -135,7 +132,7 @@ func (s *Strategy) submit(sub engine.OrderSubmitter, sig sepa.Signal, ts time.Ti
 //
 // The adapter is the SANCTIONED domain bridge (modularization-review.md §E3): it
 // is the one place that imports both the pure sepa package (which must stay
-// zero-domain for byte-for-byte golden parity) AND domain. The local→domain
+// zero-domain for byte-for-byte golden output) AND domain. The local→domain
 // normalization (formerly publish.normalizeSEPA) now lives in NormalizeIntent
 // here, so publish switches only on domain intent types and no longer imports
 // strategy/sepa. The pure sepa.SignalIntent never escapes the adapter.

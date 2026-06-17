@@ -1,7 +1,7 @@
 package study
 
 // promote.go is the promotion path (spec §8, locked decision 6: the UI/CLI
-// one-click promotion that replaces Python's git-review gate). It writes a chosen
+// one-click promotion). It writes a chosen
 // trial's params into tms.active_params with full audit (promoted_by / promoted_at
 // / source_trial / source_study), via an intermediate immutable tms.param_sets
 // row carrying the tuned document (the §8.2 metadata-rewritten baseline). For a

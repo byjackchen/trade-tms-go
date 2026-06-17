@@ -1,19 +1,13 @@
 package sepa
 
-// golden_test.go is the SIGNAL-PARITY PROOF. It replays the identical fixed bar
-// series the Python reference dumper (tmp/parity_sepa/dump_py.py) drove through
-// the PURE Python SEPASignalGenerator, then diffs the Go generator's full
-// ordered per-bar output — on_bar signals, evaluate_intent, state_summary —
-// against the embedded reference dump (testdata/sepa_parity.json), signal by
-// signal: dates, side, qty/sizing, stop/target/pivot prices, state-machine
-// states, intent fields. Prices match within 1e-6; everything else (qty,
-// states, string formats, generations) must match exactly.
-//
-// Regenerate the reference (after any deliberate reference change) with:
-//
-//	cd /Users/byjackchen/codespace/trade-multi-strategies && \
-//	  .venv/bin/python <repo>/tmp/parity_sepa/dump_py.py \
-//	  > internal/strategy/sepa/testdata/sepa_parity.json
+// golden_test.go is the SIGNAL GOLDEN-REGRESSION test. It replays a fixed bar
+// series through the generator, then diffs the full ordered per-bar output —
+// on_bar signals, evaluate_intent, state_summary — against the embedded
+// reference dump (testdata/sepa_golden.json), signal by signal: dates, side,
+// qty/sizing, stop/target/pivot prices, state-machine states, intent fields.
+// Prices match within 1e-6; everything else (qty, states, string formats,
+// generations) must match exactly. The reference values pin this repo's
+// behavior; any drift is a regression.
 
 import (
 	_ "embed"
@@ -23,7 +17,7 @@ import (
 	"time"
 )
 
-//go:embed testdata/sepa_parity.json
+//go:embed testdata/sepa_golden.json
 var goldenJSON []byte
 
 const priceTol = 1e-6
@@ -91,15 +85,15 @@ type refSummary struct {
 	BarsInHistory int     `json:"bars_in_history"`
 }
 
-// ---- the parity test ------------------------------------------------------
+// ---- the golden regression test -------------------------------------------
 
-func TestSEPAGoldenParity(t *testing.T) {
+func TestSEPAGolden(t *testing.T) {
 	var ref refFile
 	if err := json.Unmarshal(goldenJSON, &ref); err != nil {
 		t.Fatalf("unmarshal golden: %v", err)
 	}
 
-	// Build every scenario by name (must align with dump_py.py).
+	// Build every scenario by name.
 	scns := map[string]func() (*Generator, []Bar){
 		"happy_bull":    func() (*Generator, []Bar) { return mkSG(t, sgOpt{regime: "bull"}), happyBars("AAPL") },
 		"catalyst_bull": func() (*Generator, []Bar) { return mkSG(t, sgOpt{regime: "bull", catalyst: true}), happyBars("AAPL") },
@@ -145,9 +139,9 @@ func TestSEPAGoldenParity(t *testing.T) {
 	}
 
 	if mismatches != 0 {
-		t.Fatalf("PARITY FAILED: %d field mismatches across %d rows / %d signals", mismatches, totalRows, totalSignals)
+		t.Fatalf("GOLDEN FAILED: %d field mismatches across %d rows / %d signals", mismatches, totalRows, totalSignals)
 	}
-	t.Logf("PARITY OK: %d scenarios, %d bars compared, %d signals compared, 0 mismatches",
+	t.Logf("GOLDEN OK: %d scenarios, %d bars compared, %d signals compared, 0 mismatches",
 		len(ref.Scenarios), totalRows, totalSignals)
 }
 
@@ -227,11 +221,11 @@ func compareIntent(t *testing.T, scn string, i int, w refIntent, g SignalIntent)
 	}
 	// TMS ENHANCEMENT divergence (intent.go attachTradePlan / attachHeldTradePlan):
 	// for trend-template-passing flat states (forming/buy) and held (hold) states
-	// the Go generator ALWAYS carries a non-null proximity/pivot/stop trade plan,
-	// where the Python oracle leaves them null (it only sets them when a VCP pivot
-	// is primed). We therefore hold strict Python parity ONLY when the reference
-	// expects a value (it must match); a Go-non-null-where-reference-null pair is
-	// the SANCTIONED divergence and is accepted for these actionable states.
+	// the generator ALWAYS carries a non-null proximity/pivot/stop trade plan,
+	// where the golden leaves them null (it only sets them when a VCP pivot is
+	// primed). We therefore hold the strict golden ONLY when the reference
+	// expects a value (it must match); a non-null-where-golden-null pair is the
+	// SANCTIONED divergence and is accepted for these actionable states.
 	diverges := g.State == StateForming || g.State == StateBuy || g.State == StateHold
 	if !tmsDivergeOK(w.ProximityToTrigP, g.ProximityToTriggerP, diverges, eqFloatPtr) {
 		t.Errorf("%s[%d] intent: proximity %v != %v", scn, i, g.ProximityToTriggerP, w.ProximityToTrigP)
@@ -316,7 +310,7 @@ func compareSummary(t *testing.T, scn string, i int, w refSummary, g StateSummar
 
 // ---- ptr/value equality (with price tolerance on decimal-string fields) ----
 
-// tmsDivergeOK enforces strict Python parity when the reference (ref) is non-nil
+// tmsDivergeOK enforces the strict golden when the reference (ref) is non-nil
 // (the Go value MUST equal it via eq), while ACCEPTING the sanctioned TMS
 // divergence where the reference is nil but the Go value is non-nil — but only
 // when `diverges` is true (an actionable forming/buy/hold state, where the

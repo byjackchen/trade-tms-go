@@ -55,7 +55,7 @@ func (s *Strategy) Generator() *sectorrotation.SignalGenerator { return s.sg }
 
 // OnBar feeds the bar to the generator and translates the emitted signals into
 // market orders, in the SG's emitted order (FLATs first, then LONGs; each group
-// sorted by symbol — matching the reference rebalance ordering).
+// sorted by symbol — the rebalance ordering).
 func (s *Strategy) OnBar(sub engine.OrderSubmitter, bar domain.Bar) error {
 	for _, sig := range s.sg.OnBar(bar) {
 		switch sig.Side {

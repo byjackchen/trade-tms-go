@@ -5,7 +5,7 @@
 // universe snapshot) and lookup APIs the HTTP API serves to the UI.
 //
 // Rules:
-//   - Artifact layout stays compatible with the Python reference's runs/
-//     tree so existing dumps remain readable.
+//   - Artifact layout stays stable across releases so existing dumps remain
+//     readable.
 //   - Every run records enough metadata to be reproduced exactly.
 package runs

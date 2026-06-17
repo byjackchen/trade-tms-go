@@ -1,37 +1,31 @@
 package sharadar
 
-// sync.go is the API -> PostgreSQL incremental sync, the relational
-// counterpart of the Python parquet pipeline:
+// sync.go is the API -> PostgreSQL incremental sync:
 //
-//   - Syncer.EnsureFresh mirrors ensure_cache_fresh (catchup.py; spec §8.2
-//     [MUST-MATCH] flow): SEP watermark gate ("not-bootstrapped" — never
-//     auto-bootstraps), per-trading-day SEP-then-SFP updates through T-1,
-//     then one TICKERS full overwrite, then SF1 and EVENTS refresh driven
-//     by the stored ticker list; every step is warn-and-continue, the
-//     watermark (tms.dataset_sync, the .meta.json counterpart) is persisted
-//     after every day/step so a crash preserves progress.
-//   - Syncer.Bootstrap mirrors the sync-universe bootstrap CLI (spec §9):
-//     TICKERS -> SEP -> SFP -> SF1 -> EVENTS, with SEP/SFP pulled in
-//     calendar-quarter chunks (spec §6.1) and SF1/EVENTS in 500-ticker
-//     batches; API errors abort (CLI parity), and the watermark is saved
-//     after each dataset (sanctioned [IMPROVE] over the original's single
-//     end-of-run save).
+//   - Syncer.EnsureFresh (spec §8.2 flow): SEP watermark gate
+//     ("not-bootstrapped" — never auto-bootstraps), per-trading-day
+//     SEP-then-SFP updates through T-1, then one TICKERS full overwrite, then
+//     SF1 and EVENTS refresh driven by the stored ticker list; every step is
+//     warn-and-continue, the watermark (tms.dataset_sync) is persisted after
+//     every day/step so a crash preserves progress.
+//   - Syncer.Bootstrap (spec §9): TICKERS -> SEP -> SFP -> SF1 -> EVENTS, with
+//     SEP/SFP pulled in calendar-quarter chunks (spec §6.1) and SF1/EVENTS in
+//     500-ticker batches; API errors abort the bootstrap, and the watermark is
+//     saved after each dataset so progress survives a crash mid-bootstrap.
 //
 // Merge semantics: rows stream from the client through the shared staging
 // loader (importer.go) into INSERT ... ON CONFLICT merges — "new rows win"
 // per the spec §6 dedup keys (SEP/SFP: ticker+date(+source column); SF1:
 // ticker+datekey+dimension; EVENTS: ticker+date+eventcodes; TICKERS: full
-// overwrite). Net-new counting matches the writers' `added` (revisions
-// applied but not counted). Because rows stream in bounded batches, an API
-// failure mid-dataset can leave earlier batches committed; the merge is
-// idempotent, so the next run converges (the Python fetch-then-write had
-// no partial state but also no bounded memory).
+// overwrite). Net-new counting reports `added` (revisions applied but not
+// counted). Because rows stream in bounded batches, an API failure mid-dataset
+// can leave earlier batches committed; the merge is idempotent, so the next
+// run converges.
 //
-// Watermark/today deviations (P1 locked decisions, documented in
+// Watermark/today rules (P1 locked decisions, documented in
 // docs/spec/data-sharadar.md addendum): all "today"/date logic is the
-// America/New_York trading date via internal/data/calendar, replacing the
-// original's UTC/local mix; NYSE holidays are skipped instead of issuing
-// zero-row weekday calls.
+// America/New_York trading date via internal/data/calendar; NYSE holidays are
+// skipped instead of issuing zero-row weekday calls.
 //
 // Additionally every run writes an audit row per dataset into
 // tms.dataset_sync_runs (started/finished/rows/status/error, migration
@@ -58,7 +52,7 @@ const (
 	runKindCatchup   = "catchup"
 )
 
-// CatchupReport mirrors the Python CatchupReport (spec §8.1).
+// CatchupReport is the catch-up sync report (spec §8.1).
 type CatchupReport struct {
 	// SkippedReason is non-empty when the whole catchup was skipped
 	// ("not-bootstrapped").
@@ -74,7 +68,7 @@ type CatchupReport struct {
 	Errors []string
 }
 
-// DidWork mirrors the Python property: true iff the day loop ran or the
+// DidWork reports true iff the day loop ran or the
 // dataset refreshes were reached.
 func (r *CatchupReport) DidWork() bool {
 	return r.DaysAttempted > 0 || r.RowsAdded != nil
@@ -86,7 +80,7 @@ type BootstrapOptions struct {
 	Start calendar.Date
 	End   calendar.Date
 	// Tickers, when non-empty, narrows SEP/SFP/SF1/EVENTS to these symbols
-	// (the smoke-test path of the Python CLI). TICKERS is always synced in
+	// (the smoke-test path). TICKERS is always synced in
 	// full — the row filter is the survivorship policy, not the selection.
 	Tickers []string
 }
@@ -120,7 +114,7 @@ type syncStore interface {
 	// (TICKERS has no date column and always returns ok=false).
 	DataFrontier(ctx context.Context, dataset string) (frontier calendar.Date, ok bool, err error)
 	// RecordSync upserts the watermark: last_sync = now, row_count as given
-	// (CacheMeta.record_sync parity, spec §5).
+	// (spec §5).
 	RecordSync(ctx context.Context, dataset string, rowCount int64) error
 	// NewMerge opens a merge session for SEP/SFP/SF1/EVENTS.
 	NewMerge(ctx context.Context, dataset string) (rowSink, error)
@@ -156,9 +150,8 @@ type Syncer struct {
 // SyncerOption customizes a Syncer.
 type SyncerOption func(*Syncer)
 
-// WithFullRefetch forces full-history SF1/EVENTS pulls on catchup
-// (original Python behavior; default is the incremental lastupdated
-// filter sanctioned by spec §6.6).
+// WithFullRefetch forces full-history SF1/EVENTS pulls on catchup; the default
+// is the incremental lastupdated filter per spec §6.6.
 func WithFullRefetch() SyncerOption { return func(s *Syncer) { s.fullRefetch = true } }
 
 // WithSyncLogger attaches a structured logger.
@@ -199,7 +192,7 @@ func NewSyncer(pool *pgxpool.Pool, client TableFetcher, cal *calendar.Calendar, 
 }
 
 // ---------------------------------------------------------------------------
-// EnsureFresh — ensure_cache_fresh parity (spec §8.2)
+// EnsureFresh — incremental catch-up sync (spec §8.2)
 // ---------------------------------------------------------------------------
 
 // EnsureFresh catches the relational store up to T-1. Per-step failures
@@ -256,8 +249,8 @@ func (s *Syncer) EnsureFresh(ctx context.Context) (*CatchupReport, error) {
 		DatasetSEP: 0, DatasetSFP: 0, DatasetSF1: 0, DatasetEvents: 0, DatasetTickers: 0,
 	}
 
-	// Baseline cumulative row counts (CacheMeta.row_counts parity: update
-	// semantics are previous + net-new, spec §5).
+	// Baseline cumulative row counts (update semantics are previous + net-new,
+	// spec §5).
 	counts := make(map[string]int64, len(DatasetOrder))
 	for _, ds := range DatasetOrder {
 		_, n, _, err := s.store.Watermark(ctx, ds)
@@ -384,12 +377,12 @@ func (s *Syncer) EnsureFresh(ctx context.Context) (*CatchupReport, error) {
 }
 
 // ---------------------------------------------------------------------------
-// Bootstrap — sync-universe bootstrap parity (spec §9)
+// Bootstrap — full-universe bootstrap (spec §9)
 // ---------------------------------------------------------------------------
 
 // Bootstrap backfills all five datasets. Unlike EnsureFresh it propagates
-// the first error (CLI parity: a failed bootstrap step aborts), returning
-// the partial per-dataset row counts gathered so far.
+// the first error (a failed bootstrap step aborts), returning the partial
+// per-dataset row counts gathered so far.
 func (s *Syncer) Bootstrap(ctx context.Context, opts BootstrapOptions) (map[string]int64, error) {
 	if opts.End.Before(opts.Start) {
 		return nil, fmt.Errorf("sharadar: bootstrap end %s before start %s", opts.End, opts.Start)
@@ -484,8 +477,8 @@ func (s *Syncer) bootstrapBars(ctx context.Context, dataset string, opts Bootstr
 // Dataset sync primitives
 // ---------------------------------------------------------------------------
 
-// syncBarsDay is update_sep/update_sfp parity: single-day pull, merge,
-// net-new count; an empty day returns 0 without touching the table.
+// syncBarsDay performs the SEP/SFP single-day pull, merge, net-new count; an
+// empty day returns 0 without touching the table.
 func (s *Syncer) syncBarsDay(ctx context.Context, dataset string, asof calendar.Date) (int64, error) {
 	return s.mergeBars(ctx, dataset, DateRangeFilters(asof.String(), asof.String()))
 }
@@ -508,7 +501,7 @@ func (s *Syncer) mergeBars(ctx context.Context, dataset string, filters []Filter
 		row, _, cerr := convertBarAPIRow(r, dataset)
 		if cerr != nil {
 			badRows++
-			return nil // skip-and-count, importer parity
+			return nil // skip-and-count, matching importer.go
 		}
 		streamed++
 		return sink.Add(ctx, row)
@@ -527,7 +520,7 @@ func (s *Syncer) mergeBars(ctx context.Context, dataset string, filters []Filter
 	return added, err
 }
 
-// syncPerTicker is update_sf1/update_events parity: 500-ticker batches,
+// syncPerTicker performs the SF1/EVENTS sync: 500-ticker batches,
 // full history per batch; with incremental=true the lastupdated.gte
 // watermark filter (spec §6.6 [IMPROVE]) narrows the pull, falling back to
 // full history when the dataset has never been synced.
@@ -590,7 +583,7 @@ func (s *Syncer) syncPerTicker(ctx context.Context, dataset string, tickers []st
 	return added, err
 }
 
-// syncTickers is write_tickers parity (spec §2.5): full unfiltered API
+// syncTickers performs the TICKERS sync (spec §2.5): full unfiltered API
 // pull, survivorship row filter, sort by ticker ascending, full overwrite.
 // Returns the number of rows written (the full universe count).
 func (s *Syncer) syncTickers(ctx context.Context) (int64, error) {
@@ -601,7 +594,7 @@ func (s *Syncer) syncTickers(ctx context.Context) (int64, error) {
 	)
 	_, err := s.client.GetTable(ctx, "SHARADAR/TICKERS", nil, func(r Row) error {
 		table, _ := r.Str("table")
-		category, _ := r.Str("category") // missing/NaN -> "" (fillna parity)
+		category, _ := r.Str("category") // missing/NaN -> "" (fill with empty)
 		isDelisted, _ := r.Str("isdelisted")
 		if !keepTickerRow(table, category, isDelisted) {
 			dropped++
@@ -785,8 +778,8 @@ func (s *pgSink) Close(ctx context.Context) (int64, error) {
 func (s *pgSink) Abort() { s.ld.close() }
 
 // OverwriteTickers stages all rows and applies upsert + delete-missing in
-// one transaction (the Python writer's full-overwrite, spec §2.5; same
-// shape as the importer's TICKERS path).
+// one transaction (the full-overwrite, spec §2.5; same shape as the importer's
+// TICKERS path).
 func (st *pgStore) OverwriteTickers(ctx context.Context, rows [][]any) (int64, error) {
 	ld, err := newLoader(ctx, st.pool, tickersPlan(), len(rows)+1)
 	if err != nil {

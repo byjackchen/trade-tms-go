@@ -8,14 +8,12 @@ import (
 	"testing"
 )
 
-// Golden tolerance. Every float assertion must match the numpy/pandas/Python
-// reference within this bound. The Python harness lives in
-// tmp/indicators_parity/gen.py and is re-runnable against the
-// trade-multi-strategies venv to regenerate testdata/golden.json.
+// Golden tolerance. Every float assertion must match the pinned golden vectors
+// in testdata/golden.json within this bound.
 const tol = 1e-9
 
 // golden mirrors testdata/golden.json. Floats decode as *float64 so JSON null
-// (the Python NaN sentinel) becomes a nil pointer we map back to NaN.
+// (the NaN sentinel) becomes a nil pointer we map back to NaN.
 type optFloat struct{ v float64 }
 
 func (o *optFloat) UnmarshalJSON(b []byte) error {

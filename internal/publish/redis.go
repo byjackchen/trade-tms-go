@@ -2,7 +2,7 @@ package publish
 
 // redis.go is the live transport layer: it publishes SignalIntent /
 // StrategyState / PortfolioHealth / position / watchlist updates to Redis
-// streams using the reference key shape (api-ws-redis.md §2.1/§2.2):
+// streams using the key shape defined in api-ws-redis.md §2.1/§2.2:
 //
 //	trader-{trader_id}:stream:{topic}
 //
@@ -23,16 +23,16 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// Stream topics (api-ws-redis.md §2.4). These are the exact reference topic
+// Stream topics (api-ws-redis.md §2.4). These are the exact topic
 // strings the cockpit subscribes to; the per-trader key is
 // trader-{id}:stream:{topic}.
 const (
 	TopicSignalIntent    = "data.SignalIntentUpdate"
 	TopicStrategyState   = "data.StrategyStateUpdate"
 	TopicPortfolioHealth = "data.PortfolioHealthUpdate"
-	// TopicWatchlist is an additive [IMPROVE] topic for the live universe the
-	// node is tracking (no reference counterpart; the cockpit watchlist panel
-	// reads it for continuity). Kept under the same data.* namespace.
+	// TopicWatchlist is an additive topic for the live universe the
+	// node is tracking (the cockpit watchlist panel reads it for continuity).
+	// Kept under the same data.* namespace.
 	TopicWatchlist = "data.WatchlistUpdate"
 )
 
@@ -41,9 +41,9 @@ const (
 // continuity and prevents unbounded memory growth on a long-running node.
 const MaxStreamLen = 10000
 
-// StreamKey renders the reference per-trader stream key
+// StreamKey renders the per-trader stream key
 // (trader-{id}:stream:{topic}) for topic. Trader ids may contain arbitrary
-// printable characters; they are used verbatim (the reference does not escape).
+// printable characters; they are used verbatim (the key shape does not escape them).
 func StreamKey(traderID, topic string) string {
 	return fmt.Sprintf("trader-%s:stream:%s", traderID, topic)
 }
@@ -103,8 +103,8 @@ func (p *Publisher) TraderID() string {
 	return p.traderID
 }
 
-// nowNS returns the current wall clock in int64 ns UTC (the reference ts_event /
-// ts_init unit, §2.4).
+// nowNS returns the current wall clock in int64 ns UTC (the ts_event /
+// ts_init unit, api-ws-redis.md §2.4).
 func (p *Publisher) nowNS() int64 { return p.now().UTC().UnixNano() }
 
 // publish XADDs payload (a JSON object) onto topic's stream with the {topic,
@@ -265,8 +265,7 @@ func (p *Publisher) PublishEmptyPositions(ctx context.Context, tsEventNS int64) 
 	})
 }
 
-// TopicPosition is the signal-mode position topic. The reference uses
-// events.position.{strategy_id} LISTs per strategy; in signal mode there are no
+// TopicPosition is the signal-mode position topic. In signal mode there are no
 // positions, so we publish a single aggregate empty-book snapshot under a
-// data.* stream topic for cockpit continuity (additive [IMPROVE]).
+// data.* stream topic for cockpit continuity.
 func TopicPosition() string { return "data.PositionUpdate" }

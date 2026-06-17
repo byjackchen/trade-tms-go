@@ -3,8 +3,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Design tokens ported from the Python reference UI (trade-multi-strategies/
- * src/ui) — the neutral oklch palette of the shadcn "base-nova" theme, with a
+ * Design tokens: the neutral oklch palette of the shadcn "base-nova" theme, with a
  * dark cockpit default. We inline the tokens (rather than depend on the
  * `shadcn/tailwind.css` magic import) so the build is hermetic and `npm run
  * build` stays clean in CI / Docker.

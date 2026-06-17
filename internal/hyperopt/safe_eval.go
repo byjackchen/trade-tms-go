@@ -1,14 +1,13 @@
 package hyperopt
 
-// safe_eval.go ports src/strategies/params/safe_eval.py (spec §2.4 [MUST-MATCH]).
-// A whitelisted expression evaluator for constraint expressions in strategy
-// param JSON (e.g. "min(1.0, entry_z - 0.1)"), supporting numeric literals,
-// variable lookup against the sampled scope, binary + - * / (true division),
-// unary +/-, and calls to exactly min/max/abs with positional args only.
-// Anything else errors. Implemented as a tiny recursive-descent parser since
-// Go's expression grammar differs from Python's.
+// safe_eval.go (spec §2.4). A whitelisted expression evaluator for constraint
+// expressions in strategy param JSON (e.g. "min(1.0, entry_z - 0.1)"),
+// supporting numeric literals, variable lookup against the sampled scope,
+// binary + - * / (true division), unary +/-, and calls to exactly min/max/abs
+// with positional args only. Anything else errors. Implemented as a tiny
+// recursive-descent parser.
 //
-// Error parity with the reference:
+// Errors:
 //   - unknown variable                -> "undefined: <name>"
 //   - keyword args                    -> "keyword arguments not supported"
 //   - unknown function / other node   -> "unsupported ..."
@@ -19,8 +18,8 @@ import (
 	"strconv"
 )
 
-// safeEval evaluates expression against scope (variable -> float64), matching
-// safe_eval.safe_eval. All values are float64 (the param ranges are numeric).
+// safeEval evaluates expression against scope (variable -> float64).
+// All values are float64 (the param ranges are numeric).
 func safeEval(expression string, scope map[string]float64) (float64, error) {
 	p := &exprParser{src: expression}
 	p.next()

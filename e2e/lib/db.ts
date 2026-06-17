@@ -310,7 +310,7 @@ export async function tradeCount(c: Client, runId: number): Promise<number> {
 
 // ---------------------------------------------------------------------------
 // Strategies ground truth (tms.param_sets / tms.active_params — the DB
-// counterpart of the Python reference's src/strategies/params/* docs, per
+// counterpart of the strategy params docs, per
 // migrations/000003_strategy.up.sql). The Strategies workspace lists the four
 // shipped strategies with their *active* parameter document; "active" means the
 // payload of the param_set pointed at by tms.active_params, OR — when no
@@ -319,8 +319,8 @@ export async function tradeCount(c: Client, runId: number): Promise<number> {
 // exactly as the API/UI must render it so a spec can compare UI == ground
 // truth without fabricating numbers.
 //
-// The four canonical strategy ids (internal/params/loader.go: Python package
-// stems / baseline file names) are the only strategies that exist.
+// The four canonical strategy ids (internal/params/loader.go: package stems /
+// baseline file names) are the only strategies that exist.
 // ---------------------------------------------------------------------------
 
 /** The four canonical strategy ids, in a stable display order. */

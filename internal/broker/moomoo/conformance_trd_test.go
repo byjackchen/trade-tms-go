@@ -2,18 +2,16 @@ package moomoo
 
 // conformance_trd_test.go is the TRADING half of the protocol conformance gate:
 // it asserts the Go trading client's ENCODED Trd_* request frames are
-// byte-for-byte identical to the frames the vendored Python moomoo SDK produces
-// for the same request (same field values, same serial number, same PacketID).
-// The reference bytes come from tmp/conformance/dump_trd_frames.py driving the
-// SDK's own pack_pb_req.
+// byte-for-byte identical to the frames the upstream moomoo OpenD wire protocol
+// expects for the same request (same field values, same serial number, same
+// PacketID). The golden bytes are captured from the upstream SDK's own
+// pack_pb_req.
 //
-// testdata/conformance_trd_frames.json is committed; regenerate after a proto
-// change (from the trade-multi-strategies venv):
+// testdata/conformance_trd_frames.json is committed; the goldens are captured
+// by driving the upstream SDK's pack_pb_req and written to
+// internal/broker/moomoo/testdata/conformance_trd_frames.json.
 //
-//	.venv/bin/python tmp/conformance/dump_trd_frames.py \
-//	  > internal/broker/moomoo/testdata/conformance_trd_frames.json
-//
-// Each Go case here MUST build the identical protobuf message the harness builds.
+// Each Go case here MUST build the identical protobuf message the goldens encode.
 
 import (
 	"crypto/md5"
@@ -95,9 +93,9 @@ func loadTrdRefFrames(t *testing.T) map[string]refFrame {
 	return m
 }
 
-// TestEncodeTrdFrameMatchesPythonSDK is the trading conformance gate: identical
+// TestEncodeTrdFrameMatchesProtocol is the trading conformance gate: identical
 // bytes for Trd_PlaceOrder, Trd_UnlockTrade, and Trd_GetPositionList.
-func TestEncodeTrdFrameMatchesPythonSDK(t *testing.T) {
+func TestEncodeTrdFrameMatchesProtocol(t *testing.T) {
 	refs := loadTrdRefFrames(t)
 	cases := goTrdRequests()
 	if len(refs) != len(cases) {
@@ -143,10 +141,10 @@ func TestEncodeTrdFrameMatchesPythonSDK(t *testing.T) {
 	}
 }
 
-// TestStatusMappingFaithfulToPython locks the moomoo OrderStatus -> lifecycle
-// class mapping against the Python reference's dispatch sets (exec_client.py),
-// so a drift from the production semantics fails the build.
-func TestStatusMappingFaithfulToPython(t *testing.T) {
+// TestStatusMappingFaithful locks the moomoo OrderStatus -> lifecycle class
+// mapping against the upstream dispatch sets, so a drift from the production
+// semantics fails the build.
+func TestStatusMappingFaithful(t *testing.T) {
 	cases := []struct {
 		raw  trdcommon.OrderStatus
 		want OrderStatusClass

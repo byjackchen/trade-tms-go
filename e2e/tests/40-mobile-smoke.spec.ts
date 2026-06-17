@@ -1,5 +1,5 @@
 /**
- * (mobile) Mobile shell smoke — the FULL-PARITY mobile layout mounts.
+ * (mobile) Mobile shell smoke — the full-feature mobile layout mounts.
  *
  * The 4-top IA ships an explicit mobile surface (docs/concept-alignment.md
  * LOCKED DECISIONS 2 & 4): the desktop/mobile shell is chosen by an EXPLICIT

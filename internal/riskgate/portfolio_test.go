@@ -19,17 +19,18 @@ func sideFromName(s string) domain.SignalSide {
 	}
 }
 
-// TestRiskPipelineParity replays 400 cases captured from the Python reference
-// (riskgate.Allocator/RiskConstraints/Gate) and asserts the Go pipeline
-// reaches the SAME approve/reject decision and rule name for the allocator
-// stage, the risk-constraints stage and the composed pipeline — including all
-// four rule names (allocator.unregistered_strategy, allocator.budget_exceeded,
+// TestRiskPipelineGolden replays 400 cases through
+// riskgate.Allocator/RiskConstraints/Gate and asserts the pipeline reaches the
+// SAME approve/reject decision and rule name for the allocator stage, the
+// risk-constraints stage and the composed pipeline — including all four rule
+// names (allocator.unregistered_strategy, allocator.budget_exceeded,
 // risk.daily_loss_halt, risk.max_single_name, risk.concentration). This is the
-// gate that makes num_rejected_orders meaningful.
-func TestRiskPipelineParity(t *testing.T) {
-	raw, err := os.ReadFile("testdata/risk_parity.json")
+// gate that makes num_rejected_orders meaningful. The values are this repo's
+// golden regression baseline.
+func TestRiskPipelineGolden(t *testing.T) {
+	raw, err := os.ReadFile("testdata/risk_golden.json")
 	if err != nil {
-		t.Skipf("parity fixture missing (%v); generated from the Python reference", err)
+		t.Skipf("golden fixture missing (%v)", err)
 	}
 	type posJSON struct {
 		Strat string `json:"strat"`
@@ -111,7 +112,7 @@ func TestRiskPipelineParity(t *testing.T) {
 		chk(t, "pipeline", pf.Check(order, acct), c.Pipeline)
 		_ = i
 	}
-	t.Logf("%d risk-pipeline cases parity-verified", len(cases))
+	t.Logf("%d risk-pipeline cases golden-verified", len(cases))
 }
 
 func TestAllocatorValidation(t *testing.T) {

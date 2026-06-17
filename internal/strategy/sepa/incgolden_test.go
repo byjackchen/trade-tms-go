@@ -1,6 +1,6 @@
 package sepa
 
-// incparity_test.go is the BYTE-FOR-BYTE proof that the incremental entry-chain
+// incgolden_test.go is the BYTE-FOR-BYTE proof that the incremental entry-chain
 // classifiers (classifyStageInc / trendTemplatePassInc / maSlopePct200x20 /
 // fractionAbove200 / the 52wk high-low) reproduce the batch internal/indicators
 // routines they replaced (ClassifyStage / EvaluateTrendTemplate /
@@ -25,12 +25,12 @@ func bitEq(a, b float64) bool {
 	return a == b // exact float compare (bit-for-bit)
 }
 
-// TestIncrementalEntryChainParity drives several long synthetic series through a
+// TestIncrementalEntryChainGolden drives several long synthetic series through a
 // generator and, at every bar with enough history, compares the incremental
 // classifiers against the batch indicators over the SAME live buffer g.close /
 // g.high / g.low. Any mismatch (stage string, tt-pass bool, or the underlying
 // MA / 52wk / slope / fraction floats) fails.
-func TestIncrementalEntryChainParity(t *testing.T) {
+func TestIncrementalEntryChainGolden(t *testing.T) {
 	seeds := []int64{1, 7, 42, 2024}
 	caps := []int{300, 1000} // HistoryMaxBars: short (no trim) and the prod cap
 
@@ -76,7 +76,7 @@ func TestIncrementalEntryChainParity(t *testing.T) {
 					continue
 				}
 
-				// --- stage parity ---
+				// --- stage equivalence ---
 				wantStage := indicators.ClassifyStage(g.close)
 				gotStage := g.classifyStageInc()
 				if wantStage != gotStage {
@@ -84,7 +84,7 @@ func TestIncrementalEntryChainParity(t *testing.T) {
 						histMax, seed, i, gotStage, wantStage)
 				}
 
-				// --- trend-template Passed() parity (n>=200 here) ---
+				// --- trend-template Passed() equivalence (n>=200 here) ---
 				if n >= indicators.TTMinBars {
 					wantTT := indicators.EvaluateTrendTemplate(
 						g.close, g.high, g.low, g.marketCapUSD, g.cfg.MarketCapMinUSD,
@@ -96,7 +96,7 @@ func TestIncrementalEntryChainParity(t *testing.T) {
 					}
 				}
 
-				// --- underlying float parity (bit-for-bit) ---
+				// --- underlying float equivalence (bit-for-bit) ---
 				wantSlope := indicators.MASlopePct(g.close, 200, 20)
 				if gotSlope := g.maSlopePct200x20(); !bitEq(gotSlope, wantSlope) {
 					t.Fatalf("hist=%d seed=%d bar=%d: slope %.17g != batch %.17g",
@@ -117,7 +117,7 @@ func TestIncrementalEntryChainParity(t *testing.T) {
 					t.Fatalf("hist=%d seed=%d bar=%d: 52wkLow %.17g != batch %.17g",
 						histMax, seed, i, gotLo, wantLo)
 				}
-				// MA50/150/200 last-value parity.
+				// MA50/150/200 last-value equivalence.
 				if got, want := freshSMA(g.close, 50), lastVal(indicators.MA(g.close, 50)); !bitEq(got, want) {
 					t.Fatalf("hist=%d seed=%d bar=%d: ma50 %.17g != batch %.17g", histMax, seed, i, got, want)
 				}

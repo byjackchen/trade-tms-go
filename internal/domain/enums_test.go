@@ -7,7 +7,7 @@ import (
 )
 
 func TestEnumValues(t *testing.T) {
-	// Exact wire values [MUST-MATCH the Python StrEnums/literals].
+	// Exact wire values (the canonical string enum values).
 	checks := []struct {
 		got, want string
 	}{
@@ -38,7 +38,7 @@ func TestEnumParseValidate(t *testing.T) {
 		t.Errorf("ParseSignalSide: %v, %v", v, err)
 	}
 	if _, err := ParseSignalSide("long"); !errors.Is(err, ErrInvalidArgument) {
-		t.Error("SignalSide is case-sensitive (StrEnum parity)")
+		t.Error("SignalSide is case-sensitive")
 	}
 	if _, err := ParseSignalSide(""); err == nil {
 		t.Error("empty SignalSide must be rejected")
@@ -63,7 +63,7 @@ func TestEnumParseValidate(t *testing.T) {
 		t.Errorf("ParseSignalState: %v, %v", v, err)
 	}
 	if _, err := ParseSignalState("STOP_HIT"); err == nil {
-		t.Error("SignalState is lowercase (StrEnum value parity)")
+		t.Error("SignalState is lowercase")
 	}
 	if v, err := ParseOrderStatus("PARTIALLY_FILLED"); err != nil || v != OrderStatusPartiallyFilled {
 		t.Errorf("ParseOrderStatus: %v, %v", v, err)
@@ -125,7 +125,7 @@ func TestOrderSideMapping(t *testing.T) {
 }
 
 func TestCloseSideFor(t *testing.T) {
-	// FLAT translation [MUST-MATCH §7.4]: SELL if net>0, BUY if net<0,
+	// FLAT translation (§7.4): SELL if net>0, BUY if net<0,
 	// no order when net == 0.
 	tests := []struct {
 		net  Qty

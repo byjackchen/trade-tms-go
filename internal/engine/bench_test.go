@@ -103,7 +103,7 @@ func benchEngineConfig(nSymbols, nYears int) (Config, SliceFeed, int) {
 		Start:           calendar.NewDate(2010, time.January, 1),
 		End:             calendar.NewDate(2010+nYears+1, time.December, 31),
 		StartingBalance: domain.MustMoney("1000000"),
-		Profile:         ProfileNautilusCompat,
+		Profile:         ProfileCloseFill,
 		Strategies:      specs,
 	}
 	return cfg, SliceFeed{Instruments: instruments}, totalBars

@@ -37,7 +37,7 @@ func mkBars(symbol string, rows []barRow) InstrumentBars {
 	return InstrumentBars{Symbol: symbol, Bars: bars}
 }
 
-// aaplRows mirror the OHLC used in the Nautilus parity probe (tmp/parity_*.py).
+// aaplRows are the OHLC used in the engine golden probe.
 var aaplRows = []barRow{
 	{2025, 1, 2, "100.00", "110.00", "95.00", "105.00", 1000},
 	{2025, 1, 3, "106.00", "112.00", "104.00", "108.00", 1000},
@@ -52,7 +52,7 @@ func newAAPLConfig(intents []Intent) Config {
 		Start:           calendar.NewDate(2025, 1, 1),
 		End:             calendar.NewDate(2025, 1, 31),
 		StartingBalance: domain.MustMoney("100000"),
-		Profile:         ProfileNautilusCompat,
+		Profile:         ProfileCloseFill,
 		Strategies: []StrategySpec{
 			{ID: "Scripted-000", Intents: intents},
 		},
@@ -69,10 +69,10 @@ func runEngine(t *testing.T, cfg Config, instruments ...InstrumentBars) *Result 
 	return res
 }
 
-// TestParityLongPartialFlipFlat replicates the empirical Nautilus run:
+// TestGoldenLongPartialFlipFlat pins the golden run:
 // BUY 100 @105 (bar0 close), SELL 50 @108, SELL 100 @101 (flip to -50),
 // BUY 50 @92 (flat). Final balance must be 100400.
-func TestParityLongPartialFlipFlat(t *testing.T) {
+func TestGoldenLongPartialFlipFlat(t *testing.T) {
 	intents := []Intent{
 		{Date: ts(2025, 1, 2), Ticker: "AAPL", Side: domain.SideLong, Qty: 100},
 		{Date: ts(2025, 1, 3), Ticker: "AAPL", Side: domain.SideShort, Qty: 50},
@@ -81,10 +81,10 @@ func TestParityLongPartialFlipFlat(t *testing.T) {
 	}
 	res := runEngine(t, newAAPLConfig(intents), mkBars("AAPL", aaplRows))
 
-	assert.Equal(t, domain.MustMoney("100400"), res.FinalBalance, "final balance must match Nautilus")
+	assert.Equal(t, domain.MustMoney("100400"), res.FinalBalance, "final balance must match the golden")
 	assert.Equal(t, domain.MustMoney("400"), res.TotalPnL)
 	assert.Len(t, res.Fills, 4)
-	// Fill prices must be the bar closes (nautilus-compat).
+	// Fill prices must be the bar closes (close-fill).
 	wantPx := []string{"105", "108", "101", "92"}
 	for i, f := range res.Fills {
 		assert.Equal(t, domain.MustPrice(wantPx[i]), f.Price, "fill %d price", i)
@@ -136,7 +136,7 @@ func TestFlatClosesNetPosition(t *testing.T) {
 // TestAccountStatesCadence checks the account-state curve: one initial event
 // plus one per fill (settlement), with balances tracking cumulative realized.
 // The position is left NET +50 long after the two intents, so end-of-run
-// liquidation (on_stop close_all_positions parity) flattens it on the last bar
+// liquidation (on_stop close_all_positions) flattens it on the last bar
 // (2025-01-08 close 98), adding a 4th settling state: 50*(98-105)=-350 -> 99800.
 func TestAccountStatesCadence(t *testing.T) {
 	intents := []Intent{

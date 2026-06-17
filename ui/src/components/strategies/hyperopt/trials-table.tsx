@@ -169,7 +169,7 @@ export function TrialsTable({
   });
 
   // Mobile (cookie-driven, not CSS): a stacked card list with the same data and
-  // the same inline fold-breakdown expansion as the desktop table — FULL PARITY
+  // the same inline fold-breakdown expansion as the desktop table — FULL FEATURE SET
   // (docs/concept-alignment.md LOCKED DECISION 2). The desktop <Table> below is
   // unchanged.
   if (mode === "mobile") {

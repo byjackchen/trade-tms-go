@@ -7,9 +7,9 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
-// priceDeque is a bounded FIFO of Price mirroring collections.deque(maxlen=n):
-// pushing onto a full deque drops the oldest element. Oldest is index 0
-// (front), newest is index -1 (back).
+// priceDeque is a bounded FIFO of Price (deque(maxlen=n)): pushing onto a full
+// deque drops the oldest element. Oldest is index 0 (front), newest is
+// index -1 (back).
 type priceDeque struct {
 	buf    []domain.Price
 	maxlen int
@@ -48,27 +48,25 @@ func (d *priceDeque) snapshot() []domain.Price {
 	return out
 }
 
-// ratioReturn reproduces float((new-old)/old) where new/old are exact Decimals
-// in the reference. With Price held as 1e-4 fixed-point int64, the exact
-// Decimal subtraction is the exact int64 difference of raw units, and the
-// Decimal division-then-float() equals float64(rawDiff)/float64(rawOld). This
-// avoids the intermediate float subtraction rounding that would otherwise
-// diverge from CPython in the last ULP (verified across the parity fixtures).
+// ratioReturn computes float((new-old)/old). With Price held as 1e-4
+// fixed-point int64, the exact subtraction is the int64 difference of raw units,
+// and the division-then-float() equals float64(rawDiff)/float64(rawOld). Working
+// from the raw integer units avoids intermediate float-subtraction rounding,
+// keeping the result bit-reproducible across platforms (arm64 vs x86).
 func ratioReturn(old, new domain.Price) float64 {
 	return float64(int64(new)-int64(old)) / float64(int64(old))
 }
 
-// formatSignedPct2 reproduces Python's f"{x:+.2f}": always-signed, 2 decimals,
-// round-half-to-even, signed zero preserved. Go's %+.2f matches CPython here
-// bit-for-bit (verified).
+// formatSignedPct2 renders "%+.2f": always-signed, 2 decimals,
+// round-half-to-even, signed zero preserved.
 func formatSignedPct2(x float64) string {
 	return fmt.Sprintf("%+.2f", x)
 }
 
-// dateOf returns the calendar date (UTC) of ts as a midnight-UTC time, matching
-// Python's bar.ts.date(): the reference compares only year/month for rollover
-// and stores the .isoformat() date string in state. We keep a time.Time
-// truncated to the day so callers can read Month()/Year() and format YYYY-MM-DD.
+// dateOf returns the calendar date (UTC) of ts as a midnight-UTC time. Rollover
+// compares only year/month, and state stores the .isoformat() date string. We
+// keep a time.Time truncated to the day so callers can read Month()/Year() and
+// format YYYY-MM-DD.
 func dateOf(ts time.Time) time.Time {
 	u := ts.UTC()
 	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)

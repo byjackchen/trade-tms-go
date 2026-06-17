@@ -18,7 +18,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 )
 
-// Live universe parameters (live_runner.py:43-60,256-298 [MUST-MATCH]).
+// Live universe parameters.
 const (
 	// DefaultLiveUniverseLimit is the top-N cap default: moomoo OpenD caps
 	// one account at 100 K-line subscriptions; SPY + sector ETFs + pair
@@ -38,15 +38,14 @@ const (
 	SubscriptionSafetyMargin = 5
 )
 
-// sectorETFs are the 11 Select Sector SPDR ETFs in
-// sector_rotation.DEFAULT_UNIVERSE source order (signal.py:50-63
-// [MUST-MATCH]).
+// sectorETFs are the 11 Select Sector SPDR ETFs in the sector-rotation
+// default-universe source order.
 var sectorETFs = [...]string{
 	"XLK", "XLF", "XLE", "XLV", "XLY", "XLP", "XLU", "XLB", "XLI", "XLRE", "XLC",
 }
 
-// defaultPairs are strategies/pairs.DEFAULT_PAIRS in source order
-// (docs/spec/strategy-pairs.md; signal.py:46-51 [MUST-MATCH]).
+// defaultPairs are the default pair tuples in source order
+// (docs/spec/strategy-pairs.md).
 var defaultPairs = [...][2]string{
 	{"KO", "PEP"},
 	{"MA", "V"},
@@ -68,8 +67,8 @@ func DefaultPairs() [][2]string {
 }
 
 // PairLegTickers returns the deduped + sorted pair-leg subscription set:
-// CVX, KO, MA, PEP, V, XOM (live_runner.py:260-261 [MUST-MATCH]). Pair
-// legs are intentionally NOT excluded from the SEPA universe (spec §4.1).
+// CVX, KO, MA, PEP, V, XOM. Pair legs are intentionally NOT excluded from the
+// SEPA universe (spec §4.1).
 func PairLegTickers() []string {
 	set := make(map[string]struct{}, 2*len(defaultPairs))
 	for _, p := range defaultPairs {
@@ -85,8 +84,7 @@ func PairLegTickers() []string {
 }
 
 // ExcludedTickers returns the exact SEPA exclusion list: SPY plus the 11
-// sector ETFs (live_runner.py:282-284 [MUST-MATCH]; pair legs are NOT in
-// this set).
+// sector ETFs (pair legs are NOT in this set).
 func ExcludedTickers() []string {
 	return append([]string{"SPY"}, sectorETFs[:]...)
 }
@@ -104,7 +102,7 @@ func excludedSet() map[string]struct{} {
 // ResolveUniverseLimit reads EnvLiveUniverseLimit via getenv (nil ->
 // os.Getenv): unset/blank -> 85; integer after trimming -> that value
 // (zero/negative allowed, handled downstream); anything else fails fast
-// with the reference's message (live_runner.py:50-60 [MUST-MATCH]).
+// with a descriptive message.
 func ResolveUniverseLimit(getenv func(string) string) (int, error) {
 	if getenv == nil {
 		getenv = os.Getenv
@@ -121,14 +119,14 @@ func ResolveUniverseLimit(getenv func(string) string) (int, error) {
 }
 
 // ApplyUniverseLimit caps the SEPA universe to the top `limit` tickers by
-// market cap descending (live_runner.py:63-87 [MUST-MATCH]):
+// market cap descending:
 //
 //   - limit <= 0 or empty input -> empty;
 //   - len(input) <= limit -> the input unchanged (original order);
 //   - otherwise a STABLE sort by cap descending (ties — including all the
 //     0.0 "unknown" caps — keep their input order) truncated to limit.
 //
-// Like Python's sorted(key=...), the lookup runs exactly once per ticker.
+// The market-cap lookup runs exactly once per ticker.
 func ApplyUniverseLimit(tickers []string, lookup MarketCapLookup, limit int) []string {
 	if limit <= 0 || len(tickers) == 0 {
 		return []string{}
@@ -295,8 +293,8 @@ type BuildParams struct {
 	// env/default flow). Ignored when Uncapped. Per the reference,
 	// limit <= 0 yields an EMPTY universe.
 	Limit int
-	// Uncapped skips the cap entirely — backtest parity (spec §4.4: the
-	// backtest assembly applies no top-N cap).
+	// Uncapped skips the cap entirely, matching the backtest path (spec §4.4:
+	// the backtest assembly applies no top-N cap).
 	Uncapped bool
 	// Kind labels the snapshot: live | eod | backtest | manual.
 	Kind string

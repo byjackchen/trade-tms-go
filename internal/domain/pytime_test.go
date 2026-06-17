@@ -15,8 +15,8 @@ func TestTimeFromUnixNanosExact(t *testing.T) {
 		{1704153600000000000, time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)},
 		{1704153600000000001, time.Date(2024, 1, 2, 0, 0, 0, 1, time.UTC)},
 		{-1000000000, time.Date(1969, 12, 31, 23, 59, 59, 0, time.UTC)},
-		// > 2^53: the Python float division (ns/1e9) cannot represent this
-		// exactly; the Go integer path is exact [IMPROVE, documented].
+		// > 2^53: a float division (ns/1e9) cannot represent this exactly;
+		// the integer path is exact [IMPROVE, documented].
 		{9007199254740993, time.Date(1970, 4, 15, 5, 59, 59, 254740993, time.UTC)},
 	}
 	for _, tt := range tests {
@@ -34,8 +34,8 @@ func TestTimeFromUnixNanosExact(t *testing.T) {
 }
 
 func TestFormatPyDatetime(t *testing.T) {
-	// Python str(datetime) parity [MUST-MATCH the json.dumps(default=str)
-	// encoding]: space separator, +00:00 offset, .%06d only when micro != 0.
+	// Datetime string encoding (json.dumps default=str form): space separator,
+	// +00:00 offset, .%06d only when micro != 0.
 	tests := []struct {
 		in   time.Time
 		want string
@@ -44,7 +44,7 @@ func TestFormatPyDatetime(t *testing.T) {
 		{time.Date(2024, 1, 2, 15, 4, 5, 0, time.UTC), "2024-01-02 15:04:05+00:00"},
 		{time.Date(2024, 1, 2, 15, 4, 5, 123000, time.UTC), "2024-01-02 15:04:05.000123+00:00"},
 		{time.Date(2024, 1, 2, 15, 4, 5, 999999000, time.UTC), "2024-01-02 15:04:05.999999+00:00"},
-		// sub-microsecond ns truncate (Python datetime has µs resolution)
+		// sub-microsecond ns truncate (µs resolution)
 		{time.Date(2024, 1, 2, 15, 4, 5, 999, time.UTC), "2024-01-02 15:04:05+00:00"},
 		// non-UTC inputs are normalized to UTC first
 		{time.Date(2024, 1, 2, 10, 0, 0, 0, time.FixedZone("EST", -5*3600)), "2024-01-02 15:00:00+00:00"},

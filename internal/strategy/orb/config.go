@@ -1,12 +1,9 @@
 package orb
 
-// config.go is the ORB (intraday_breakout) SignalGenerator configuration,
-// mirroring IntradayBreakoutSignalGeneratorConfig (intraday_breakout/signal.py
-// :51-90) and its __post_init__ validation EXACTLY — including every error
-// message substring the Python tests anchor with pytest.raises(match=...)
-// (test_signal.py:120-176): "equity_provider", "risk_pct", "range_minutes",
-// "vol_multiple", "profit_target_r", "hard_stop_pct", "eod_exit_time",
-// "timezone".
+// config.go is the ORB (intraday_breakout) SignalGenerator configuration and
+// its validation — including the error-message substrings the tests anchor on:
+// "equity_provider", "risk_pct", "range_minutes", "vol_multiple",
+// "profit_target_r", "hard_stop_pct", "eod_exit_time", "timezone".
 
 import (
 	"errors"
@@ -14,8 +11,8 @@ import (
 	"time"
 )
 
-// Session open is hard-coded 09:30 exchange-local (signal.py:47-48). ORB is
-// unambiguously a US-equities pattern; other venues need a different template.
+// Session open is hard-coded 09:30 exchange-local. ORB is unambiguously a
+// US-equities pattern; other venues need a different template.
 const (
 	sessionOpenHour   = 9
 	sessionOpenMinute = 30
@@ -27,11 +24,10 @@ const (
 // profit_target_r 2.0, hard_stop_pct 1.0, eod_exit_time "15:55", timezone
 // "America/New_York").
 //
-// EquityProvider returns current account equity. The Python reference pulls a
-// Decimal and float()s it at sizing time; modelling it as func() float64 is
-// byte-identical for every use (sizing math and the equity_at_snapshot field)
-// and avoids dragging a Decimal through the pure layer. Never cached: it is
-// invoked at every entry and at every state_dict() call.
+// EquityProvider returns current account equity. Modelling it as func() float64
+// is exact for every use (sizing math and the equity_at_snapshot field) and
+// avoids dragging a Decimal through the pure layer. Never cached: it is invoked
+// at every entry and at every state_dict() call.
 type Config struct {
 	Symbol         string
 	EquityProvider func() float64
@@ -59,13 +55,11 @@ func DefaultConfig() Config {
 }
 
 // ErrInvalidConfig wraps every config-validation failure so callers can use
-// errors.Is; the message embeds the offending field name to match the
-// reference's TypeError/ValueError substrings.
+// errors.Is; the message embeds the offending field name.
 var ErrInvalidConfig = errors.New("orb: invalid config")
 
-// Validate mirrors IntradayBreakoutSignalGeneratorConfig.__post_init__
-// (signal.py:65-90) in order. The reference NEVER calls equity_provider()
-// during validation; we likewise only nil-check it.
+// Validate checks each config field in order. equity_provider() is never called
+// during validation; we only nil-check it.
 func (c Config) Validate() error {
 	if c.EquityProvider == nil {
 		return fmt.Errorf("%w: equity_provider must be a callable returning Decimal", ErrInvalidConfig)
@@ -94,8 +88,7 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// parseHHMM splits "HH:MM" and validates 0<=H<=23, 0<=M<=59, matching the
-// reference's int(h_str)/int(m_str) + range check (signal.py:79-85).
+// parseHHMM splits "HH:MM" and validates 0<=H<=23, 0<=M<=59.
 func parseHHMM(s string) (h, m int, err error) {
 	var ok bool
 	h, m, ok = splitColonInts(s)
@@ -109,8 +102,7 @@ func parseHHMM(s string) (h, m int, err error) {
 }
 
 // splitColonInts parses exactly "<int>:<int>" with no surrounding spaces,
-// rejecting "noon" / "25" / "1:2:3" / empty parts (mirrors str.split(":") with
-// a 2-tuple unpack + int()).
+// rejecting "noon" / "25" / "1:2:3" / empty parts.
 func splitColonInts(s string) (a, b int, ok bool) {
 	idx := -1
 	for i := 0; i < len(s); i++ {
@@ -132,8 +124,8 @@ func splitColonInts(s string) (a, b int, ok bool) {
 	return a, b, true
 }
 
-// atoiStrict parses a base-10 (optionally signed) integer with no whitespace,
-// matching Python int(str) on a split component. Empty -> not ok.
+// atoiStrict parses a base-10 (optionally signed) integer with no whitespace.
+// Empty -> not ok.
 func atoiStrict(s string) (int, bool) {
 	if s == "" {
 		return 0, false

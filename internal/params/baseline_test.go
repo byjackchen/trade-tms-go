@@ -1,15 +1,9 @@
 package params_test
 
-// baseline_test.go asserts the resolved typed params match the EXACT values the
-// Python reference loader produces for the shipped baseline JSONs. The golden
-// values were captured by running
-//
-//	.venv/bin/python -c "from strategies.params.loader import \
-//	  load_strategy_params, defaults_dict; ..."
-//
-// against src/strategies/params/baseline/*.json. The same JSON files are copied
-// verbatim into testdata/ and loaded here via a file-dir Resolver, so a drift in
-// either the JSON or the Go decode is caught.
+// baseline_test.go asserts the resolved typed params match the EXACT golden
+// values for the shipped baseline JSONs. The JSON files are copied verbatim
+// into testdata/ and loaded here via a file-dir Resolver, so a drift in either
+// the JSON or the Go decode is caught.
 
 import (
 	"context"
@@ -118,7 +112,7 @@ func TestIntradayBreakoutBaselineMatchesPython(t *testing.T) {
 
 // TestEmbeddedBaselineMatchesFileBaseline verifies the embedded (package)
 // baseline resolves identically to the testdata copy — i.e. the embedded JSONs
-// in internal/hyperopt/baseline are in sync with the Python reference.
+// in internal/hyperopt/baseline are in sync with the shipped baseline JSONs.
 func TestEmbeddedBaselineMatchesFileBaseline(t *testing.T) {
 	embedded := params.NewLoader(nil, "") // no file dir -> embedded baseline
 	file := testdataLoader()

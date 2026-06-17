@@ -36,7 +36,7 @@ e2e/
                          the /backtests/{id} detail route + /strategies and
                          /strategies/{id} (self-skip until built)
     07-backtest-launch   open New-backtest dialog, scripted run (2 tickers, ~3mo,
-                         nautilus-compat), job running -> succeeded via the UI,
+                         close-fill), job running -> succeeded via the UI,
                          detail link targets the persisted run id (DB-checked)
     08-backtest-detail   detail metric cards + equity points + trades/orders MATCH
                          tms.run_metrics/equity_curves/trades AND the API payloads;

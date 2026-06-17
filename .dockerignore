@@ -4,7 +4,7 @@
 # Why each exclusion matters:
 #   bin/   — local build outputs (50+ MB stale binaries) bust the COPY . .
 #            source-layer cache on every build.
-#   tmp/   — parity dumps / scratch outputs; large and irrelevant.
+#   tmp/   — scratch outputs / dumps; large and irrelevant.
 #   .env*  — gitignored but otherwise NOT dockerignored: a developer's .env
 #            would be copied into the intermediate builder layer, a
 #            secrets-into-layer hazard if build cache is ever exported or

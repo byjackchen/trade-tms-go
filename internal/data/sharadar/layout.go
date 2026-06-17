@@ -1,7 +1,7 @@
 package sharadar
 
-// layout.go mirrors the Python CacheLayout (spec §4): path map of the
-// on-disk parquet cache and cache-root resolution.
+// layout.go is the cache layout (spec §4): path map of the on-disk parquet
+// cache and cache-root resolution.
 
 import (
 	"errors"
@@ -13,8 +13,7 @@ import (
 	"strings"
 )
 
-// Dataset names, exactly as the Python cache spells them (meta keys, dir
-// names, spec §5).
+// Dataset names as the cache spells them (meta keys, dir names, spec §5).
 const (
 	DatasetTickers = "TICKERS"
 	DatasetSEP     = "SEP"
@@ -23,15 +22,14 @@ const (
 	DatasetEvents  = "EVENTS"
 )
 
-// DatasetOrder is the canonical import order, matching the Python bootstrap
-// order TICKERS -> SEP -> SFP -> SF1 -> EVENTS (spec §9).
+// DatasetOrder is the canonical import order TICKERS -> SEP -> SFP -> SF1 ->
+// EVENTS (spec §9).
 var DatasetOrder = []string{DatasetTickers, DatasetSEP, DatasetSFP, DatasetSF1, DatasetEvents}
 
 // ErrCacheDirNotFound reports that no Sharadar cache root could be resolved.
 var ErrCacheDirNotFound = errors.New("sharadar: cache directory not found")
 
-// ResolveCacheDir resolves the cache root with the same precedence as the
-// Python reference (spec §1 [MUST-MATCH], adapted per spec Q1):
+// ResolveCacheDir resolves the cache root with this precedence (spec §1):
 //
 //  1. explicit (CLI flag) if non-empty after trimming, ~ expanded;
 //  2. configured (TMS_SHARADAR_CACHE_DIR) if non-empty after trimming;
@@ -40,7 +38,7 @@ var ErrCacheDirNotFound = errors.New("sharadar: cache directory not found")
 //     <that dir>/cache/sharadar.
 //
 // There is no home-dir fallback; if nothing matches, the error tells the
-// operator to set TMS_SHARADAR_CACHE_DIR (matching the Python error contract).
+// operator to set TMS_SHARADAR_CACHE_DIR.
 // The resolved path must exist and be a directory.
 func ResolveCacheDir(explicit, configured string) (string, error) {
 	for _, cand := range []string{strings.TrimSpace(explicit), strings.TrimSpace(configured)} {
@@ -141,8 +139,8 @@ type tickerFile struct {
 }
 
 // perTickerFiles lists <root>/<dataset>/ticker=<T>.parquet sorted by ticker.
-// The ticker is recovered from the filename exactly as the Python layout
-// embeds it (raw symbol, may contain '.' or '-', spec §4).
+// The ticker is recovered from the filename as the layout embeds it (raw
+// symbol, may contain '.' or '-', spec §4).
 func perTickerFiles(root, dataset string) ([]tickerFile, error) {
 	pattern := filepath.Join(root, dataset, "ticker=*.parquet")
 	matches, err := filepath.Glob(pattern)

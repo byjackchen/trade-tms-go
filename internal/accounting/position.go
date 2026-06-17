@@ -2,13 +2,13 @@ package accounting
 
 // position.go is the mutable NETTING position book entry. One Position exists
 // per (strategy_id, symbol). It applies fills, maintaining a signed quantity,
-// an average entry price, and cumulative realized PnL, exactly reproducing the
-// Nautilus position arithmetic verified empirically (see doc.go).
+// an average entry price, and cumulative realized PnL per this library's
+// NETTING arithmetic (see doc.go).
 //
 // All money math is exact 1e-4 fixed point (domain.Money / domain.Price);
 // average price is held as an exact rational (notional / qty) to avoid the
-// rounding drift Nautilus's cost-basis tracking would otherwise accumulate
-// over long fill chains, then materialized to a Price only for reporting.
+// rounding drift naive cost-basis tracking would otherwise accumulate over
+// long fill chains, then materialized to a Price only for reporting.
 
 import (
 	"fmt"
@@ -116,14 +116,14 @@ type FillOutcome struct {
 	// opens/increases). Account balance moves by exactly this amount.
 	RealizedDelta domain.Money
 	// Opened/Closed/Changed/Flipped classify the transition (for recording
-	// PositionOpened/Closed/Changed parity events).
+	// PositionOpened/Closed/Changed events).
 	Opened, Closed, Changed, Flipped bool
 }
 
 // ApplyFill mutates the position with a delta fill (positive qty, BUY or SELL)
 // and returns the realized-PnL delta and transition classification.
 //
-// The arithmetic reproduces Nautilus NETTING (verified empirically):
+// The arithmetic is this library's NETTING rule:
 //   - same-direction (or opening from flat): re-weight entryNotional, realized
 //     unchanged;
 //   - opposite-direction within the open qty: realize closedQty *
@@ -131,7 +131,7 @@ type FillOutcome struct {
 //     proportionally; if it brings qty to 0 the position closes;
 //   - opposite-direction exceeding the open qty (flip): close the whole open
 //     qty (realize it), then open the residual at fill_px with realized
-//     accumulating (cumulative over the position's life, as Nautilus reports).
+//     accumulating (cumulative over the position's life).
 func (p *Position) ApplyFill(f domain.Fill) (FillOutcome, error) {
 	if f.Qty <= 0 {
 		return FillOutcome{}, fmt.Errorf("%w: fill %s qty must be positive, got %d",
@@ -266,12 +266,11 @@ func (p *Position) closeLeg(closeQty domain.Qty, price domain.Price, prevQty dom
 	if err != nil {
 		return 0, fmt.Errorf("position %s/%s close leg: %w", p.strategyID, p.symbol, err)
 	}
-	// Quantize realized PnL to cents (2 dp, half-even) PER closing fill, exactly
-	// as Nautilus does — its USD Money has precision 2, and realized_pnl is a
-	// USD Money quantized on every fill (verified empirically: a depth-walk
-	// average of 105.001666... yields per-fill realized 299.83 / -400.17 /
-	// -1300.17, each rounded to the cent). Settling at 4 dp instead diverges by
-	// up to a cent per fill. [MUST-MATCH]
+	// Quantize realized PnL to cents (2 dp, half-even) PER closing fill: USD
+	// realized_pnl has cent precision and is quantized on every fill (e.g. a
+	// depth-walk average of 105.001666... yields per-fill realized 299.83 /
+	// -400.17 / -1300.17, each rounded to the cent). Settling at 4 dp instead
+	// would drift by up to a cent per fill.
 	realized := roundMoneyToCents(realizedFull)
 
 	// Reduce the remaining cost basis.

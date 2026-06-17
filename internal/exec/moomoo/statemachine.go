@@ -8,8 +8,7 @@ package moomoo
 // the transition pure makes the hard parts — idempotency, partial-fill delta
 // accumulation, terminal handling — exhaustively unit-testable without a broker.
 //
-// FAITHFULNESS (locked decision 3): the status->effect mapping reproduces the
-// Python adapter (src/adapters/moomoo/exec_client.py):
+// The status->effect mapping is defined as:
 //   - moomoo dealtQty / dealtAvgPrice are CUMULATIVE; we hold the prior
 //     cumulative snapshot and emit the per-fill DELTA (delta_qty, last_px =
 //     delta_notional / delta_qty);
@@ -80,7 +79,7 @@ type Effect struct {
 	Fill   domain.Fill        // for EffectFill (zero otherwise)
 	// FillReversed marks an EffectStatus(CANCELED) produced by a FILL_CANCELLED
 	// broker rollback: the caller logs at ERROR and relies on reconciliation, as
-	// the already-applied fill is NOT auto-reversed (faithful to Python).
+	// the already-applied fill is NOT auto-reversed.
 	FillReversed bool
 	// Drift marks an unrecognised/UNSUBMITTED status: no state change, caller
 	// logs a WARN. Kind is EffectStatus with an empty Status.
@@ -168,8 +167,8 @@ func applyFill(state *OrderState, upd mo.OrderUpdate, tradeID TradeIDFn, wallTS 
 		deltaQty := cumQty - state.CumQty
 		deltaNotional := cumNotional - state.CumNotional
 		if deltaQty > 0 && deltaNotional > 0 {
-			// Per-fill price = delta_notional / delta_qty on the 1e-4 grid (matches
-			// the Python adapter's f"{last_px:.4f}").
+			// Per-fill price = delta_notional / delta_qty on the 1e-4 grid
+			// (4-decimal last price).
 			lastPx := domain.Price(deltaNotional / int64(deltaQty))
 			if !lastPx.IsPositive() {
 				return nil, fmt.Errorf("order %s: non-positive per-fill price (deltaNotional=%d deltaQty=%d)",
@@ -184,7 +183,7 @@ func applyFill(state *OrderState, upd mo.OrderUpdate, tradeID TradeIDFn, wallTS 
 				Side:          state.Side,
 				Qty:           deltaQty,
 				Price:         lastPx,
-				Commission:    0, // moomoo commission parsing is a future enhancement (matches Python TODO)
+				Commission:    0, // moomoo commission parsing is a future enhancement
 				TS:            fillTime(wallTS, upd.UpdateTimeNs),
 			}
 			if verr := f.Validate(); verr != nil {

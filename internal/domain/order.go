@@ -1,8 +1,7 @@
 package domain
 
 // order.go defines the execution-side value objects: Order, Fill and
-// Position snapshots. These are the Go-native counterparts of the order/fill
-// state the Python reference delegates to Nautilus plus the moomoo adapter
+// Position snapshots. These carry the order/fill state plus the moomoo adapter
 // conventions (spec §2.14, §7.4, §7.6).
 
 import (
@@ -10,8 +9,8 @@ import (
 	"time"
 )
 
-// Order is an immutable snapshot of one order. The reference system submits
-// MARKET/GTC orders exclusively with integer share quantities (§7.6); the
+// Order is an immutable snapshot of one order. The system submits MARKET/GTC
+// orders exclusively with integer share quantities (§7.6); the
 // LimitPrice/StopPrice fields exist for forward compatibility and are nil
 // for market orders.
 //
@@ -42,7 +41,7 @@ type Order struct {
 	TS        time.Time `json:"ts"`               // submission timestamp (UTC)
 }
 
-// NewMarketOrder builds the only order shape the reference system emits:
+// NewMarketOrder builds the only order shape the system emits:
 // MARKET / GTC / integer quantity, status SUBMITTED.
 func NewMarketOrder(clientOrderID, strategyID, symbol string, side OrderSide, qty Qty, reason string, ts time.Time) Order {
 	return Order{
@@ -102,7 +101,7 @@ func (o Order) Validate() error {
 	if o.TS.IsZero() {
 		return fmt.Errorf("%w: order %s has zero timestamp", ErrInvalidArgument, o.ClientOrderID)
 	}
-	// FilledQty invariants mirror the orders schema CHECKs (filled_qty in [0,qty];
+	// FilledQty invariants match the orders schema CHECKs (filled_qty in [0,qty];
 	// status=FILLED requires filled_qty=qty). Catching them here fails loud at the
 	// boundary instead of as a swallowed SQLSTATE 23514 in the persistence layer.
 	if o.FilledQty < 0 || o.FilledQty > o.Qty {
@@ -121,8 +120,8 @@ func (o Order) Validate() error {
 // (spec §2.14): delta_qty = cum_qty - prior_qty, last price = delta notional
 // / delta qty at 4 decimals — which the 1e-4 Price holds exactly.
 //
-// TradeID format in the reference: "{venue_order_id}-{ts_ns}". Commission is
-// 0 in backtest (zero-fee equity instrument, §7.1).
+// TradeID format: "{venue_order_id}-{ts_ns}". Commission is 0 in backtest
+// (zero-fee equity instrument, §7.1).
 type Fill struct {
 	TradeID       string    `json:"trade_id"`
 	ClientOrderID string    `json:"client_order_id"`
@@ -182,15 +181,14 @@ func (f Fill) Validate() error {
 }
 
 // Position is an immutable snapshot of one netted position. Per the NETTING
-// OMS semantics (§7.4 [MUST-MATCH]) there is exactly one position per
-// (strategy, instrument); two strategies trading the same symbol hold two
-// separate Position values, and cross-strategy netting is computed over them
+// OMS semantics (§7.4) there is exactly one position per (strategy,
+// instrument); two strategies trading the same symbol hold two separate
+// Position values, and cross-strategy netting is computed over them
 // (PortfolioSnapshot.NetPositionAcrossStrategies).
 //
-// SignedQty: positive = long, negative = short, 0 = flat. The Python
-// platform truncates Nautilus's float signed_qty toward zero; Go positions
-// are integral from the start (QtyFromFloat64Trunc exists for any boundary
-// that still receives floats).
+// SignedQty: positive = long, negative = short, 0 = flat. Positions are
+// integral (QtyFromFloat64Trunc exists for any boundary that still receives
+// floats, truncating toward zero).
 type Position struct {
 	StrategyID  string    `json:"strategy_id"` // engine strategy id (§7.7)
 	Symbol      string    `json:"symbol"`

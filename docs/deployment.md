@@ -4,8 +4,8 @@ The whole system ships as one image (`tms:dev`, built from the root `Dockerfile`
 — multi-stage `golang:1.26` → distroless static nonroot) plus the UI image
 (`tms-ui:dev`, a Next.js standalone bundle). A clean `docker compose up` from
 zero brings up Postgres/TimescaleDB, Redis, runs migrations, and starts the
-control plane. **There is zero Python runtime dependency in production** — Python
-is only the offline parity oracle (see `docs/parity.md`).
+control plane. **There is zero language-runtime dependency in production** — a single static
+binary.
 
 Host ports reserved for this project (this machine runs other stacks — do not
 change them to defaults): **Postgres 55432, Redis 56379, API 18080, UI 13000,
@@ -31,8 +31,8 @@ Notes:
 - The `live` profile is **separate from `app` on purpose** — a trading node is
   started deliberately, never by an `app` bring-up.
 - App-profile containers use the `tmsgo-` prefix (`tmsgo-api`, `tmsgo-worker`,
-  `tmsgo-ui`, `tmsgo-live`) so they never collide with the Python reference
-  stack's `tms-api` / `tms-ui` containers on a shared host. A regression guard
+  `tmsgo-ui`, `tmsgo-live`) so they never collide with other stacks'
+  `tms-api` / `tms-ui` containers on a shared host. A regression guard
   (`internal/app/deployguard_test.go`) pins this.
 - The runtime image is distroless (no shell), so healthchecks exec the binary
   itself: `tms api --health`, `tms worker --health`, `tms trade run --health` each GET
@@ -54,7 +54,7 @@ docker compose --profile app up -d --wait   # api + worker + ui
 
 All configuration flows through `internal/config`: `.env` is loaded by walking
 up from the working directory, and **real environment variables take precedence**
-(override=false), matching the Python reference. Missing required config fails
+(override=false). Missing required config fails
 loud at startup with a `MissingConfig` error and a setup hint — there is no
 silent default for anything security-relevant.
 

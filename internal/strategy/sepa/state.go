@@ -1,16 +1,16 @@
 package sepa
 
-// state.go ports state_dict / load_state (signal.py:545-601) — crash-recovery
-// serialization. state_dict snapshots config (with a live equity reading, no
-// account_size key), context, position (Decimals as str), and the full kline
-// history as a column-oriented dict keyed "index" for the DatetimeIndex.
-// load_state restores context/position/klines only (the caller supplies fresh
-// config + equity provider), with the reference's defaulting on missing keys.
+// state.go provides state_dict / load_state — crash-recovery serialization.
+// state_dict snapshots config (with a live equity reading, no account_size
+// key), context, position (Decimals as str), and the full kline history as a
+// column-oriented dict keyed "index" for the timestamps. load_state restores
+// context/position/klines only (the caller supplies fresh config + equity
+// provider), defaulting on missing keys.
 
 import "time"
 
-// StateDict is the crash-recovery snapshot (signal.py:545-578). Field shapes
-// mirror the reference dict exactly so JSON round-trips byte-compatibly.
+// StateDict is the crash-recovery snapshot. Field shapes are fixed so JSON
+// round-trips compatibly.
 type StateDict struct {
 	Config   StateConfig   `json:"config"`
 	Context  StateContext  `json:"context"`
@@ -19,8 +19,7 @@ type StateDict struct {
 }
 
 // StateConfig is the config snapshot. EquityAtSnapshot is a live equity read at
-// save time (audit-only); there is intentionally NO account_size key
-// (test_signal.py:329-334).
+// save time (audit-only); there is intentionally NO account_size key.
 type StateConfig struct {
 	Symbol                 string  `json:"symbol"`
 	EquityAtSnapshot       float64 `json:"equity_at_snapshot"`
@@ -43,7 +42,7 @@ type StateContext struct {
 }
 
 // StatePosition is the position snapshot. Prices are str(Decimal). Grade is a
-// pointer so it serializes null when flat (the reference grade is None).
+// pointer so it serializes null when flat.
 type StatePosition struct {
 	Shares     int     `json:"shares"`
 	EntryPrice string  `json:"entry_price"`
@@ -63,8 +62,8 @@ type StateKlines struct {
 	Volume []float64   `json:"volume"`
 }
 
-// StateDict builds the crash-recovery snapshot (signal.py:545-578). It reads
-// live equity once for the audit field, matching float(equity_provider()).
+// StateDict builds the crash-recovery snapshot. It reads live equity once for
+// the audit field, as float(equity_provider()).
 func (g *Generator) StateDict() StateDict {
 	var gradePtr *string
 	if g.grade != "" {
@@ -108,10 +107,10 @@ func (g *Generator) StateDict() StateDict {
 	}
 }
 
-// LoadState restores context/position/klines from a snapshot (signal.py:580-601).
+// LoadState restores context/position/klines from a snapshot.
 // Config is NOT restored (the caller constructs with fresh config first). Missing
-// keys default per the reference: regime->"unknown", cap->0, flags->false,
-// shares->0, prices->Decimal("0"), grade->nil.
+// keys default to: regime->"unknown", cap->0, flags->false, shares->0,
+// prices->Decimal("0"), grade->nil.
 func (g *Generator) LoadState(d StateDict) {
 	g.regime = orDefault(d.Context.Regime, "unknown")
 	g.marketCapUSD = d.Context.MarketCapUSD
@@ -151,17 +150,17 @@ func orDefault(s, def string) string {
 	return s
 }
 
-// decFromStr parses a stored str(Decimal) back into a decState. The reference
-// load_state does Decimal(entry_price) on the stored string; an empty/"0"
-// string yields decZero. We parse the float for arithmetic and keep the
-// original string for re-serialization fidelity.
+// decFromStr parses a stored str(Decimal) back into a decState. load_state does
+// Decimal(entry_price) on the stored string; an empty/"0" string yields decZero.
+// We parse the float for arithmetic and keep the original string for
+// re-serialization fidelity.
 func decFromStr(s string) decState {
 	if s == "" || s == "0" {
 		return decZero
 	}
 	f := parsePyFloat(s)
 	// Re-derive the canonical string from the float so a round-trip emits the
-	// same shape the reference would (Decimal(str(f)) on save). For the values
-	// SEPA stores this is a no-op; defensively re-canonicalize.
+	// same shape as Decimal(str(f)) on save. For the values SEPA stores this is
+	// a no-op; defensively re-canonicalize.
 	return decState{val: f, str: pyFloatRepr(f)}
 }

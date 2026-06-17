@@ -1,13 +1,12 @@
 package indicators
 
-// relstrength.go is a TMS ENHANCEMENT (not present in the Python SEPA reference):
-// a cross-sectional Relative-Strength rank used to make every SEPA forming signal
-// rankable on the trader's watchlist. It is deliberately diverged from the Python
-// oracle — the reference SEPA never computes an RS rank (its SignalIntent.RSRank
-// is reserved-and-always-null). We compute the Minervini-style weighted return
-// blend per symbol, then percentile-rank it across the universe.
+// relstrength.go provides a cross-sectional Relative-Strength rank used to make
+// every SEPA forming signal rankable on the trader's watchlist. The baseline
+// SEPA state machine does not compute an RS rank; this layer adds one. We
+// compute the Minervini-style weighted return blend per symbol, then
+// percentile-rank it across the universe.
 //
-// The blend mirrors Minervini's RS line construction (quarter-weighted trailing
+// The blend follows Minervini's RS line construction (quarter-weighted trailing
 // returns favouring the most recent quarter):
 //
 //	rs_raw = 0.4*r63 + 0.2*r126 + 0.2*r189 + 0.2*r252
@@ -19,7 +18,7 @@ package indicators
 
 import "sort"
 
-// RS lookback windows (trading days) and their blend weights. TMS enhancement.
+// RS lookback windows (trading days) and their blend weights.
 const (
 	RSLookback63  = 63
 	RSLookback126 = 126
@@ -41,8 +40,6 @@ const (
 // adjusted-close series (oldest first). ok=false when the series lacks the full
 // 252-bar history or any required base price is non-positive (split/NaN gap),
 // signalling the caller to skip the symbol from the ranking universe.
-//
-// TMS enhancement — not in the Python SEPA reference.
 func RSRawScore(closeAdj []float64) (score float64, ok bool) {
 	n := len(closeAdj)
 	if n <= RSLookback252 {

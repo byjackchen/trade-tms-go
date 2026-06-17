@@ -3,17 +3,16 @@ package indicators
 import "math"
 
 // NaN is the canonical undefined/warmup value. Every rolling primitive emits
-// NaN for indices that lack a full window (mirrors pandas's default
-// min_periods == window behaviour). Callers must use math.IsNaN to test, since
-// NaN != NaN.
+// NaN for indices that lack a full window (min_periods == window). Callers must
+// use math.IsNaN to test, since NaN != NaN.
 var NaN = math.NaN()
 
-// SMA computes the simple moving average over `window` bars (pandas
-// `Series.rolling(window).mean()` with the default min_periods == window).
+// SMA computes the simple moving average over `window` bars
+// (rolling(window).mean() with min_periods == window).
 //
 // Output length == len(x). Indices [0, window-2] are NaN (warmup); index i>=
 // window-1 is the arithmetic mean of x[i-window+1 .. i]. A window that contains
-// any NaN yields NaN at that index (NaN propagation matches pandas).
+// any NaN yields NaN at that index (NaN propagation).
 //
 // window <= 0 panics (programmer error); window == 1 is the identity (mean of a
 // single value).
@@ -51,9 +50,9 @@ func SMA(x []float64, window int) []float64 {
 	return out
 }
 
-// RollingSum mirrors pandas `Series.rolling(window).sum()` (min_periods ==
-// window): NaN warmup for the first window-1 indices, then the sum of the
-// trailing window. NaN inside the window propagates to NaN.
+// RollingSum is the rolling(window).sum() with min_periods == window: NaN
+// warmup for the first window-1 indices, then the sum of the trailing window.
+// NaN inside the window propagates to NaN.
 func RollingSum(x []float64, window int) []float64 {
 	if window <= 0 {
 		panic("indicators: RollingSum window must be > 0")
@@ -84,15 +83,15 @@ func RollingSum(x []float64, window int) []float64 {
 	return out
 }
 
-// RollingStd mirrors pandas `Series.rolling(window).std(ddof=ddof)`.
+// RollingStd is the rolling(window).std(ddof=ddof).
 //
-// pandas defaults ddof=1 (sample std, divide by N-1); pass ddof=0 for the
-// population std (divide by N) used by some call sites. Output is NaN for the
-// warmup window and whenever window-ddof <= 0 (e.g. window==1, ddof==1, which
-// pandas reports as NaN). NaN inside the window propagates.
+// ddof=1 gives the sample std (divide by N-1); pass ddof=0 for the population
+// std (divide by N) used by some call sites. Output is NaN for the warmup
+// window and whenever window-ddof <= 0 (e.g. window==1, ddof==1). NaN inside
+// the window propagates.
 //
-// The two-pass mean/variance formulation matches pandas's numerically-stable
-// path closely enough for the 1e-9 golden tolerance.
+// The two-pass mean/variance formulation is numerically stable to within the
+// 1e-9 golden tolerance.
 func RollingStd(x []float64, window, ddof int) []float64 {
 	if window <= 0 {
 		panic("indicators: RollingStd window must be > 0")
@@ -132,15 +131,15 @@ func RollingStd(x []float64, window, ddof int) []float64 {
 	return out
 }
 
-// RollingMax mirrors pandas `Series.rolling(window).max()` (min_periods ==
-// window). NaN warmup, then the max of the trailing window; NaN in the window
-// propagates to NaN.
+// RollingMax is the rolling(window).max() with min_periods == window. NaN
+// warmup, then the max of the trailing window; NaN in the window propagates to
+// NaN.
 func RollingMax(x []float64, window int) []float64 {
 	return rollingExtremum(x, window, true)
 }
 
-// RollingMin mirrors pandas `Series.rolling(window).min()` (min_periods ==
-// window). NaN warmup, then the min of the trailing window; NaN propagates.
+// RollingMin is the rolling(window).min() with min_periods == window. NaN
+// warmup, then the min of the trailing window; NaN propagates.
 func RollingMin(x []float64, window int) []float64 {
 	return rollingExtremum(x, window, false)
 }

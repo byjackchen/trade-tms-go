@@ -464,7 +464,7 @@ func (s *Session) emitHealth(ctx context.Context, asOf time.Time) error {
 		return nil
 	}
 	// Empty signal-mode book: NAV = cash = starting balance, no positions, no
-	// last-close marks. The reference PortfolioHealthActor reads the venue
+	// last-close marks. The PortfolioHealthActor reads the venue
 	// account; in signal mode that account is flat, so this is the faithful
 	// informational snapshot.
 	snap := domain.NewPortfolioSnapshot(

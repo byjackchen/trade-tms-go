@@ -4,8 +4,8 @@ package runs
 // truth (locked decision 4). It writes tms.runs / tms.run_metrics /
 // tms.equity_curves / tms.trades transactionally and reads them back for the
 // HTTP API. Money columns are BIGINT fixed-point at 1e-4 USD (domain.Money raw
-// units); sharpe/calmar/max_drawdown are DOUBLE PRECISION float64 (parity is
-// asserted at float64 — hyperopt spec §1).
+// units); sharpe/calmar/max_drawdown are DOUBLE PRECISION float64 (metrics are
+// defined at float64 — hyperopt spec §1).
 
 import (
 	"context"

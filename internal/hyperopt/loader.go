@@ -1,7 +1,7 @@
 package hyperopt
 
-// loader.go ports src/strategies/params/loader.py (spec §2 [MUST-MATCH]):
-// parse a strategy param JSON into a StrategyParams, validate it, and provide
+// loader.go (spec §2): parse a strategy param JSON into a StrategyParams,
+// validate it, and provide
 // defaults_dict / suggest_with. Parameter INSERTION ORDER of the JSON object is
 // preserved — it determines suggest order (and hence the optimizer RNG
 // consumption order) and output file order. Go's map iteration is random, so
@@ -13,7 +13,7 @@ import (
 	"fmt"
 )
 
-// allowed sets (loader.py:21-25).
+// allowed sets.
 var (
 	schemaVersionAllowed   = map[int]bool{1: true}
 	typesAllowed           = map[string]bool{"float": true, "int": true, "str": true, "list": true}
@@ -21,14 +21,14 @@ var (
 	constraintKindsAllowed = map[string]bool{"clamp_high": true, "clamp_low": true}
 )
 
-// SearchSpec is a numeric search range (loader.py:28-31).
+// SearchSpec is a numeric search range.
 type SearchSpec struct {
 	Low  float64
 	High float64
 }
 
-// ParamSpec is one parameter's spec (loader.py:34-41). Default is the raw JSON
-// value (json.RawMessage) so list/str/number defaults round-trip verbatim for
+// ParamSpec is one parameter's spec. Default is the raw JSON value
+// (json.RawMessage) so list/str/number defaults round-trip verbatim for
 // write_tuned_params; DefaultValue decodes it on demand.
 type ParamSpec struct {
 	Name        string
@@ -38,14 +38,14 @@ type ParamSpec struct {
 	Description *string
 }
 
-// Constraint is one clamp constraint (loader.py:44-48).
+// Constraint is one clamp constraint.
 type Constraint struct {
 	Kind       string
 	Param      string
 	Expression string
 }
 
-// StrategyParams is the parsed, validated param file (loader.py:51-58).
+// StrategyParams is the parsed, validated param file.
 // Parameters preserves file order; ParamIndex maps name -> position.
 type StrategyParams struct {
 	Strategy      string
@@ -64,8 +64,8 @@ func (sp StrategyParams) Param(name string) (ParamSpec, bool) {
 	return ParamSpec{}, false
 }
 
-// ParseStrategyParams parses raw JSON for the requested strategy (loader.py:
-// 130-185). Errors mirror the reference ValueError messages exactly.
+// ParseStrategyParams parses raw JSON for the requested strategy. Errors carry
+// descriptive messages naming the offending field.
 func ParseStrategyParams(raw []byte, strategy string) (*StrategyParams, error) {
 	// Top-level object decode that captures field presence and raw parameters.
 	var top struct {
@@ -128,7 +128,7 @@ func ParseStrategyParams(raw []byte, strategy string) (*StrategyParams, error) {
 }
 
 // parseParametersOrdered decodes the "parameters" object preserving key order
-// via a streaming token decoder (loader.py:_parse_param, :160-185).
+// via a streaming token decoder.
 func parseParametersOrdered(rawParams json.RawMessage) ([]ParamSpec, map[string]int, error) {
 	if len(bytes.TrimSpace(rawParams)) == 0 || string(bytes.TrimSpace(rawParams)) == "null" {
 		return nil, map[string]int{}, nil
@@ -199,7 +199,7 @@ func parseParametersOrdered(rawParams json.RawMessage) ([]ParamSpec, map[string]
 	return specs, index, nil
 }
 
-// TrialLike is the suggest interface (loader.py:67-69). suggest_float/int names
+// TrialLike is the suggest interface. SuggestFloat/Int names
 // are the PREFIXED "<strategy>.<param>"; the returned map keys are unprefixed.
 type TrialLike interface {
 	SuggestFloat(name string, low, high float64) float64
@@ -207,8 +207,8 @@ type TrialLike interface {
 }
 
 // DefaultsDict returns {name: default} for every parameter, decoded to Go
-// values (loader.py:187-189). Numbers decode to float64/int per type, lists to
-// []any, strings to string.
+// values. Numbers decode to float64/int per type, lists to []any, strings to
+// string.
 func DefaultsDict(sp *StrategyParams) (map[string]any, error) {
 	out := make(map[string]any, len(sp.Parameters))
 	for _, spec := range sp.Parameters {
@@ -222,7 +222,7 @@ func DefaultsDict(sp *StrategyParams) (map[string]any, error) {
 }
 
 // SuggestWith runs trial.Suggest* per ParamSpec in file order, then applies the
-// constraints in file order (loader.py:192-230). Returns ONLY sampled keys
+// constraints in file order. Returns ONLY sampled keys
 // (those with a search range); static defaults are NOT merged. Constraint
 // clamping mutates only the returned map; the trial-recorded value is the raw
 // suggestion (the caller's TrialLike records inside Suggest*).

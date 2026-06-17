@@ -88,7 +88,7 @@ func TestApplyUniverseLimitCallsLookupOncePerTicker(t *testing.T) {
 	}
 	ApplyUniverseLimit([]string{"A", "B", "C", "D"}, lookup, 2)
 	for tk, n := range calls {
-		assert.Equal(t, 1, n, "lookup for %s must run exactly once (Python sorted key contract)", tk)
+		assert.Equal(t, 1, n, "lookup for %s must run exactly once (sort-key contract)", tk)
 	}
 }
 

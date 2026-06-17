@@ -124,7 +124,7 @@ func TestIndexedDispatchEqualsFullScan(t *testing.T) {
 		Start:              calendar.NewDate(2025, 1, 1),
 		End:                calendar.NewDate(2025, 1, 31),
 		StartingBalance:    domain.MustMoney("100000"),
-		Profile:            ProfileNautilusCompat,
+		Profile:            ProfileCloseFill,
 		PrebuiltStrategies: prebuilt,
 	}
 	eng, err := New(context.Background(), cfg, SliceFeed{Instruments: instruments})

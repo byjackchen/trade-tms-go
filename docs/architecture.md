@@ -1,8 +1,7 @@
 # Architecture
 
-`trade-tms-go` is a complete Go port of the Python reference
-`trade-multi-strategies`, packaged as a single static binary `tms` plus a Next.js
-control-plane UI. Its thesis: **five operating modes — backtest, hyperopt,
+`trade-tms-go` is a Go trading system packaged as a single static binary `tms`
+plus a Next.js control-plane UI. Its thesis: **five operating modes — backtest, hyperopt,
 live-signal, paper, live — all run on the SAME deterministic event-loop engine,
 the SAME strategy implementations, and the SAME portfolio (allocator / risk /
 reconciliation) layer.** Only the edge adapters (clock, data feed, executor,
@@ -21,86 +20,84 @@ OpenD client.
 
 ```mermaid
 flowchart TB
-    browser([Browser])
-    subgraph host["Host machine"]
-      opend["moomoo OpenD<br/>(host-installed)<br/>:11111"]
-    end
-    subgraph compose["docker compose · single tms image, multi-role"]
-      ui["tmsgo-ui<br/>Next.js cockpit · :13000"]
-      api["tmsgo-api<br/>chi REST + WS · :18080"]
-      worker["tmsgo-worker<br/>backtest / hyperopt / eod jobs<br/>(scale N)"]
-      live["tmsgo-live<br/>signal · paper · live"]
-      migrate["tmsgo-migrate<br/>(run-once)"]
-      pg[("tmsgo-postgres<br/>TimescaleDB · :55432<br/>SINGLE SOURCE OF TRUTH")]
-      redis[("tmsgo-redis · :56379<br/>transport only · reconstructable")]
-    end
-    browser -->|REST + WS| ui
-    ui -->|bearer token, server-side| api
-    api -->|enqueue ops.jobs| worker
-    api <-->|pub/sub| redis
-    api -->|ops.commands| live
-    worker --> pg
-    live --> pg
-    api --> pg
-    live <-->|pub/sub| redis
-    live -->|protobuf-over-TCP<br/>host.docker.internal:11111| opend
-    migrate -->|schema| pg
-    worker <--> redis
+ browser([Browser])
+ subgraph host["Host machine"]
+ opend["moomoo OpenD<br/>(host-installed)<br/>:11111"]
+ end
+ subgraph compose["docker compose · single tms image, multi-role"]
+ ui["tmsgo-ui<br/>Next.js cockpit ·:13000"]
+ api["tmsgo-api<br/>chi REST + WS ·:18080"]
+ worker["tmsgo-worker<br/>backtest / hyperopt / eod jobs<br/>(scale N)"]
+ live["tmsgo-live<br/>signal · paper · live"]
+ migrate["tmsgo-migrate<br/>(run-once)"]
+ pg[("tmsgo-postgres<br/>TimescaleDB ·:55432<br/>SINGLE SOURCE OF TRUTH")]
+ redis[("tmsgo-redis ·:56379<br/>transport only · reconstructable")]
+ end
+ browser -->|REST + WS| ui
+ ui -->|bearer token, server-side| api
+ api -->|enqueue ops.jobs| worker
+ api <-->|pub/sub| redis
+ api -->|ops.commands| live
+ worker --> pg
+ live --> pg
+ api --> pg
+ live <-->|pub/sub| redis
+ live -->|protobuf-over-TCP<br/>host.docker.internal:11111| opend
+ migrate -->|schema| pg
+ worker <--> redis
 
-    classDef db fill:#1d3b53,stroke:#4aa,color:#fff
-    class pg,redis db
+ classDef db fill:#1d3b53,stroke:#4aa,color:#fff
+ class pg,redis db
 ```
 
 ### 0.2 Five modes, one engine (the thesis)
 
 ```mermaid
 flowchart TB
-    subgraph core["internal/core — deterministic single-goroutine event loop"]
-      direction LR
-      strat["Strategy ×4<br/>SEPA · Pairs<br/>Sector · ORB"]
-      port["Portfolio<br/>allocator + risk gate"]
-      acct["Accounting<br/>NETTING · PnL · equity"]
-      ind["Indicators"]
-    end
-    note["Five modes share 100% of strategy / portfolio / accounting / warmup code.<br/>Only Clock + DataFeed + Executor are swapped."]
-    core --- note
+ subgraph core["internal/core — deterministic single-goroutine event loop"]
+ direction LR
+ strat["Strategy ×4<br/>SEPA · Pairs<br/>Sector · ORB"]
+ port["Portfolio<br/>allocator + risk gate"]
+ acct["Accounting<br/>NETTING · PnL · equity"]
+ ind["Indicators"]
+ end
+ note["Five modes share 100% of strategy / portfolio / accounting / warmup code.<br/>Only Clock + DataFeed + Executor are swapped."]
+ core --- note
 
-    bt["**backtest**<br/>SimClock<br/>Parquet/PG feed<br/>SimExecutor (fee/slip/fill)"]
-    ho["**hyperopt**<br/>SimClock ×N<br/>shared RO bars<br/>SimExecutor · NSGA-II"]
-    sig["**live-signal**<br/>WallClock<br/>moomoo Qot stream<br/>NoopExecutor (0 orders)"]
-    pa["**paper**<br/>WallClock<br/>moomoo Qot stream<br/>MoomooExecutor (paper acct)"]
-    lv["**live**<br/>WallClock<br/>moomoo Qot stream<br/>MoomooExecutor (real acct)<br/>4-factor gate"]
+ bt["**backtest**<br/>SimClock<br/>Parquet/PG feed<br/>SimExecutor (fee/slip/fill)"]
+ ho["**hyperopt**<br/>SimClock ×N<br/>shared RO bars<br/>SimExecutor · NSGA-II"]
+ sig["**live-signal**<br/>WallClock<br/>moomoo Qot stream<br/>NoopExecutor (0 orders)"]
+ pa["**paper**<br/>WallClock<br/>moomoo Qot stream<br/>MoomooExecutor (paper acct)"]
+ lv["**live**<br/>WallClock<br/>moomoo Qot stream<br/>MoomooExecutor (real acct)<br/>4-factor gate"]
 
-    core --> bt & ho & sig & pa & lv
+ core --> bt & ho & sig & pa & lv
 ```
 
 ### 0.3 Control + data flow
 
 ```mermaid
 flowchart TB
-    subgraph uiplane["UI control plane — fully observable + controllable"]
-      obs["Observe: coverage · equity · pareto<br/>positions · orders · PnL · reconciliation"]
-      ctl["Control: refresh data · run backtest<br/>run hyperopt · promote params<br/>mode-switch · halt · flatten"]
-    end
-    api["tmsgo-api<br/>auth · audit every control action · enqueue"]
-    worker["worker<br/>backtest/optimize/eod"]
-    live["live<br/>halt / flatten / mode-switch"]
-    pg[("PostgreSQL + TimescaleDB<br/>marketdata · strategy · research · live · ops")]
-    redis[("redis · transport (FLUSH → rebuild from PG)")]
-    oracle["trade-multi-strategies<br/>(Python, read-only parity oracle —<br/>NOT in production image)"]
+ subgraph uiplane["UI control plane — fully observable + controllable"]
+ obs["Observe: coverage · equity · pareto<br/>positions · orders · PnL · reconciliation"]
+ ctl["Control: refresh data · run backtest<br/>run hyperopt · promote params<br/>mode-switch · halt · flatten"]
+ end
+ api["tmsgo-api<br/>auth · audit every control action · enqueue"]
+ worker["worker<br/>backtest/optimize/eod"]
+ live["live<br/>halt / flatten / mode-switch"]
+ pg[("PostgreSQL + TimescaleDB<br/>marketdata · strategy · research · live · ops")]
+ redis[("redis · transport (FLUSH → rebuild from PG)")]
 
-    uiplane -->|POST control / WS stream| api
-    api -->|ops.jobs SKIP LOCKED| worker
-    api -->|ops.commands idempotent + audit| live
-    worker --> pg
-    live --> pg
-    api --> pg
-    live <--> redis
-    api <--> redis
-    pg -. "byte-level parity verified against" .- oracle
+ uiplane -->|POST control / WS stream| api
+ api -->|ops.jobs SKIP LOCKED| worker
+ api -->|ops.commands idempotent + audit| live
+ worker --> pg
+ live --> pg
+ api --> pg
+ live <--> redis
+ api <--> redis
 
-    classDef db fill:#1d3b53,stroke:#4aa,color:#fff
-    class pg,redis db
+ classDef db fill:#1d3b53,stroke:#4aa,color:#fff
+ class pg,redis db
 ```
 
 ---
@@ -111,25 +108,25 @@ The system is layered so the deterministic core has zero I/O dependencies and
 all I/O is pushed to replaceable edge adapters.
 
 ```
-                       ┌─────────────────────────────────────────────┐
-   async edge          │                  sync core                  │   async edge
- (goroutines, I/O)     │        (single-writer, deterministic)       │  (goroutines, I/O)
-                       │                                             │
-  ┌──────────────┐     │   ┌──────────┐   ┌──────────┐   ┌────────┐  │     ┌──────────────┐
-  │  Data feed   │────▶│──▶│ strategy │──▶│ portfolio│──▶│  exec  │──│────▶│  Executor    │
-  │ (bars in)    │     │   │ (signals)│   │ (size/   │   │ (orders│  │     │ (Sim/Noop/   │
-  └──────────────┘     │   └──────────┘   │  risk)   │   │ /fills)│  │     │  Moomoo)     │
-                       │        ▲         └──────────┘   └────────┘  │     └──────────────┘
-   ┌─────────────┐     │        │              │            │        │     ┌──────────────┐
-   │ Clock       │────▶│   internal/core event loop (one goroutine)  │────▶│ Publisher    │
-   │ (Sim/Wall/  │     │        │              │            │        │     │ (Redis fan-  │
-   │  Virtual)   │     │        └──────────────┴────────────┘        │     │  out)        │
-   └─────────────┘     │                accounting / recorder        │     └──────────────┘
-                       └────────────────────┬────────────────────────┘
-                                            ▼
-                                  ┌────────────────────┐
-                                  │ Postgres/Timescale │  ← durable system of record
-                                  └────────────────────┘
+ ┌─────────────────────────────────────────────┐
+ async edge │ sync core │ async edge
+ (goroutines, I/O) │ (single-writer, deterministic) │ (goroutines, I/O)
+ │ │
+ ┌──────────────┐ │ ┌──────────┐ ┌──────────┐ ┌────────┐ │ ┌──────────────┐
+ │ Data feed │────▶│──▶│ strategy │──▶│ portfolio│──▶│ exec │──│────▶│ Executor │
+ │ (bars in) │ │ │ (signals)│ │ (size/ │ │ (orders│ │ │ (Sim/Noop/ │
+ └──────────────┘ │ └──────────┘ │ risk) │ │ /fills)│ │ │ Moomoo) │
+ │ ▲ └──────────┘ └────────┘ │ └──────────────┘
+ ┌─────────────┐ │ │ │ │ │ ┌──────────────┐
+ │ Clock │────▶│ internal/core event loop (one goroutine) │────▶│ Publisher │
+ │ (Sim/Wall/ │ │ │ │ │ │ │ (Redis fan- │
+ │ Virtual) │ │ └──────────────┴────────────┘ │ │ out) │
+ └─────────────┘ │ accounting / recorder │ └──────────────┘
+ └────────────────────┬────────────────────────┘
+ ▼
+ ┌────────────────────┐
+ │ Postgres/Timescale │ ← durable system of record
+ └────────────────────┘
 ```
 
 Package layering and dependency direction (enforced by `doc.go` rules in each
@@ -137,7 +134,7 @@ package):
 
 | Package | Role | May import |
 |---|---|---|
-| `internal/domain` | Core value types: `Bar`, `Signal`, `Order`, `Fill`, `Position`, fixed-point `Money`, enums, Python-compatible time. **Zero internal dependencies.** | (stdlib only) |
+| `internal/domain` | Core value types: `Bar`, `Signal`, `Order`, `Fill`, `Position`, fixed-point `Money`, enums, UTC time. **Zero internal dependencies.** | (stdlib only) |
 | `internal/core` | Cross-cutting primitives: `Event` types, the event bus, `Clock` abstraction, calendar helpers, error kinds. | `domain` |
 | `internal/indicators` | Technical indicators, bit-for-bit aligned with numpy/pandas (golden tests). | `domain` |
 | `internal/strategy` | `Strategy` interface + the four ported strategies (centralized-params). | `domain`, `core`, `indicators` |
@@ -172,7 +169,7 @@ selected per mode:
 | **live** | `WallClock` | streaming moomoo OpenD bar feed | `MoomooExecutor` (live account, gated) | Redis fan-out + PG | REAL money, 4-factor activation gate |
 
 Because the clock is an interface (`core.Clock`), the strategy and portfolio
-code is identical: a strategy reads `clock.Now()` whether that resolves to a
+code is identical: a strategy reads `clock.Now` whether that resolves to a
 simulated bar timestamp or the host wall clock. `VirtualClock` (a controllable
 wall clock) lets the live path be tested deterministically: a streaming run over
 a virtual clock advanced in lockstep with injected bars is reproducible
@@ -182,11 +179,11 @@ are the same engine.
 ### Clock seam
 
 - `SimClock` — advanced by the loop to each data point's `ts` before dispatch.
-  The Go analog of Nautilus's `TestClock`.
-- `WallClock` — `time.Now().UTC()`. The live counterpart; reports real time
-  instead of being advanced by the loop.
+ A deterministic backtest clock.
+- `WallClock` — `time.Now.UTC`. The live counterpart; reports real time
+ instead of being advanced by the loop.
 - `VirtualClock` — reports whatever instant it was last `Set` to, never reading
-  the host clock. The deterministic-test anchor for the live path.
+ the host clock. The deterministic-test anchor for the live path.
 
 ### What is IDENTICAL vs mode-specific (the precise seam)
 
@@ -206,7 +203,7 @@ These two consumers share the strategy/portfolio/context/warmup code and the
 loop drivers and are intentionally NOT merged into one hot-swappable engine**.
 `engine.Engine` owns its simulated venue (the concrete `*exec.SimExecutor`) and
 the batch **fill-timing** logic (`ProcessBar` / `FlushThisBar` / `FillAtBar`,
-`Model().Timing()`) that only the deterministic backtest needs; `livengine.Session`
+`Model.Timing`) that only the deterministic backtest needs; `livengine.Session`
 runs the live/paper **order lifecycle** behind an injected `engine.OrderSubmitter`
 and carries timestamp-rollover / heartbeat guards the batch path does not.
 Collapsing them would entangle the deterministic fill simulation with the live
@@ -236,10 +233,10 @@ production code). `TestFiveModesShareOneAssembly` builds ONE strategy set and
 threads the **identical instances** through `engine.New` (backtest + hyperopt)
 and `livengine.NewSession` (signal + paper + live), then asserts:
 
-- the batch path is driven by a `*core.SimClock` (`Engine.Clock()`);
+- the batch path is driven by a `*core.SimClock` (`Engine.Clock`);
 - the signal session owns the `NoopExecutor` while paper/live run strategies
-  through the **injected** `GatedSubmitter` (`Session.Submitter()` / `.Mode()`) —
-  i.e. the executor is the only streaming-mode difference.
+ through the **injected** `GatedSubmitter` (`Session.Submitter` / `.Mode`) —
+ i.e. the executor is the only streaming-mode difference.
 
 `TestStreamingClockSeamIsTheOnlyTimeDifference` then drives the same shared
 strategies through a `VirtualClock` replay and asserts the strategy instances
@@ -279,24 +276,24 @@ Per timestamp, the loop:
 
 1. Advances the clock to the bar's `ts` (`SimClock`) or reads wall time.
 2. Dispatches the bar to each strategy in registration order; strategies emit
-   signals.
+ signals.
 3. Routes signals through the portfolio allocator (capital budget) and risk
-   limits; sized orders are submitted to the executor.
+ limits; sized orders are submitted to the executor.
 4. The executor produces fills (deterministically: client order ids, venue order
-   ids, and trade ids derive from a monotonic counter seeded by the engine —
-   never from time or randomness).
+ ids, and trade ids derive from a monotonic counter seeded by the engine —
+ never from time or randomness).
 5. Fills flow into accounting; the recorder captures equity, trades, and metrics.
 
 Determinism guarantees:
 
 - **No wall-clock or RNG in the core.** Id generation is a monotonic sequence.
-- **Cross-symbol same-timestamp fills** are modelled exactly like Nautilus's
-  matching engine: a market order submitted while a second leg's bar is
-  dispatching fills at THIS timestamp's close, not one bar later (required for
-  multi-leg strategies such as Pairs).
-- **Two fill models** share the loop: the Nautilus-compat model reads the bar
-  close; the realistic model reads the next bar open. Selection does not change
-  the loop, only the `FillModel`.
+- **Cross-symbol same-timestamp fills**: a market order submitted while a
+ second leg's bar is
+ dispatching fills at THIS timestamp's close, not one bar later (required for
+ multi-leg strategies such as Pairs).
+- **Two fill models** share the loop: the close-fill model reads the bar
+ close; the realistic model reads the next bar open. Selection does not change
+ the loop, only the `FillModel`.
 
 The engine is fully context-aware: cancelling the context stops the loop
 cleanly with a graceful drain.
@@ -308,14 +305,14 @@ cleanly with a graceful drain.
 The deterministic core is single-goroutine; concurrency lives only at the edges.
 
 - **Edge → core (ingress):** the data feed is an async producer (in live mode a
-  goroutine reads the moomoo OpenD socket, decodes push frames, and enqueues
-  bars). The loop consumes from a queue, so the core never blocks on I/O and
-  never sees concurrency.
+ goroutine reads the moomoo OpenD socket, decodes push frames, and enqueues
+ bars). The loop consumes from a queue, so the core never blocks on I/O and
+ never sees concurrency.
 - **Core → edge (egress):** fills, orders, positions, and signal intents are
-  handed to the executor and publisher. The executor may perform network I/O
-  (moomoo) on its own; the publisher fans out to Redis. A publish failure is the
-  edge's to swallow — **it never affects the durable PG write or the loop**
-  (Postgres is truth, Redis is transport).
+ handed to the executor and publisher. The executor may perform network I/O
+ (moomoo) on its own; the publisher fans out to Redis. A publish failure is the
+ edge's to swallow — **it never affects the durable PG write or the loop**
+ (Postgres is truth, Redis is transport).
 
 This boundary is what makes the same loop usable in backtest (where the feed is
 a synchronous historical cursor) and live (where the feed is an async socket
@@ -349,17 +346,17 @@ The schema lives entirely in the `tms` schema, applied by embedded migrations
 What lives where:
 
 - **Market data** (`bars_daily`, `bars_intraday`, `fundamentals_sf1`,
-  `tickers`) — the Sharadar mirror, partitioned by Timescale on the `ts` column.
+ `tickers`) — the Sharadar mirror, partitioned by Timescale on the `ts` column.
 - **Research output** (`runs`, `run_metrics`, `equity_curves`, `trades`,
-  `hyperopt_*`) — backtest and hyperopt results. The DB is the source of truth;
-  the legacy `runs/{ts}/*.json` artifacts are written alongside only for parity
-  comparison and UI back-compat.
+ `hyperopt_*`) — backtest and hyperopt results. The DB is the source of truth;
+ the legacy `runs/{ts}/*.json` artifacts are written alongside only for
+ comparison and UI back-compat.
 - **Live state** (`sessions`, `orders`, `fills`, `positions`, `signal_intents`,
-  `reconciliation_reports`) — the durable live ledger. The cockpit reconstructs
-  its blotter from these tables on (re)connect and then follows Redis live.
+ `reconciliation_reports`) — the durable live ledger. The cockpit reconstructs
+ its blotter from these tables on (re)connect and then follows Redis live.
 - **Ops** (`jobs`, `commands`, `audit_log`, `app_config`) — the durable job
-  queue (claimed `FOR UPDATE SKIP LOCKED`, heartbeats, stale-claim recovery),
-  the control-command plane (halt/resume/kill/stop/set_mode), and the audit log.
+ queue (claimed `FOR UPDATE SKIP LOCKED`, heartbeats, stale-claim recovery),
+ the control-command plane (halt/resume/kill/stop/set_mode), and the audit log.
 
 Idempotency is enforced at the schema level where re-runs are expected: the EOD
 engine-replay UPSERTs `signal_intents` keyed by `(strategy_id, symbol, as_of)`,
@@ -373,41 +370,40 @@ Redis is **transport only**. It carries the hot mirror of durable PG state so
 the UI can follow live updates without polling Postgres:
 
 - Live topics: `data.OrderUpdate`, `data.FillUpdate`, `data.LivePositionUpdate`,
-  `data.AccountUpdate` — the hot mirror of `tms.{orders,fills,positions}` and the
-  account/buying-power snapshot.
+ `data.AccountUpdate` — the hot mirror of `tms.{orders,fills,positions}` and the
+ account/buying-power snapshot.
 - Signal topics: `data.SignalIntentUpdate` and the per-trader stream namespace
-  `trader-{id}:stream:*`.
+ `trader-{id}:stream:*`.
 
 Guarantees:
 
 - Every Redis message has a durable PG row behind it. The publish is best-effort
-  from the loop's perspective; **a publish failure never rolls back the PG write
-  and never stalls the engine.**
+ from the loop's perspective; **a publish failure never rolls back the PG write
+ and never stalls the engine.**
 - On (re)connect, a consumer (the cockpit, the API WS bridge) reconstructs full
-  state from Postgres, then attaches to the stream to follow forward. Losing
-  Redis loses no system state.
+ state from Postgres, then attaches to the stream to follow forward. Losing
+ Redis loses no system state.
 
 ---
 
 ## 7. The native moomoo OpenD client
 
 `internal/adapters/moomoo` is a **native** implementation of the FutuOpenD /
-moomoo wire protocol — there is no Python sidecar and no vendored SDK in the
+moomoo wire protocol — there is no language sidecar and no vendored SDK in the
 shipped image. It speaks the binary framing (header + SHA-1 + protobuf body)
 directly:
 
 - **Quote path (`Qot_*`):** `Qot_Sub`, `Qot_UpdateKL` push, `Qot_RequestHistoryKL`,
-  `Qot_GetKL`, `Qot_GetBasicQot`, `Qot_GetSubInfo`, plus `InitConnect`,
-  `GetGlobalState`, `KeepAlive`.
+ `Qot_GetKL`, `Qot_GetBasicQot`, `Qot_GetSubInfo`, plus `InitConnect`,
+ `GetGlobalState`, `KeepAlive`.
 - **Trade path (`Trd_*`):** account query, order submit/modify/cancel, position
-  and fill queries (paper and live environments).
+ and fill queries (paper and live environments).
 - **Reconnect + re-subscribe:** a transient disconnect transparently
-  re-establishes the connection and re-subscribes the active symbol set.
+ re-establishes the connection and re-subscribes the active symbol set.
 
-Protocol fidelity is **proven byte-exact** against the vendored Python moomoo
-SDK (see `docs/parity.md`): the Go client's encoded request frames are
-byte-for-byte identical to the SDK's `pack_pb_req` output, and the Go decoder
-parses SDK-encoded reply/push frames. The build gate and CI run entirely against
+Protocol fidelity is pinned by a golden conformance suite: the client's encoded
+request frames are byte-for-byte identical to captured reference frames, and the
+decoder parses captured reply/push frames. The build gate and CI run entirely against
 a **protocol-faithful mock OpenD** (`internal/adapters/moomoo/mock`) driven from
 the Postgres bars; the real-OpenD smoke is the only deferred item
 (`docs/runbooks/trade-smoke.md`).
@@ -416,7 +412,7 @@ The real-vs-mock switch is a single env var, `TMS_MOOMOO_ADDR`:
 
 - Gate / CI: the in-repo mock OpenD address.
 - Real OpenD: `host.docker.internal:11111` (OpenD runs on the host; the
-  container maps `host.docker.internal` to the gateway via `extra_hosts`).
+ container maps `host.docker.internal` to the gateway via `extra_hosts`).
 
 ---
 
@@ -427,7 +423,7 @@ The real-vs-mock switch is a single env var, `TMS_MOOMOO_ADDR`:
 
 1. A real broker account id — `TMS_MOOMOO_LIVE_ACC_ID`.
 2. The unlock password — `TMS_MOOMOO_UNLOCK_PASSWORD` (drives moomoo
-   `UnlockTrade`).
+ `UnlockTrade`).
 3. The typed confirmation phrase — `TMS_LIVE_CONFIRM`.
 4. The bound live trader id (`sessions.trader_id` / Redis namespace).
 
@@ -469,28 +465,22 @@ binds to directly. Contract: `internal/api/system_test.go`.
 
 ---
 
-## 10. Zero Python runtime dependency
+## 10. Zero language-runtime dependency
 
-The shipped system has **no Python at runtime**. Python (`trade-multi-strategies`
-+ its `.venv`) is the offline **parity oracle only**:
+The shipped system has **no interpreter at runtime** — a single static binary:
 
 - The production image is `gcr.io/distroless/static-debian12:nonroot` — a static
-  `tms` binary with no shell, no package manager, and no Python interpreter
-  (`Dockerfile`). `docker compose up` brings the whole system (postgres, redis,
-  migrate, `tmsgo-api`, `tmsgo-worker`, `tmsgo-ui`, and the `live` profile's
-  `tmsgo-live`) with zero Python containers.
-- No non-test Go file invokes Python or `os/exec` against an interpreter. The
-  only references to `.venv` are **comments** in `internal/adapters/moomoo`
-  citing the SDK source the wire format was ported from.
-- The parity harnesses that DO shell out to `PY/.venv` are **build-tagged** and
-  therefore excluded from the default `go test ./...` and from the image:
-  `//go:build parity` (`internal/parity`), `//go:build parity_folds` and
-  `//go:build parity_backtest` (`internal/hyperopt/study`). They run only when an
-  operator explicitly passes `-tags parity` against a checked-out Python repo.
-- `internal/app/deployguard_test.go` pins the two host-level safety properties
-  (no `container_name` collision with the Python reference stack; `.dockerignore`
-  excludes `tmp/` parity dumps, `.env*`, and `bin/`).
+ `tms` binary with no shell, no package manager, and no interpreter
+ (`Dockerfile`). `docker compose up` brings the whole system (postgres, redis,
+ migrate, `tmsgo-api`, `tmsgo-worker`, `tmsgo-ui`, and the `live` profile's
+ `tmsgo-live`) with zero interpreter containers.
+- No non-test Go file invokes an interpreter via `os/exec`.
+- The correctness gates are committed golden fixtures replayed by the default
+ `go test ./...`; nothing in the gate path or the image depends on an external
+ interpreter.
+- `internal/app/deployguard_test.go` pins host-level safety properties
+ (no `container_name` collisions; `.dockerignore` excludes `tmp/` dumps,
+ `.env*`, and `bin/`).
 
-The net: the parity oracle gates correctness during development, but nothing in
-the shipped artifact — image, default test suite, or running services — depends
-on a Python runtime.
+The net: nothing in the shipped artifact — image, default test suite, or running
+services — depends on a language runtime.

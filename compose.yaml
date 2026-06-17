@@ -74,10 +74,9 @@ services:
   # Placeholders — enabled in later build phases (profile: app).
   # Reserved host ports: api 18080, ui 13000.
   #
-  # container_name is global per Docker host. The Python reference stack
-  # (trade-multi-strategies) already runs containers literally named
-  # `tms-api` and `tms-ui` on this machine, so the app-profile services
-  # use the `tmsgo-` prefix to never collide with the reference stack.
+  # container_name is global per Docker host. A separate stack may already run
+  # containers literally named `tms-api` and `tms-ui` on this machine, so the
+  # app-profile services use the `tmsgo-` prefix to avoid collisions.
   # ---------------------------------------------------------------------
 
   # UI-facing HTTP + WebSocket API (P1; contract: docs/api.md). REST for data
@@ -159,8 +158,8 @@ services:
   #
   # The Sharadar parquet cache is mounted read-only at /data/sharadar for
   # 'data.refresh' source=parquet backfills; point TMS_SHARADAR_CACHE_DIR
-  # (in .env) at the cache root produced by the Python reference, else the
-  # default ./cache/sharadar is used (auto-created empty if absent).
+  # (in .env) at the cache root, else the default ./cache/sharadar is used
+  # (auto-created empty if absent).
   tmsgo-worker:
     build:
       context: .
@@ -223,8 +222,8 @@ services:
   #
   # The NASDAQ_DATA_LINK_API_KEY is NOT needed here — the scheduler only
   # enqueues jobs; the WORKER (tmsgo-worker) holds the key and runs the actual
-  # Nasdaq Data Link sync. It is passed through (env_file .env) only for parity
-  # / future inline modes and is never logged or baked into the image.
+  # Nasdaq Data Link sync. It is passed through (env_file .env) only for
+  # future inline modes and is never logged or baked into the image.
   #
   # Healthcheck: the distroless image execs `tms scheduler --health`, which
   # GETs the scheduler's own loopback /healthz (TMS_SCHEDULER_HEALTH_ADDR,

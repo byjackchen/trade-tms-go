@@ -12,7 +12,7 @@ package universe
 
 import "math"
 
-// Trend-template constants (trend_template.py:37-40 [MUST-MATCH]).
+// Trend-template constants.
 const (
 	// DefaultMarketCapMinUSD is rule 8's default threshold.
 	DefaultMarketCapMinUSD = 500_000_000.0
@@ -24,8 +24,8 @@ const (
 	lowPremium = 0.30
 )
 
-// RuleNames are the Python dataclass field names of the 8 rules, reused as
-// snapshot member "reasons" (rank order = rule order).
+// RuleNames are the field names of the 8 rules, reused as snapshot member
+// "reasons" (rank order = rule order).
 var RuleNames = [8]string{
 	"rule_1_close_gt_ma50",
 	"rule_2_close_gt_ma150",
@@ -86,16 +86,14 @@ func (r TrendTemplateResult) PassingRuleNames() []string {
 }
 
 // EvaluateTrendTemplate evaluates the 8 Minervini criteria over parallel
-// high/low/close series (oldest first), replicating
-// trend_template.evaluate (spec §3.5 [MUST-MATCH]):
+// high/low/close series (oldest first) (spec §3.5):
 //
 //   - n < 200 bars: rules 1-7 false, rule 8 still evaluated; diagnostics
 //     zeroed except Close (last close, or 0 when n == 0).
-//   - n >= 200: MAs are pandas rolling means; the 52-week levels use the
+//   - n >= 200: MAs are simple rolling means; the 52-week levels use the
 //     252-bar rolling max/min (NaN until a full clean window exists) with
 //     a full-history skip-NaN fallback.
-//   - All comparisons are plain float64; NaN compares false, exactly as in
-//     Python.
+//   - All comparisons are plain float64; NaN compares false.
 func EvaluateTrendTemplate(highs, lows, closes []float64, marketCapUSD, marketCapMinUSD float64) TrendTemplateResult {
 	n := len(closes)
 	if n < 200 {

@@ -108,7 +108,7 @@ func TestIncrementalMatchesBatch(t *testing.T) {
 			// SMA/Std use a running accumulator (O(1) update), so they
 			// match the per-window batch recompute only within float
 			// tolerance on long drifting streams — that is the documented
-			// trade-off; the batch form remains the pandas-parity golden.
+			// trade-off; the batch form remains the golden.
 			eqClose(t, "SMA "+ctx, streamSMA(x, w), SMA(x, w))
 			eqExact(t, "Max "+ctx, streamMax(x, w), RollingMax(x, w))
 			eqExact(t, "Min "+ctx, streamMin(x, w), RollingMin(x, w))

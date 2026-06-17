@@ -23,8 +23,8 @@ function fmt(v: unknown): string {
 
 /**
  * Promotion confirmation dialog. Shows which strategy's active_params change and
- * the from→to diff per param, then POSTs the promotion (this replaces the Python
- * git-review gate). `joint` studies promote every sub-strategy; the dialog notes
+ * the from→to diff per param, then POSTs the promotion (a confirmation gate).
+ * `joint` studies promote every sub-strategy; the dialog notes
  * that and shows the trial's params (the server maps them per sub-strategy).
  */
 export function PromoteDialog({

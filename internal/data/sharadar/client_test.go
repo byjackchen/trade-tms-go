@@ -1,10 +1,9 @@
 package sharadar
 
 // client_test.go exercises the Nasdaq Data Link client against httptest
-// servers speaking the datatables wire format (the same JSON the Python
-// SDK consumes; fixture shape per spec §3.1 and the production API:
-// datatable.data precedes datatable.columns, meta.next_cursor_id drives
-// pagination).
+// servers speaking the datatables wire format (fixture shape per spec §3.1
+// and the production API: datatable.data precedes datatable.columns,
+// meta.next_cursor_id drives pagination).
 
 import (
 	"context"
@@ -180,8 +179,8 @@ func TestGetTableGivesUpAfterFourAttempts(t *testing.T) {
 	c := newTestClient(t, srv)
 	_, err := c.GetTable(context.Background(), "SHARADAR/SEP", nil, func(Row) error { return nil })
 	require.Error(t, err)
-	// MUST-MATCH: exactly 4 underlying calls and the "failed after" message
-	// shape (spec §3.1; test_sharadar_client.py:124-133).
+	// Contract: exactly 4 underlying calls and the "failed after" message
+	// shape (spec §3.1).
 	assert.Equal(t, int64(4), calls.Load())
 	assert.Contains(t, err.Error(), "failed after 4 retries")
 	assert.Contains(t, err.Error(), "HTTP 500")
@@ -269,7 +268,7 @@ func TestStateSummaryShapeAndCacheHits(t *testing.T) {
 	require.NoError(t, err)
 
 	sum := c.StateSummary()
-	// Exact key set parity (spec §3.1).
+	// Exact key set (spec §3.1).
 	for _, k := range []string{"source", "fetch_count", "cache_hit_count", "cache_miss_count",
 		"last_fetch_ts", "last_fetch_ts_ns", "quota_used_today"} {
 		_, ok := sum[k]
@@ -391,7 +390,7 @@ func TestRowAccessors(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, 3.25, sn)
 
-	// Empty string coerces to no-date (pandas errors="coerce" parity).
+	// Empty string coerces to no-date (coerce-on-error).
 	r2 := Row{cols: map[string]int{"d": 0}, vals: []any{""}}
 	_, ok = r2.Date("d")
 	assert.False(t, ok)

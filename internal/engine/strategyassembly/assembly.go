@@ -19,8 +19,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/strategy/sepaadapter"
 )
 
-// Canonical engine strategy ids (the allocator keys; mirror
-// strategy_assembly.py:_build_strategies / multi_strategy_backtest.py).
+// Canonical engine strategy ids (the allocator keys).
 const (
 	IDSEPA   = "SEPA-UNIVERSE-001"
 	IDSector = "SectorRotation-001"
@@ -126,8 +125,8 @@ type Assembly struct {
 
 // BindEquity binds the late equity holder to the engine's live account equity.
 // Call AFTER engine.New and BEFORE eng.Run so every generator's sizing reflects
-// the running book (mirroring the Python equity_provider reading the venue
-// account). Safe to call once.
+// the running book (the equity provider reads the venue account). Safe to call
+// once.
 func (a *Assembly) BindEquity(eng *engine.Engine) {
 	if a.equity != nil && eng != nil {
 		a.equity.bind(eng.EquityFloat)
@@ -334,7 +333,7 @@ func buildPairs(p params.PairsParams, eq *LiveEquity) (engine.Strategy, []string
 		return nil, nil, fmt.Errorf("strategyassembly: pairs adapter: %w", err)
 	}
 	// Pair legs are the instruments to register (deduped, sorted for stable
-	// registration), mirroring multi_strategy_backtest.py's pair_tickers.
+	// registration).
 	legSet := make(map[string]struct{}, 2*len(prs))
 	for _, pr := range prs {
 		legSet[pr.LongLeg] = struct{}{}

@@ -2,7 +2,7 @@
  * (1) Backtest launch flow.
  *
  * Open the New-backtest dialog, fill a small scripted backtest (two seeded/real
- * tickers, ~3-month window, nautilus-compat fill profile, one LONG intent),
+ * tickers, ~3-month window, close-fill fill profile, one LONG intent),
  * submit, then watch the shared job-progress panel transition running ->
  * succeeded purely through the UI (the worker drives it; the tracker reconciles
  * over the WS/SSE job stream + REST poll). Finally follow the detail link to
@@ -81,18 +81,18 @@ test.describe("backtest launch flow", () => {
     await expect(page.getByTestId("backtest-form")).toBeVisible();
 
     // 2. Fill the scripted backtest: two tickers, the covered window, the
-    //    parity (zero-cost) fill profile.
+    //    close-fill (zero-cost) fill profile.
     await page
       .getByTestId("backtest-tickers")
       .fill(launch.tickers.join(" "));
     await page.getByTestId("backtest-start").fill(launch.start);
     await page.getByTestId("backtest-end").fill(launch.end);
-    // The fill profile is a select with the nautilus-compat option as default,
-    // but set it explicitly so the run is deterministic regardless of default.
+    // The fill profile defaults to realistic; set close-fill explicitly so the
+    // run is deterministic (same-bar close fill) regardless of default.
     const profile = page.getByTestId("backtest-fill-profile");
     if (await profile.count()) {
-      await profile.selectOption("nautilus-compat").catch(() => {
-        /* default already nautilus-compat; some builds render it read-only. */
+      await profile.selectOption("close-fill").catch(() => {
+        /* some builds render it read-only. */
       });
     }
 

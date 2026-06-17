@@ -32,7 +32,7 @@ func newImportCmd(env *runtimeEnv) *cobra.Command {
 }
 
 // newImportSharadarCmd implements `tms import sharadar`: bulk-load the
-// Python reference's cache/sharadar parquet layout (TICKERS, SEP, SFP, SF1,
+// supported cache/sharadar parquet layout (TICKERS, SEP, SFP, SF1,
 // EVENTS) into TimescaleDB with idempotent upsert semantics. See
 // internal/data/sharadar for the conversion and merge contracts.
 func newImportSharadarCmd(env *runtimeEnv) *cobra.Command {
@@ -49,10 +49,10 @@ func newImportSharadarCmd(env *runtimeEnv) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sharadar",
 		Short: "Import the Sharadar parquet cache (TICKERS/SEP/SFP/SF1/EVENTS) into TimescaleDB",
-		Long: "Reads the Python reference repo's cache/sharadar parquet layout and\n" +
+		Long: "Reads the supported cache/sharadar parquet layout and\n" +
 			"bulk-loads it into TimescaleDB (pgx CopyFrom into a staging temp table,\n" +
-			"then INSERT ... ON CONFLICT merges — idempotent, 'new rows win' parity\n" +
-			"with the Python writers). Float prices become int64 1e-4 fixed point via\n" +
+			"then INSERT ... ON CONFLICT merges — idempotent, 'new rows win'\n" +
+			"semantics). Float prices become int64 1e-4 fixed point via\n" +
 			"the Decimal(str(x)) half-even bridge; NaN maps to NULL.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

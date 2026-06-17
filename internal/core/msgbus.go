@@ -2,8 +2,8 @@ package core
 
 // msgbus.go is the in-process publish/subscribe seam that lets accounting,
 // samplers and recorders observe fills and account-state without the loop
-// knowing about them. It mirrors the role of Nautilus's MessageBus inside the
-// single-threaded backtest: synchronous, ordered, in-goroutine delivery.
+// knowing about them. Inside the single-threaded backtest it provides
+// synchronous, ordered, in-goroutine delivery.
 //
 // Determinism: subscribers receive messages in publish order, and for one
 // message in subscription (registration) order. There is no concurrency and no
@@ -33,8 +33,8 @@ type BarObserver interface {
 }
 
 // AccountState is the post-mutation account snapshot emitted on every
-// balance-affecting settlement, mirroring Nautilus's AccountState event
-// (spec §7.5). Total is the base-currency (USD) balance after the mutation;
+// balance-affecting settlement (spec §7.5). Total is the base-currency (USD)
+// balance after the mutation;
 // Free equals Total for the zero-margin equity instrument; TS is the causal
 // event's timestamp (the fill/bar ts).
 type AccountState struct {

@@ -31,7 +31,7 @@ func NetPositionVia(sub OrderSubmitter, strategyID, symbol string) domain.Qty {
 // closing side (no order when already flat), submits the abs-qty close through
 // the UNGATED SubmitMarket primitive (closes always proceed), and reports whether
 // an order was placed. reasonFor receives the signed net so each adapter can
-// build its own reason string (the reference reason strings embed the closed
+// build its own reason string (the reason strings embed the closed
 // quantity). It returns any submit error.
 //
 // This is the byte-identical FLAT-close path the four adapters shared; the only

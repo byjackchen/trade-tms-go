@@ -1,14 +1,12 @@
-// Package pairs is the Go port of the Python Pairs SignalGenerator
-// (src/strategies/pairs/signal.py) — statistical mean-reversion on the price
-// spread of two co-moving equities.
+// Package pairs is the Pairs SignalGenerator — statistical mean-reversion on
+// the price spread of two co-moving equities.
 //
-// Parity contract (docs/spec/strategy-pairs.md):
+// Numerical contract (docs/spec/strategy-pairs.md):
 //
-//   - Numerical semantics match the Python reference EXACTLY: OLS hedge ratio,
-//     population (ddof=0) spread std, strict z-score thresholds, floor sizing,
-//     and the FLAT/LONG_SPREAD/SHORT_SPREAD state machine. All float math is
-//     float64 mirroring CPython's statistics module; the spread/z window
-//     INCLUDES the current bar's close (signal at the close of bar t; §7.3).
+//   - OLS hedge ratio, population (ddof=0) spread std, strict z-score
+//     thresholds, floor sizing, and the FLAT/LONG_SPREAD/SHORT_SPREAD state
+//     machine. All float math is float64; the spread/z window INCLUDES the
+//     current bar's close (signal at the close of bar t; §7.3).
 //   - Multi-symbol bar synchronization: a pair is evaluated only when BOTH
 //     legs carry a bar at the current bar's UTC date (the look-ahead guard,
 //     §6.2). Bookkeeping (history/last_close/last_bar_date) advances
@@ -21,5 +19,5 @@
 // The generator plugs into the internal/core deterministic event loop via the
 // engine Strategy seam through an adapter (adapter.go): on_bar emits Signals,
 // which the adapter translates to market orders (LONG->BUY, SHORT->SELL,
-// FLAT->close net position) exactly like the Python nautilus_runner.
+// FLAT->close net position).
 package pairs

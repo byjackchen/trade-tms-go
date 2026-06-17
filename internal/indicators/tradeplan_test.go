@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// Tests for the TMS-enhancement actionable trade-plan + cross-sectional RS-rank
-// primitives (relstrength.go, tradeplan.go). These are NOT in the Python SEPA
-// reference; the parity golden test covers the diverged intent wiring separately.
+// Tests for the actionable trade-plan + cross-sectional RS-rank primitives
+// (relstrength.go, tradeplan.go). The golden test covers the signal wiring
+// separately.
 
 func TestSwingHighPivotAndLowStop(t *testing.T) {
 	high := []float64{10, 11, 9, 13, 12, 8, 14, 10, 11, 12, 99}

@@ -1,14 +1,15 @@
 package moomoo
 
-// protocol.go replicates the moomoo / FutuOpenD wire framing EXACTLY as the
-// vendored Python SDK does it, so that bytes produced here are
-// byte-for-byte identical to the bytes the Python SDK puts on the wire.
+// protocol.go implements the moomoo / FutuOpenD wire framing EXACTLY, so that
+// bytes produced here are byte-for-byte identical to the bytes the moomoo
+// OpenD expects on the wire.
 //
-// AUTHORITATIVE SOURCE (vendored, read-only):
-//   .venv/.../moomoo/common/constant.py     — MESSAGE_HEAD_FMT, API_PROTO_VER, ProtoFMT, ProtoId
-//   .venv/.../moomoo/common/utils.py        — _joint_head / parse_head / parse_rsp
+// PROTOCOL REFERENCE (the moomoo OpenD wire contract; constants cross-checked
+// against the vendored moomoo SDK):
+//   moomoo/common/constant.py     — MESSAGE_HEAD_FMT, API_PROTO_VER, ProtoFMT, ProtoId
+//   moomoo/common/utils.py        — _joint_head / parse_head / parse_rsp
 //
-// Header layout (Python struct fmt "<1s1sI2B2I20s8s", little-endian):
+// Header layout (struct fmt "<1s1sI2B2I20s8s", little-endian):
 //
 //	offset size field
 //	0      1    magic[0] = 'F'
@@ -25,10 +26,10 @@ package moomoo
 // Total header length = 44 bytes.
 //
 // Encryption: for a localhost OpenD with no RSA key file configured
-// (SysConfig.INIT_RSA_FILE == '') the SDK sends ALL bodies, including
+// (SysConfig.INIT_RSA_FILE == '') OpenD sends ALL bodies, including
 // InitConnect, in the clear. P5 targets localhost only, so this package
 // implements the unencrypted path; the SHA-1 is still computed over the
-// (cleartext) body, exactly as the SDK does.
+// (cleartext) body, as the protocol requires.
 
 import (
 	"crypto/sha1"
@@ -37,18 +38,18 @@ import (
 	"fmt"
 )
 
-// Wire framing constants, mirroring constant.py.
+// Wire framing constants (moomoo OpenD protocol).
 const (
 	// HeaderLen is the fixed on-wire header size in bytes (struct.calcsize of
 	// MESSAGE_HEAD_FMT == 44).
 	HeaderLen = 44
 
-	// protoFmtProtobuf is ProtoFMT.Protobuf (constant.py:220 ff). P5 always
-	// uses protobuf; JSON (=1) is defined for completeness but unused.
+	// protoFmtProtobuf is ProtoFMT.Protobuf. P5 always uses protobuf; JSON (=1)
+	// is defined for completeness but unused.
 	protoFmtProtobuf uint8 = 0
 	protoFmtJSON     uint8 = 1
 
-	// apiProtoVer is API_PROTO_VER (constant.py:237) — always 0.
+	// apiProtoVer is API_PROTO_VER — always 0.
 	apiProtoVer uint8 = 0
 )
 
@@ -56,9 +57,9 @@ const (
 var magic = [2]byte{'F', 'T'}
 
 // ProtoID enumerates the moomoo protocol command ids used by P5
-// (market-data + session only). Values are copied verbatim from
-// constant.py's ProtoId class. Trd_* (trading) ids are intentionally
-// absent — trading is deferred to P6.
+// (market-data + session only). Values are the moomoo OpenD ProtoId
+// constants. Trd_* (trading) ids are intentionally absent — trading is
+// deferred to P6.
 type ProtoID uint32
 
 const (
@@ -74,8 +75,8 @@ const (
 	ProtoQotUpdateKL         ProtoID = 3007 // PUSH: real-time K-line
 	ProtoQotRequestHistoryKL ProtoID = 3103 // pull historical K-line (paged)
 
-	// Trd_* (trading) protocol ids, copied verbatim from constant.py's ProtoId
-	// class. These drive the P6 native trading client + mock trading venue.
+	// Trd_* (trading) protocol ids from the moomoo OpenD ProtoId set. These
+	// drive the P6 native trading client + mock trading venue.
 	ProtoTrdGetAccList       ProtoID = 2001 // list trading accounts
 	ProtoTrdUnlockTrade      ProtoID = 2005 // unlock/lock trade (live only)
 	ProtoTrdGetFunds         ProtoID = 2101 // account funds / buying power
@@ -152,7 +153,7 @@ var ErrShortHeader = errors.New("moomoo: short header (< 44 bytes)")
 var ErrBadMagic = errors.New("moomoo: bad frame magic (expected 'FT')")
 
 // ErrSHAMismatch is returned when a received body's SHA-1 does not match the
-// header — mirrors decrypt_rsp_body's "check sha error" guard.
+// header — the protocol's "check sha error" guard.
 var ErrSHAMismatch = errors.New("moomoo: body SHA-1 mismatch")
 
 // EncodeFrame builds a complete on-wire frame (header || body) for the given

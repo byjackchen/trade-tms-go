@@ -72,16 +72,16 @@ func TestBarJSONRoundTrip(t *testing.T) {
 func TestNewSignalDefaults(t *testing.T) {
 	s := NewSignal("AAPL", testTS, SideLong, 150, "SEPA A+ :: ...")
 	if s.Confidence != 1.0 {
-		t.Errorf("default confidence = %v, want 1.0 (Python default)", s.Confidence)
+		t.Errorf("default confidence = %v, want 1.0", s.Confidence)
 	}
 	if s.Grade != nil || s.StopPrice != nil {
-		t.Error("Grade/StopPrice must default to nil (Python None)")
+		t.Error("Grade/StopPrice must default to nil")
 	}
 	if err := s.Validate(); err != nil {
 		t.Errorf("valid signal rejected: %v", err)
 	}
 
-	// ORB edge case [MUST-MATCH §2.3]: FLAT may carry the held qty, not 0.
+	// ORB edge case (§2.3): FLAT may carry the held qty, not 0.
 	flat := NewSignal("TSLA", testTS, SideFlat, 80, "EOD exit at 15:55")
 	if err := flat.Validate(); err != nil {
 		t.Errorf("ORB-style FLAT with held qty rejected: %v", err)
@@ -132,7 +132,7 @@ func TestSignalJSONRoundTrip(t *testing.T) {
 		t.Errorf("optional fields lost: %+v", back)
 	}
 
-	// nil optionals serialize as null (Python None) and round-trip to nil.
+	// nil optionals serialize as null and round-trip to nil.
 	s2 := NewSignal("KO", testTS, SideFlat, 0, "close")
 	raw2, _ := json.Marshal(s2)
 	if !strings.Contains(string(raw2), `"grade":null`) || !strings.Contains(string(raw2), `"stop_price":null`) {
@@ -190,7 +190,7 @@ func TestIntentDefaults(t *testing.T) {
 	pairs := NewPairsSignalIntent()
 	if pairs.StrategyID != "pairs" || pairs.LegRole != LegLong ||
 		pairs.ZEntryThreshold != 2.0 || pairs.ZExitThreshold != 0.5 ||
-		pairs.HedgeRatio != 1.0 || pairs.HalfLifeDays != 0.0 || pairs.PairID != "" {
+		pairs.HedgeRatio != 1.0 || pairs.PairID != "" {
 		t.Errorf("Pairs defaults wrong: %+v", pairs)
 	}
 	rot := NewSectorRotationIntent()
@@ -198,7 +198,7 @@ func TestIntentDefaults(t *testing.T) {
 		t.Errorf("Rotation defaults wrong: %+v", rot)
 	}
 	orb := NewIntradayBreakoutIntent()
-	if orb.StrategyID != "intraday_breakout" || orb.ORBHigh != nil || orb.ATRAtOpen != nil || orb.EntryWindowEnd != nil {
+	if orb.StrategyID != "intraday_breakout" || orb.ORBHigh != nil || orb.EntryWindowEnd != nil {
 		t.Errorf("ORB defaults wrong: %+v", orb)
 	}
 }
@@ -222,7 +222,7 @@ func TestIntentJSONShape(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 	// Shared fields come first (embedded struct), strategy fields follow —
-	// mirroring Python dataclass declaration order.
+	// the declaration order of the struct.
 	s := string(raw)
 	for _, frag := range []string{
 		`"symbol":"AAPL"`, `"state":"buy"`, `"strength":87.5`,
@@ -252,7 +252,7 @@ func TestStrengthFromZ(t *testing.T) {
 		z, want float64
 	}{
 		{0, 0}, {1.5, 50}, {3.0, 100}, {4.5, 100}, {-1.5, 50}, {-6, 100},
-		{0.3, 10.0}, // verified bit-exact against the reference CPython
+		{0.3, 10.0}, // verified bit-exact (cross-platform deterministic)
 	}
 	for _, tt := range tests {
 		if got := StrengthFromZ(tt.z); got != tt.want {
@@ -273,7 +273,7 @@ func TestStrengthFromRank(t *testing.T) {
 		{0, 0, 0.0},
 		{11, 11, 0.0}, // rank >= total
 		{12, 11, 0.0},
-		{2, 11, 90.0}, // 100 - 1/10*100; verified bit-exact against CPython
+		{2, 11, 90.0}, // 100 - 1/10*100; verified bit-exact (cross-platform)
 		{6, 11, 50.0},
 		{10, 11, 10.0},
 		{2, 3, 50.0},
@@ -340,7 +340,7 @@ func TestFill(t *testing.T) {
 		Side:          OrderSideBuy,
 		Qty:           150,
 		Price:         MustPrice("101.2345"), // 4-dp adapter price held exactly
-		Commission:    0,                     // zero in backtest [MUST-MATCH §7.1]
+		Commission:    0,                     // zero in backtest (§7.1)
 		TS:            testTS,
 	}
 	if err := f.Validate(); err != nil {

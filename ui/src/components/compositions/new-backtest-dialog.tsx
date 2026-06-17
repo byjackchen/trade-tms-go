@@ -136,7 +136,7 @@ export function NewBacktestDialog({
   const [start, setStart] = useState("2024-01-02");
   const [end, setEnd] = useState("2024-12-31");
   const [balance, setBalance] = useState("100000");
-  const [fillProfile, setFillProfile] = useState<FillProfile>("nautilus-compat");
+  const [fillProfile, setFillProfile] = useState<FillProfile>("realistic");
   const [kind, setKind] = useState("composition-backtest");
   const [intentsText, setIntentsText] = useState(PRESET_INTENTS);
   const [slippageBps, setSlippageBps] = useState("1");
@@ -445,8 +445,8 @@ export function NewBacktestDialog({
                 onChange={(e) => setFillProfile(e.target.value as FillProfile)}
                 data-testid="backtest-fill-profile"
               >
-                <option value="nautilus-compat">nautilus-compat (parity)</option>
                 <option value="realistic">realistic (slippage + next-open)</option>
+                <option value="close-fill">close-fill (same-bar close, zero cost)</option>
               </Select>
             </div>
           </div>

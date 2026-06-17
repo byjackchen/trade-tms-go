@@ -48,9 +48,8 @@ func NewStoreFeed(store *universe.Store) *StoreFeed { return &StoreFeed{store: s
 
 // Load reads each ticker's daily bars and wrangles them to domain.Bars. Ticker
 // order is preserved as registration order. Bars with NaN prices/volume (source
-// NULL) are skipped — they cannot be a valid OHLC bar — mirroring the
-// reference, which would drop such rows before reaching Nautilus. Each
-// instrument's bars are sorted ascending by ts.
+// NULL) are skipped — they cannot be a valid OHLC bar and are dropped before
+// reaching the engine. Each instrument's bars are sorted ascending by ts.
 func (f *StoreFeed) Load(ctx context.Context, tickers []string, start, end calendar.Date) ([]InstrumentBars, error) {
 	out := make([]InstrumentBars, 0, len(tickers))
 	for _, ticker := range tickers {
@@ -121,7 +120,7 @@ func wrangle(symbol string, r universe.OHLCV) (domain.Bar, error) {
 	return bar, nil
 }
 
-// SliceFeed is an in-memory feed for tests and the parity harness: it returns a
+// SliceFeed is an in-memory feed for tests and the golden harness: it returns a
 // fixed set of instrument series in the given order (= registration order).
 type SliceFeed struct {
 	Instruments []InstrumentBars

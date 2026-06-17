@@ -12,9 +12,9 @@ import (
 
 // NewLogger builds the process logger.
 //
-// level accepts zerolog names (debug/info/warn/error/fatal) and, for parity
-// with the Python reference's TMS_LOG_LEVEL, Python logging names
-// (DEBUG/INFO/WARNING/ERROR/CRITICAL), case-insensitively. An unknown level
+// level accepts zerolog names (debug/info/warn/error/fatal) and the uppercase
+// syslog-style names (DEBUG/INFO/WARNING/ERROR/CRITICAL) that TMS_LOG_LEVEL
+// also recognizes, case-insensitively. An unknown level
 // is an error — fail loud at startup rather than silently logging at the
 // wrong level.
 //
@@ -58,7 +58,7 @@ func stderrIsTerminal() bool {
 	return info.Mode()&os.ModeCharDevice != 0
 }
 
-// parseLevel maps both zerolog-style and Python-logging-style level names
+// parseLevel maps both zerolog-style and uppercase syslog-style level names
 // to a zerolog.Level.
 func parseLevel(level string) (zerolog.Level, error) {
 	switch strings.ToLower(strings.TrimSpace(level)) {

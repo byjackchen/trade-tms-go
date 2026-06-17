@@ -3,15 +3,15 @@
 package universe
 
 // End-to-end test against the compose stack (postgres:55432) holding the
-// 48-ticker P0 import subset (see tmp/gen_universe_ref.py; import via
+// 48-ticker P0 import subset, imported via
 //
 //	bin/tms import sharadar --tables tickers,sep,sfp --tickers <subset> --since 2024-01-01
 //	bin/tms import sharadar --tables sf1,events     --tickers <subset>
 //
-// with the reference repo cache). It verifies the FULL pipeline — PG window
+// It verifies the FULL pipeline — PG window
 // universe, fixed-point bar round-trip, market caps, screener ranking,
-// cap, snapshot persist + readers — against the same Python-generated
-// golden as the hermetic tests. Run: make itest.
+// cap, snapshot persist + readers — against the same golden fixture as the
+// hermetic tests. Run: make itest.
 
 import (
 	"context"
@@ -179,7 +179,7 @@ func TestIntegrationUniversePipeline(t *testing.T) {
 	t.Run("build-uncapped-backtest", func(t *testing.T) {
 		res, err := builder.Build(ctx, BuildParams{Now: now, Uncapped: true, Kind: KindBacktest, TopK: 5})
 		require.NoError(t, err)
-		assert.Equal(t, g.Universe, res.Tickers, "backtest parity: no cap")
+		assert.Equal(t, g.Universe, res.Tickers, "backtest path: no cap")
 		assert.Len(t, res.Candidates, 5)
 		assert.Equal(t, g.TopK[0].InstrumentID, res.Candidates[0].InstrumentID)
 	})

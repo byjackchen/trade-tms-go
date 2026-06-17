@@ -4,16 +4,14 @@ package domain
 //
 //   Price — per-share price, int64 fixed point at 1e-4 (4 decimal places).
 //   Money — monetary amount (USD), int64 fixed point at 1e-4.
-//   Qty   — whole signed share count (positive long, negative short, 0 flat),
-//           mirroring the Python convention in src/portfolio/types.py.
+//   Qty   — whole signed share count (positive long, negative short, 0 flat).
 //
 // All three are immutable value types (methods take value receivers and
 // return new values). Arithmetic is overflow-checked and returns errors —
 // never panics, never silent wraparound.
 //
 // JSON encoding round-trips exactly:
-//   - Price/Money marshal as canonical decimal strings ("123.45"), the same
-//     shape Python produces via json.dumps(..., default=str) on Decimal.
+//   - Price/Money marshal as canonical decimal strings ("123.45").
 //     Unmarshal accepts either a JSON string or a raw JSON number token; the
 //     token text is parsed exactly as a decimal (never through float64).
 //   - Qty marshals as a JSON number (shares are integers).
@@ -54,9 +52,9 @@ func MustPrice(s string) Price {
 	return p
 }
 
-// PriceFromFloat64 converts a float64 with the Python Decimal(str(x)) bridge
-// semantics: shortest-repr decimal digits, then quantized to 4 decimals
-// rounding half-to-even (Python decimal default ROUND_HALF_EVEN; see fixed.go).
+// PriceFromFloat64 converts a float64 via the decimal-string bridge:
+// shortest-repr decimal digits, then quantized to 4 decimals rounding
+// half-to-even (ROUND_HALF_EVEN; see fixed.go).
 func PriceFromFloat64(f float64) (Price, error) {
 	n, err := fixed4FromFloat(f)
 	if err != nil {
@@ -77,8 +75,7 @@ func PriceFromInt(units int64) (Price, error) {
 // Raw returns the underlying 1e-4 unit count.
 func (p Price) Raw() int64 { return int64(p) }
 
-// Float64 returns the nearest float64, correctly rounded in a single step
-// (matches Python float(Decimal) exactly).
+// Float64 returns the nearest float64, correctly rounded in a single step.
 func (p Price) Float64() float64 { return fixed4ToFloat(int64(p)) }
 
 // String renders the canonical decimal form: trailing zeros trimmed, no
@@ -232,8 +229,7 @@ func MoneyFromInt(units int64) (Money, error) {
 // Raw returns the underlying 1e-4 unit count.
 func (m Money) Raw() int64 { return int64(m) }
 
-// Float64 returns the nearest float64, correctly rounded in a single step
-// (matches Python float(Decimal) exactly).
+// Float64 returns the nearest float64, correctly rounded in a single step.
 func (m Money) Float64() float64 { return fixed4ToFloat(int64(m)) }
 
 // String renders the canonical decimal form (see Price.String).
@@ -336,7 +332,7 @@ func (m *Money) UnmarshalJSON(b []byte) error {
 // ---------------------------------------------------------------------------
 
 // Qty is a whole, signed share count: positive = long, negative = short,
-// 0 = flat (Python convention, src/portfolio/types.py).
+// 0 = flat.
 type Qty int64
 
 // ParseQty parses a base-10 integer share count.
@@ -349,8 +345,8 @@ func ParseQty(s string) (Qty, error) {
 }
 
 // QtyFromFloat64Trunc converts a float64 share count by TRUNCATING toward
-// zero, replicating Python int(x) as applied to Position.signed_qty and all
-// share-sizing paths (§1.3). NaN, ±Inf and out-of-range values error.
+// zero, as applied to Position.signed_qty and all share-sizing paths (§1.3).
+// NaN, ±Inf and out-of-range values error.
 func QtyFromFloat64Trunc(f float64) (Qty, error) {
 	if math.IsNaN(f) || math.IsInf(f, 0) {
 		return 0, fmt.Errorf("qty: %w: %v", ErrNotFinite, f)

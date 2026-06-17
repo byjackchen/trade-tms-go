@@ -1,27 +1,24 @@
 package sharadar
 
-// client.go is the Go port of the Python SharadarClient
-// (src/adapters/sharadar/client.py; spec docs/spec/data-sharadar.md §3):
-// a thin Nasdaq Data Link "datatables" client with
+// client.go is the Nasdaq Data Link "datatables" client
+// (spec docs/spec/data-sharadar.md §3), a thin HTTP client with
 //
-//   - cursor pagination (the SDK's paginate=True) with streaming row
-//     delivery — rows are handed to the caller page by page, never
-//     accumulated for the whole logical call;
-//   - the [MUST-MATCH] retry policy: 4 attempts total on HTTP 429/5xx with
-//     exponential backoff (2/4/8 s waits between attempts; the original's
-//     final, pointless 16 s sleep before giving up is dropped per the spec
-//     §3.1 note), terminal error message shaped "... failed after 4
+//   - cursor pagination with streaming row delivery — rows are handed to the
+//     caller page by page, never accumulated for the whole logical call;
+//   - the retry policy: 4 attempts total on HTTP 429/5xx with exponential
+//     backoff (2/4/8 s waits between attempts; no final sleep before giving
+//     up, per spec §3.1), terminal error message shaped "... failed after 4
 //     retries: ...";
-//   - [IMPROVE] deviations sanctioned by spec §3.1: classification on the
+//   - [IMPROVE] behaviors sanctioned by spec §3.1: classification on the
 //     real HTTP status code instead of substring scanning, Retry-After
 //     honored (never weaker than the backoff), context-aware backoff sleeps
 //     so shutdown cancels in-flight waits;
-//   - fetch/cache counters and state_summary() parity (§3.1);
-//   - export_table bulk download parity (§3.2).
+//   - fetch/cache counters and a state_summary() (§3.1);
+//   - export_table bulk download (§3.2).
 //
-// Secrets: the API key travels as the api_key query parameter (SDK parity)
-// and is never logged; error messages carry dataset + status + a response
-// body snippet, never the request URL.
+// Secrets: the API key travels as the api_key query parameter and is never
+// logged; error messages carry dataset + status + a response body snippet,
+// never the request URL.
 
 import (
 	"context"
@@ -45,25 +42,24 @@ const (
 	// DefaultBaseURL is the Nasdaq Data Link API root.
 	DefaultBaseURL = "https://data.nasdaq.com/api/v3"
 
-	// maxAttempts matches the Python _MAX_ATTEMPTS (spec §3.1).
+	// maxAttempts is the retry budget for one request (spec §3.1).
 	maxAttempts = 4
 
 	// perPage is the page size requested from the datatables API; 10k is
-	// the server-side maximum and what the Python SDK uses internally.
+	// the server-side maximum.
 	perPage = 10_000
 
-	// rowCapWarnThreshold mirrors the Python SDK's ~1M-row warning for one
-	// logical call (spec Q8): the native cursor loop has no hard cap, so
-	// the condition is surfaced as a warning instead of truncation.
+	// rowCapWarnThreshold is the data provider's ~1M-row cap for one logical
+	// call (spec Q8): the native cursor loop has no hard cap, so the condition
+	// is surfaced as a warning instead of truncation.
 	rowCapWarnThreshold = 1_000_000
 
-	// apiKeyHint points the operator at where to obtain a key, matching the
-	// Python client's construction-time hint (spec §1).
+	// apiKeyHint points the operator at where to obtain a key (spec §1).
 	apiKeyHint = "https://data.nasdaq.com/account/profile"
 )
 
 // ErrMissingAPIKey is returned by NewClient when no API key is configured.
-// Fail-loud at construction, not first call (spec §1 [MUST-MATCH]).
+// Fail-loud at construction, not first call (spec §1).
 var ErrMissingAPIKey = errors.New(
 	"sharadar: Nasdaq Data Link API key is not set — set TMS_NASDAQ_DATA_LINK_API_KEY " +
 		"(or NASDAQ_DATA_LINK_API_KEY); get one at " + apiKeyHint)
@@ -76,7 +72,7 @@ type Filter struct {
 }
 
 // DateRangeFilters builds the SEP/SFP date-window filter pair
-// (`date={"gte": ..., "lte": ...}` in the Python call shape, spec §3.1).
+// (`date={"gte": ..., "lte": ...}` in the API call shape, spec §3.1).
 func DateRangeFilters(gte, lte string) []Filter {
 	return []Filter{{Key: "date.gte", Value: gte}, {Key: "date.lte", Value: lte}}
 }
@@ -151,9 +147,9 @@ func WithExportPollInterval(d time.Duration) ClientOption {
 	return func(c *Client) { c.exportPollInterval = d }
 }
 
-// NewClient builds a Client. An empty API key fails loud here, mirroring
-// the Python constructor (spec §1 [MUST-MATCH]); an explicitly passed key
-// always wins over config (the caller resolves config precedence).
+// NewClient builds a Client. An empty API key fails loud here (spec §1);
+// an explicitly passed key always wins over config (the caller resolves
+// config precedence).
 func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
 	if strings.TrimSpace(apiKey) == "" {
 		return nil, ErrMissingAPIKey
@@ -179,7 +175,7 @@ func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
 // GetTable fetches a Sharadar datatable, following cursor pages until
 // exhausted, and streams each row to fn. It returns the total row count.
 //
-// Counters parity (spec §3.1 [MUST-MATCH]): one successful logical call
+// Counters (spec §3.1): one successful logical call
 // increments fetch_count and cache_miss_count and stamps last_fetch_ts;
 // failed calls increment nothing.
 func (c *Client) GetTable(ctx context.Context, dataset string, filters []Filter, fn RowFunc) (int64, error) {
@@ -212,11 +208,11 @@ func (c *Client) GetTable(ctx context.Context, dataset string, filters []Filter,
 	}
 
 	if rows > rowCapWarnThreshold {
-		// Spec Q8: the Python SDK silently stops near 1M rows; the native
-		// loop fetches everything but flags calls the original could not
-		// have completed.
+		// Spec Q8: the data provider caps a single call near 1M rows; the
+		// native cursor loop fetches everything but flags calls that exceed
+		// the cap.
 		c.log.Warn().Str("dataset", dataset).Int64("rows", rows).
-			Msg("get_table exceeded the Python SDK's ~1M row cap for a single call")
+			Msg("get_table exceeded the data provider's ~1M row cap for a single call")
 	}
 
 	c.mu.Lock()
@@ -345,7 +341,7 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 }
 
 // ---------------------------------------------------------------------------
-// Cache instrumentation + state summary (spec §3.1 [MUST-MATCH])
+// Cache instrumentation + state summary (spec §3.1)
 // ---------------------------------------------------------------------------
 
 // RecordCacheHit records that a local cache served a response without an
@@ -357,7 +353,7 @@ func (c *Client) RecordCacheHit() {
 }
 
 // StateSummary returns the JSON-serializable counter snapshot with the
-// exact key set of the Python client: source, fetch_count, cache_hit_count,
+// key set: source, fetch_count, cache_hit_count,
 // cache_miss_count, last_fetch_ts (ISO 8601 UTC or nil), last_fetch_ts_ns,
 // quota_used_today (always nil — the API does not expose quota).
 func (c *Client) StateSummary() map[string]any {
@@ -380,7 +376,7 @@ func (c *Client) StateSummary() map[string]any {
 }
 
 // ---------------------------------------------------------------------------
-// export_table (spec §3.2 [MUST-MATCH])
+// export_table (spec §3.2)
 // ---------------------------------------------------------------------------
 
 // exportStatus mirrors the datatable_bulk_download response envelope.

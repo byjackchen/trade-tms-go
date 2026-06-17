@@ -1,35 +1,33 @@
 package study
 
-// fixer_round3_test.go covers the FIXER round-3 objective-parity findings:
+// fixer_round3_test.go covers the FIXER round-3 objective-value findings:
 //
-//	finding 1 (objective parity, gate-5 / locked decision 3): the engine fed the
-//	portfolio gate and the strategy EquityProvider the mark-to-market EQUITY
-//	(cash + unrealized) where the Python reference feeds the SETTLED CASH balance
-//	(Nautilus account.balance_total(USD) = starting + realized, NO unrealized).
-//	Both the allocator budget (capital_pct * NAV) and the per-strategy sizing
+//	finding 1 (gate-5 / locked decision 3): the engine fed the portfolio gate
+//	and the strategy EquityProvider the mark-to-market EQUITY (cash +
+//	unrealized) where the contract is the SETTLED CASH balance
+//	(balance_total(USD) = starting + realized, NO unrealized). Both the
+//	allocator budget (capital_pct * NAV) and the per-strategy sizing
 //	(capital_per_pair_pct * equity_provider()) therefore drifted by the live
 //	unrealized PnL once a position was open, admitting / rejecting a DIFFERENT
-//	order set and sizing DIFFERENT quantities than Python — so the (sharpe,
-//	calmar) objective surface NSGA-II optimizes over was not Python-equivalent.
-//	The fix routes both through Account.Cash() (== balance_total):
-//	  - Account.Snapshot() NAV/Cash = Cash()              (gate parity)
-//	  - Engine.EquityFloat() (the bound EquityProvider)   = Cash()  (sizing parity)
+//	order set and sizing DIFFERENT quantities — so the (sharpe, calmar)
+//	objective surface NSGA-II optimizes over was wrong. The fix routes both
+//	through Account.Cash() (== balance_total):
+//	  - Account.Snapshot() NAV/Cash = Cash()              (gate contract)
+//	  - Engine.EquityFloat() (the bound EquityProvider)   = Cash()  (sizing contract)
 //	  - Result.FinalBalance / TotalPnL                    = Cash()  (final_balance_usd)
 //
-//	finding 2 (objective-parity test gap): there was no test exercising the
-//	composed engine -> curve -> objective chain over LIVE bars against the Python
-//	gate/sizing semantics; the synthetic gate tests only proved the multi gate was
-//	wired, never that the NAV / equity_provider VALUE matched balance_total. These
-//	tests close that gap: a value-parity gate test pinned to a cross-language
-//	Python golden, a sizing-value test, and an end-to-end engine test where a held
-//	position carries unrealized PnL at a later decision point — the exact path the
-//	cross-language divergence lived in.
+//	finding 2 (objective-value test gap): there was no test exercising the
+//	composed engine -> curve -> objective chain over LIVE bars against the
+//	gate/sizing semantics; the synthetic gate tests only proved the multi gate
+//	was wired, never that the NAV / equity_provider VALUE matched balance_total.
+//	These tests close that gap: a value gate test pinned to a golden, a
+//	sizing-value test, and an end-to-end engine test where a held position
+//	carries unrealized PnL at a later decision point — the exact path the
+//	divergence lived in.
 //
-// The Python goldens below are produced by the reference Portfolio gate
-// (Allocator + RiskConstraints, the canonical multi-strategy caps) and the
-// Pairs SignalGenerator sizing, run over the SAME scenario in the read-only
-// trade-multi-strategies repo (tmp/gate_parity_golden.py / pairs sizing). They
-// are checked in as constants so the test is hermetic (no Python at test time).
+// The goldens below pin the canonical Portfolio gate (Allocator +
+// RiskConstraints, the canonical multi-strategy caps) and the Pairs sizing over
+// the SAME scenario. They are checked in as constants so the test is hermetic.
 
 import (
 	"context"
@@ -67,22 +65,21 @@ func canonicalMultiGate(t *testing.T) *riskgate.Gate {
 }
 
 // TestGateNAVUsesCashNotEquity proves finding 1's gate half at the VALUE level,
-// pinned to a cross-language Python golden.
+// pinned to a golden.
 //
-// Scenario (identical to tmp/gate_parity_golden.py): Pairs-001 holds 100 KO @
-// $100 ($10,000 gross). KO has since marked UP to $120 → +$2,000 unrealized.
-// A new Pairs entry of 110 PEP @ $100 ($11,000) is proposed → would push gross
-// to $21,000.
+// Scenario: Pairs-001 holds 100 KO @ $100 ($10,000 gross). KO has since marked
+// UP to $120 → +$2,000 unrealized. A new Pairs entry of 110 PEP @ $100
+// ($11,000) is proposed → would push gross to $21,000.
 //
 //   - cash NAV  = $100,000 → Pairs budget 0.20*100k = $20,000 → 21k > 20k → REJECT
 //   - equity NAV = $102,000 (cash + 2k unrealized)... still 0.20*102k = $20,400
 //     < 21k, so to make the flip observable we mark KO to a level whose
-//     unrealized lifts the equity-budget OVER 21k. We use the Python golden's
-//     framing: NAV=cash rejects; an equity-based NAV that includes enough
-//     unrealized would approve. The KEY assertion is that Snapshot() feeds the
-//     gate CASH (so the decision matches Python's REJECT), never equity.
+//     unrealized lifts the equity-budget OVER 21k. The golden framing:
+//     NAV=cash rejects; an equity-based NAV that includes enough unrealized
+//     would approve. The KEY assertion is that Snapshot() feeds the gate CASH
+//     (so the decision is REJECT), never equity.
 //
-// The Python golden: gate(nav=cash 100000) -> REJECT(allocator.budget_exceeded);
+// The golden: gate(nav=cash 100000) -> REJECT(allocator.budget_exceeded);
 // gate(nav=equity 120000) -> APPROVE. We reproduce the cash branch through the
 // REAL accounting.Account + portfolio gate and assert it matches.
 func TestGateNAVUsesCashNotEquity(t *testing.T) {
@@ -116,8 +113,8 @@ func TestGateNAVUsesCashNotEquity(t *testing.T) {
 	}
 	// THE FIX: the snapshot must feed the gate CASH (balance_total), not equity.
 	if snap.NAV != cash {
-		t.Fatalf("Snapshot NAV = %s, want cash %s (balance_total parity); "+
-			"feeding equity %s would diverge the gate from Python", snap.NAV, cash, eq)
+		t.Fatalf("Snapshot NAV = %s, want cash %s (balance_total); "+
+			"feeding equity %s would diverge the gate decision", snap.NAV, cash, eq)
 	}
 	if snap.Cash != cash {
 		t.Fatalf("Snapshot Cash = %s, want %s", snap.Cash, cash)
@@ -129,23 +126,23 @@ func TestGateNAVUsesCashNotEquity(t *testing.T) {
 		domain.SideLong, 110, domain.MustPrice("100.00"), ts)
 	dec := gate.Check(proposed, riskgate.SnapshotFromDomain(snap))
 
-	// Python golden (cash NAV branch): REJECT allocator.budget_exceeded.
+	// Golden (cash NAV branch): REJECT allocator.budget_exceeded.
 	if dec.Approved {
-		t.Fatalf("gate APPROVED under cash NAV; Python golden REJECTs "+
+		t.Fatalf("gate APPROVED under cash NAV; golden REJECTs "+
 			"(allocator.budget_exceeded). NAV fed = %s", snap.NAV)
 	}
 	if dec.RuleName != "allocator.budget_exceeded" {
-		t.Fatalf("reject rule = %q, want allocator.budget_exceeded (Python golden)", dec.RuleName)
+		t.Fatalf("reject rule = %q, want allocator.budget_exceeded (golden)", dec.RuleName)
 	}
 
 	// Load-bearing check: had the snapshot fed EQUITY (the old bug), the same gate
 	// would have APPROVED (0.20*120000 = 24000 budget > 21000) — proving the NAV
-	// source is what flips the decision, exactly the cross-language golden.
+	// source is what flips the decision, exactly the golden.
 	equitySnap := domain.NewPortfolioSnapshot(domain.MustMoney("120000"), domain.MustMoney("120000"),
 		0, 0, snap.Positions, snap.LastClose)
 	equityDec := gate.Check(proposed, riskgate.SnapshotFromDomain(equitySnap))
 	if !equityDec.Approved {
-		t.Fatalf("control: equity-NAV(120000) gate should APPROVE (Python golden) "+
+		t.Fatalf("control: equity-NAV(120000) gate should APPROVE (golden) "+
 			"but got reject %q — test is not load-bearing", equityDec.RuleName)
 	}
 }
@@ -201,8 +198,8 @@ func TestEquityProviderUsesCashNotEquity(t *testing.T) {
 //	    multi gate (proven by the existing round-2 test too), AND
 //	(b) the run is DETERMINISTIC and the final_balance / total_pnl reflect the
 //	    settled cash balance (no unrealized leak) — i.e. final_balance ==
-//	    starting + total_pnl, with total_pnl realized-only, matching Python's
-//	    final_balance_usd = balance_total.
+//	    starting + total_pnl, with total_pnl realized-only
+//	    (final_balance_usd = balance_total).
 //
 // (b) is the regression sentinel for the Cash-vs-Equity fix at the metrics
 // boundary: if FinalBalance ever folds in unrealized again, total_pnl != realized
@@ -241,9 +238,8 @@ func TestObjectiveSizingAndGateUseCashEndToEnd(t *testing.T) {
 	}
 
 	// Cross-check against the engine driven directly with the lone gate: the
-	// Evaluator now uses the pairs-only Model's gate (parity abandoned —
-	// docs/concept-alignment.md §3.2, D1) and the engine's final balance must be
-	// the settled cash balance too.
+	// Evaluator now uses the pairs-only Model's gate, and the engine's final
+	// balance must be the settled cash balance too.
 	loneRes := runPairsEngineLoneGate(t, ds, defaults, start, end, startBal)
 	if loneRes.FinalBalance.Float64() != got.FinalBalanceUSD {
 		t.Fatalf("evaluator final %.6f != lone-gate engine final %.6f",

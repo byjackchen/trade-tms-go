@@ -2,11 +2,11 @@
 -- recovery (P6 locked decision 6).
 --
 -- On every change the paper/live trade session snapshots each strategy's
--- SignalGenerator state_dict (the Python SG.state_dict equivalent) and upserts
--- it here keyed by (trader_id, strategy_id). On restart the node restores each
--- strategy's state from the latest row, restores positions from the broker
+-- SignalGenerator state_dict and upserts it here keyed by
+-- (trader_id, strategy_id). On restart the node restores each strategy's
+-- state from the latest row, restores positions from the broker
 -- (Trd_GetPositionList) and runs a reconciliation — resuming cleanly with
--- identical subsequent behaviour. This fixes Python's cold-start gap.
+-- identical subsequent behaviour. This closes the cold-start gap.
 
 CREATE TABLE tms.strategy_state (
     id          BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

@@ -1,12 +1,12 @@
 package riskgate
 
-// portfolio.go ports src/portfolio/portfolio.py (spec §5 [MUST-MATCH]): the
-// gating-pipeline facade that composes Allocator → RiskConstraints. Strategy
+// portfolio.go (spec §5): the gating-pipeline facade that composes
+// Allocator → RiskConstraints. Strategy
 // runners call Check before submitting; the FIRST rejection wins. This is the
 // gate whose existence makes num_rejected_orders meaningful — without it the
 // engine could only ever report 0 rejected orders.
 
-// Gate is the pre-trade gating pipeline (portfolio.py:30-70).
+// Gate is the pre-trade gating pipeline.
 type Gate struct {
 	allocator       *Allocator
 	riskConstraints *RiskConstraints
@@ -23,9 +23,9 @@ func (p *Gate) Allocator() *Allocator { return p.allocator }
 // RiskConstraints returns the underlying risk constraints.
 func (p *Gate) RiskConstraints() *RiskConstraints { return p.riskConstraints }
 
-// Check runs the gating pipeline (portfolio.py:42-61). Order: allocator
-// (per-strategy budget) then risk_constraints (aggregate). First rejection
-// wins; on approval returns an approving decision.
+// Check runs the gating pipeline. Order: allocator (per-strategy budget) then
+// risk_constraints (aggregate). First rejection wins; on approval returns an
+// approving decision.
 func (p *Gate) Check(order ProposedOrder, account PortfolioSnapshot) RiskDecision {
 	if d := p.allocator.CheckOrderWithinBudget(order, account); !d.Approved {
 		return d
@@ -37,20 +37,20 @@ func (p *Gate) Check(order ProposedOrder, account PortfolioSnapshot) RiskDecisio
 }
 
 // PortfolioHealthSnapshot is a read-only aggregate of portfolio risk state at a
-// point in time (portfolio.py:22-30, spec §4.2). All money fields are exact
-// dec; ratios use 28-significant-digit division (dec.Quo) mirroring CPython's
-// decimal default context.
+// point in time (spec §4.2). All money fields are exact dec; ratios use
+// 28-significant-digit division (dec.Quo), bit-for-bit reproducible across
+// platforms.
 type PortfolioHealthSnapshot struct {
 	DayPnL           dec  // realized + unrealized day P&L
 	DayPnLPct        dec  // day_pnl / nav (0 if nav <= 0)
-	DailyLossHalt    bool // day_pnl < -nav*halt_pct (strict, mirrors §3.3)
+	DailyLossHalt    bool // day_pnl < -nav*halt_pct (strict, per §3.3)
 	HaltHeadroomPct  dec  // (day_pnl - threshold)/nav, clamped to 0 when halted
 	ConcentrationPct dec  // largest |net_qty * last_close| / nav across symbols
 }
 
 // HealthSnapshot computes a PortfolioHealthSnapshot from an PortfolioSnapshot
-// (portfolio.py:63-104, spec §4.3). Pure read — mutates nothing. The
-// daily-loss-halt threshold logic mirrors RiskConstraints exactly (strict <).
+// (spec §4.3). Pure read — mutates nothing. The daily-loss-halt threshold logic
+// matches RiskConstraints exactly (strict <).
 func (p *Gate) HealthSnapshot(account PortfolioSnapshot) PortfolioHealthSnapshot {
 	nav := account.NAV
 	navPositive := nav.Sign() > 0

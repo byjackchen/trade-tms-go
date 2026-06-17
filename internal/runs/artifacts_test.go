@@ -10,8 +10,8 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 )
 
-// TestMetaJSONByteCompatible asserts meta.json is byte-identical to the Python
-// reference dumper output (api-ws-redis.md §7.1 [MUST-MATCH]).
+// TestMetaJSONByteCompatible asserts meta.json is byte-identical to this repo's
+// golden artifact layout (api-ws-redis.md §7.1).
 func TestMetaJSONByteCompatible(t *testing.T) {
 	in := ArtifactInput{
 		TS:              "2024-06-13_12-00-00",
@@ -23,14 +23,13 @@ func TestMetaJSONByteCompatible(t *testing.T) {
 		TotalPnL:        domain.MustMoney("5247.31"),
 		Strategies:      []string{"Scripted-000"},
 	}
-	// NOTE on parity: the Python reference emits total_pnl_usd as the float
-	// subtraction 105247.31 - 100000.0 == 5247.309999999998 (IEEE-754 error).
-	// The Go engine computes money in EXACT 1e-4 fixed point, so its total_pnl
-	// is 5247.31 exactly — a documented [IMPROVE] over the reference's float
-	// drift (api-ws-redis Q2). The surface FORM (trailing .0, repr digits) is
-	// identical; only the trailing float noise is absent. The byte-equality
-	// guarantee therefore holds for every representable value; non-representable
-	// float noise is intentionally corrected.
+	// NOTE: a naive float subtraction would emit total_pnl_usd as
+	// 105247.31 - 100000.0 == 5247.309999999998 (IEEE-754 error). The engine
+	// computes money in EXACT 1e-4 fixed point, so its total_pnl is 5247.31
+	// exactly (api-ws-redis Q2). The surface FORM (trailing .0, shortest digits)
+	// is the artifact spec; only the trailing float noise is absent. The
+	// byte-equality guarantee therefore holds for every representable value;
+	// non-representable float noise is intentionally absent.
 	got := string(Marshal(metaObj(in)))
 	want := `{
   "version": 1,

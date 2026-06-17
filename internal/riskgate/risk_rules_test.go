@@ -8,8 +8,8 @@ import (
 
 // These tests re-derive each allocator/risk limit BY HAND and exercise the
 // boundary (exactly-at-limit) cases, the FLAT-bypass-during-halt case, and the
-// short gross-vs-net distinction. They complement the 400-case cross-language
-// parity fixture (TestRiskPipelineParity) with explicit, human-checked numbers.
+// short gross-vs-net distinction. They complement the 400-case golden fixture
+// (TestRiskPipelineGolden) with explicit, human-checked numbers.
 
 func acct(nav string, realized string, positions map[PositionKey]int64, lastClose map[string]dec) PortfolioSnapshot {
 	return PortfolioSnapshot{

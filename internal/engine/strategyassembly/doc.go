@@ -1,5 +1,4 @@
-// Package strategyassembly is the Go port of the Python multi-strategy wiring
-// (scripts/multi_strategy_backtest.py + src/runner/strategy_assembly.py): it
+// Package strategyassembly is the multi-strategy wiring: it
 // constructs the real strategy adapters (SEPA / SectorRotation / Pairs / ORB)
 // from resolved params, the Allocator capital split + RiskConstraints portfolio
 // gate, and the per-bar look-ahead-safe context provider, returning everything
@@ -15,9 +14,8 @@
 // created inside engine.New AFTER the strategies are constructed. We resolve the
 // ordering with a LiveEquity holder: generators are built over holder.Get
 // (which returns the starting balance until bound), then the caller binds the
-// holder to the engine's account via Assembly.BindEquity(eng) before Run. This
-// mirrors the Python equity_provider that pulls engine.portfolio.account(VENUE)
-// .balance_total at sizing time.
+// holder to the engine's account via Assembly.BindEquity(eng) before Run. The
+// equity provider pulls the account's balance_total at sizing time.
 //
 // Layer: wiring/composition (above the adapters, below runner). It is the single
 // fan-in point for every strategy adapter; the live and backtest paths both go

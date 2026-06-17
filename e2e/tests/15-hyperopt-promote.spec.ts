@@ -4,7 +4,7 @@
  * From the detail page of a study with a COMPLETE trial:
  *   1. click the promote affordance for a chosen COMPLETE trial;
  *   2. confirm the promotion (the one-click-with-confirmation gate that replaces
- *      the Python reference's git-review — docs/api.md POST /hyperopt/{id}/promote,
+ *      a manual review gate — docs/api.md POST /hyperopt/{id}/promote,
  *      locked decision 6);
  *   3. observe the success state;
  *   4. assert tms.active_params for the trial's strategy now points at the
@@ -100,7 +100,7 @@ test.describe("hyperopt promotion flow", () => {
 
     await promote.first().click();
 
-    // Confirmation gate (replaces the Python git-review). Accept it.
+    // Confirmation gate. Accept it.
     const confirm = page.getByTestId("hyperopt-promote-confirm");
     await expect(confirm, "promotion confirmation appears").toBeVisible();
     await confirm.click();

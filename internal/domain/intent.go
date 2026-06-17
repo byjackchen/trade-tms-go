@@ -2,17 +2,16 @@ package domain
 
 // intent.go defines the SignalIntent family: a shared core (the 6 fields +
 // strategy_id common to all four strategies) plus the four strategy-specific
-// payloads, mirroring the frozen Python dataclasses (spec §2.6 [MUST-MATCH]).
+// payloads (spec §2.6).
 //
-// JSON field names and declaration order replicate Python
-// dataclasses.asdict, which preserves declaration order.
+// JSON field names follow declaration order, which the encoder preserves.
 
 import (
 	"math"
 	"time"
 )
 
-// Logical strategy IDs used INSIDE SignalIntent payloads [MUST-MATCH].
+// Logical strategy IDs used INSIDE SignalIntent payloads.
 // These are distinct from the engine-level strategy ids (e.g.
 // "SEPARunner-000") used for orders, positions and allocator keys (§7.7);
 // the two id spaces must never be conflated.
@@ -42,10 +41,11 @@ type SignalIntent struct {
 	StrategyID            string      `json:"strategy_id"`
 }
 
-// SEPASignalIntent — src/strategies/sepa/intent.py:30-55 [MUST-MATCH].
+// SEPASignalIntent is the SEPA strategy intent payload.
 // Grade here is the integer trend-template grade 0..100 (not the letter
 // Grade). PivotPrice/StopPrice are included only when > 0, else nil.
-// RSRank is reserved and never set by the reference.
+// RSRank is nil at generation time and stamped cross-sectionally by the EOD
+// refresh (runner/rs_rank.go).
 type SEPASignalIntent struct {
 	SignalIntent
 	Grade             int      `json:"grade"`
@@ -57,8 +57,8 @@ type SEPASignalIntent struct {
 	StopPrice         *Price   `json:"stop_price"`
 	RSRank            *int     `json:"rs_rank"`
 
-	// --- TMS ENHANCEMENT (not in the Python SEPA reference) ------------------
-	// Actionable trade-plan fields, persisted in the signal_intents.intent JSONB.
+	// --- Actionable trade-plan fields ----------------------------------------
+	// Persisted in the signal_intents.intent JSONB.
 	// For state=forming these are always non-null (see strategy/sepa intent.go).
 	RiskPct        *float64 `json:"risk_pct"`
 	PctOff52wkHigh *float64 `json:"pct_off_52wk_high"`
@@ -66,15 +66,14 @@ type SEPASignalIntent struct {
 	BuyReadiness   *float64 `json:"buy_readiness"`
 }
 
-// NewSEPASignalIntent returns a SEPASignalIntent with the Python defaults:
+// NewSEPASignalIntent returns a SEPASignalIntent with the defaults:
 // strategy_id "sepa", grade 0, all optionals nil.
 func NewSEPASignalIntent() SEPASignalIntent {
 	return SEPASignalIntent{SignalIntent: SignalIntent{StrategyID: StrategyIDSEPA}}
 }
 
-// PairsSignalIntent — src/strategies/pairs/intent.py:28-44 [MUST-MATCH].
-// PairID has the format "{long_leg}/{short_leg}". HalfLifeDays is reserved
-// and always 0.0 in the reference.
+// PairsSignalIntent is the pairs strategy intent payload.
+// PairID has the format "{long_leg}/{short_leg}".
 type PairsSignalIntent struct {
 	SignalIntent
 	PairID          string  `json:"pair_id"`
@@ -83,10 +82,9 @@ type PairsSignalIntent struct {
 	ZEntryThreshold float64 `json:"z_entry_threshold"`
 	ZExitThreshold  float64 `json:"z_exit_threshold"`
 	HedgeRatio      float64 `json:"hedge_ratio"`
-	HalfLifeDays    float64 `json:"half_life_days"`
 }
 
-// NewPairsSignalIntent returns a PairsSignalIntent with the Python defaults:
+// NewPairsSignalIntent returns a PairsSignalIntent with the defaults:
 // strategy_id "pairs", leg_role "long", z_entry 2.0, z_exit 0.5, hedge 1.0.
 func NewPairsSignalIntent() PairsSignalIntent {
 	return PairsSignalIntent{
@@ -98,15 +96,14 @@ func NewPairsSignalIntent() PairsSignalIntent {
 	}
 }
 
-// StrengthFromZ maps |z| to a 0..100 strength
-// (src/strategies/pairs/intent.py:47-49 [MUST-MATCH]):
+// StrengthFromZ maps |z| to a 0..100 strength (spec §2.6):
 // min(100.0, abs(z)/3.0*100.0).
 func StrengthFromZ(zAbs float64) float64 {
 	return math.Min(100.0, math.Abs(zAbs)/3.0*100.0)
 }
 
-// SectorRotationIntent — src/strategies/sector_rotation/intent.py:27-40
-// [MUST-MATCH]. Rank is 1-based (1 = best momentum); 0 = unranked/warming up.
+// SectorRotationIntent is the sector-rotation strategy intent payload.
+// Rank is 1-based (1 = best momentum); 0 = unranked/warming up.
 type SectorRotationIntent struct {
 	SignalIntent
 	MomentumScore float64 `json:"momentum_score"`
@@ -115,14 +112,13 @@ type SectorRotationIntent struct {
 	CurrentWeight float64 `json:"current_weight"`
 }
 
-// NewSectorRotationIntent returns a SectorRotationIntent with the Python
-// defaults: strategy_id "sector_rotation", all numerics 0.
+// NewSectorRotationIntent returns a SectorRotationIntent with the defaults:
+// strategy_id "sector_rotation", all numerics 0.
 func NewSectorRotationIntent() SectorRotationIntent {
 	return SectorRotationIntent{SignalIntent: SignalIntent{StrategyID: StrategyIDSectorRotation}}
 }
 
-// StrengthFromRank maps a 1-based momentum rank to 0..100 strength
-// (src/strategies/sector_rotation/intent.py:43-49 [MUST-MATCH]):
+// StrengthFromRank maps a 1-based momentum rank to 0..100 strength (spec §2.6):
 //
 //	total <= 1 or rank <= 1 → 100.0 if rank == 1 else 0.0
 //	rank >= total           → 0.0
@@ -137,28 +133,28 @@ func StrengthFromRank(rank, total int) float64 {
 	if rank >= total {
 		return 0.0
 	}
-	// The explicit float64(...) conversion around the product is REQUIRED:
-	// it forces the multiplication to round before the subtraction, which
-	// prevents Go from contracting "100.0 - x*100.0" into a fused
-	// multiply-add on arm64. CPython never fuses, so without the conversion
-	// this expression diverges from the reference in the last bit
-	// (e.g. rank=10, total=11: FMA yields 9.999999999999998, CPython 10.0).
+	// The explicit float64(...) conversion around the product is REQUIRED for
+	// cross-platform numeric determinism: it forces the multiplication to
+	// round before the subtraction, which prevents the compiler from
+	// contracting "100.0 - x*100.0" into a fused multiply-add (FMA) on arm64.
+	// Without it the result differs by one bit between arm64 (which fuses) and
+	// x86 (which does not) — e.g. rank=10, total=11: the fused form yields
+	// 9.999999999999998, the rounded form 10.0. Suppressing the fusion keeps
+	// the backtest/hyperopt output bit-identical across platforms.
 	return math.Max(0.0, 100.0-float64(float64(rank-1)/float64(total-1)*100.0))
 }
 
-// IntradayBreakoutIntent — src/strategies/intraday_breakout/intent.py:27-41
-// [MUST-MATCH]. ATRAtOpen is reserved and always nil in the reference.
+// IntradayBreakoutIntent is the intraday-breakout strategy intent payload.
 // EntryWindowEnd is the session's EOD-exit instant converted to UTC.
 type IntradayBreakoutIntent struct {
 	SignalIntent
 	ORBHigh        *Price     `json:"orb_high"`
 	ORBLow         *Price     `json:"orb_low"`
-	ATRAtOpen      *Price     `json:"atr_at_open"`
 	EntryWindowEnd *time.Time `json:"entry_window_end"`
 }
 
 // NewIntradayBreakoutIntent returns an IntradayBreakoutIntent with the
-// Python defaults: strategy_id "intraday_breakout", all optionals nil.
+// defaults: strategy_id "intraday_breakout", all optionals nil.
 func NewIntradayBreakoutIntent() IntradayBreakoutIntent {
 	return IntradayBreakoutIntent{SignalIntent: SignalIntent{StrategyID: StrategyIDIntradayBreakout}}
 }

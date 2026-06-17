@@ -72,8 +72,8 @@ func (a *AccountAdapter) ObserveBar(bar domain.Bar) {
 
 // Snapshot returns the domain account snapshot the portfolio gate's budget /
 // concentration / single-name rules read. It uses the accounting engine's
-// parity snapshot (NAV = settled cash; day P&L 0) for the BUDGET rules so live
-// gating matches backtest gating exactly. The daily-loss-halt rule reads the
+// backtest-style snapshot (NAV = settled cash; day P&L 0) for the BUDGET rules
+// so live gating matches backtest gating exactly. The daily-loss-halt rule reads the
 // MarkedSnapshot instead (see MarkedSnapshot).
 func (a *AccountAdapter) Snapshot() (domain.PortfolioSnapshot, error) {
 	a.mu.Lock()
@@ -83,8 +83,8 @@ func (a *AccountAdapter) Snapshot() (domain.PortfolioSnapshot, error) {
 
 // MarkedSnapshot returns a LIVE snapshot with day P&L marked to market — the
 // authoritative input for the daily-loss-halt rule (which is DORMANT in the
-// parity Snapshot, where RealizedPnLToday/UnrealizedPnLToday are 0 for backtest
-// parity). Day P&L = realized + unrealized vs the session's opening NAV; NAV =
+// backtest-style Snapshot, where RealizedPnLToday/UnrealizedPnLToday are 0 to
+// match backtest gating). Day P&L = realized + unrealized vs the session's opening NAV; NAV =
 // current equity (cash + unrealized). startingNAV is the session's opening
 // balance (the day's baseline). This is the live extension the daily-loss halt
 // needs: a backtest never crosses it (P&L 0), a live session does when a held

@@ -6,11 +6,10 @@ package pairs
 // assembler (strategyassembly.buildPairs), NOT here: keeping this pure-compute
 // package free of any internal/params dependency preserves the "pure strategy
 // imports only domain/indicators" symmetry and keeps the Postgres client (pgx)
-// out of the pure-compute / golden-parity dependency closure.
+// out of the pure-compute / golden dependency closure.
 
 // ConstantEquity returns an EquityProvider that always reports the same equity,
-// matching the EOD-refresh path's constant-captured provider (refresh.py:339)
-// and the test providers (lambda: Decimal("100000")).
+// matching the EOD-refresh path's constant-captured provider.
 func ConstantEquity(usd float64) EquityProvider {
 	return func() float64 { return usd }
 }

@@ -39,7 +39,7 @@ func TestNormalizeIntentWireShape(t *testing.T) {
 	if m["strategy_id"] != "intraday_breakout" || m["state"] != "no_setup" {
 		t.Fatalf("wire discriminators wrong: %v", m)
 	}
-	for _, k := range []string{"orb_high", "orb_low", "atr_at_open"} {
+	for _, k := range []string{"orb_high", "orb_low"} {
 		if _, ok := m[k]; !ok {
 			t.Fatalf("wire missing key %q", k)
 		}

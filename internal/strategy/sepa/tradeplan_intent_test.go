@@ -5,10 +5,9 @@ import "testing"
 // TestFormingIntentCarriesTradePlan proves the TMS-enhancement contract: a SEPA
 // forming signal NEVER leaves the actionable trade-plan fields null. The
 // no_breakout fixture drives a trend-template-passing name to just under its
-// pivot (forming), where the Python oracle would carry only strength — the Go
+// pivot (forming), where only strength would otherwise be carried — the
 // generator must additionally carry pivot/stop/proximity/risk/%off-52wk/vol_ratio/
-// buy_readiness. (Not in the Python reference; the golden parity test covers the
-// sanctioned divergence separately.)
+// buy_readiness. (The golden test covers the sanctioned divergence separately.)
 func TestFormingIntentCarriesTradePlan(t *testing.T) {
 	g := mkSG(t, sgOpt{regime: "bull"})
 	bars := noBreakoutBars()

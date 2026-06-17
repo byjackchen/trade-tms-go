@@ -130,11 +130,12 @@ test.describe("backtests list + dialog UI", () => {
     await page.locator('[data-testid^="composition-backtest-"]').first().click();
     await expect(page.getByTestId("backtest-form")).toBeVisible();
 
-    // Default is nautilus-compat → no slippage field.
-    await expect(page.getByTestId("backtest-slippage")).toHaveCount(0);
-
-    await page.getByTestId("backtest-fill-profile").selectOption("realistic");
+    // Default is realistic → slippage field present.
     await expect(page.getByTestId("backtest-slippage")).toBeVisible();
+
+    // close-fill is zero-cost → no slippage field.
+    await page.getByTestId("backtest-fill-profile").selectOption("close-fill");
+    await expect(page.getByTestId("backtest-slippage")).toHaveCount(0);
 
     await page.getByTestId("backtest-cancel").click();
   });

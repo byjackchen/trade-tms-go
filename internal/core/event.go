@@ -14,13 +14,13 @@ import (
 // EventKind is a small enumeration used purely for the deterministic
 // tie-break between events sharing a timestamp. Lower values dispatch first.
 //
-// The ordering mirrors the Nautilus main loop for a data point at timestamp T
-// (engine.pyx:1627-1663): the exchange ingests the bar, strategies' on_bar
-// fire, then venues settle. In the Go engine the bar's arrival drives both the
-// exchange book update (inside the executor) and the strategy callback in one
-// KindBar dispatch; fills the executor produces are scheduled as KindFill at
-// the SAME timestamp but a LATER kind-priority, so accounting observes them
-// after every strategy at that timestamp has seen the bar.
+// The ordering is the engine's own main-loop contract for a data point at
+// timestamp T: the exchange ingests the bar, strategies' on_bar fire, then
+// venues settle. The bar's arrival drives both the exchange book update
+// (inside the executor) and the strategy callback in one KindBar dispatch;
+// fills the executor produces are scheduled as KindFill at the SAME timestamp
+// but a LATER kind-priority, so accounting observes them after every strategy
+// at that timestamp has seen the bar.
 type EventKind uint8
 
 const (
@@ -30,8 +30,8 @@ const (
 	// KindFill settles an execution: it mutates positions/account and emits
 	// account-state. Fills are produced during KindBar dispatch and scheduled
 	// at the same timestamp, after all bars, so the close-price fill of a
-	// market order submitted in on_bar(T) settles within timestamp T (matching
-	// Nautilus same-bar-close fills, verified empirically).
+	// market order submitted in on_bar(T) settles within timestamp T
+	// (same-bar-close fills).
 	KindFill
 	// KindSample triggers per-bar sampling (equity curve). Lowest priority:
 	// samplers observe the fully-settled state at the end of a timestamp.

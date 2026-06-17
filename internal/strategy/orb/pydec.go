@@ -1,11 +1,11 @@
 package orb
 
-// pydec.go implements a Python-`decimal.Decimal`-faithful fixed-point type
-// used ONLY by the ORB strategy, so that on_bar reasons, state_summary and
-// state_dict render byte-identically to the Python reference.
+// pydec.go implements a scale-propagating decimal fixed-point type used ONLY by
+// the ORB strategy, so that on_bar reasons, state_summary and state_dict render
+// deterministically.
 //
-// Why not domain.Price (1e-4 fixed point)? The Python ORB SignalGenerator
-// carries scale through arithmetic the way CPython's Decimal does:
+// Why not domain.Price (1e-4 fixed point)? ORB carries scale through arithmetic
+// using these rules:
 //
 //   - construction from str preserves the literal's scale
 //     (Decimal("102.0") has exponent -1, str() == "102.0");
@@ -19,7 +19,7 @@ package orb
 //
 // domain.Price.String() trims trailing zeros ("100.980" -> "100.98") and is
 // capped at 4 decimals, so it cannot reproduce these strings. pydec keeps an
-// explicit (coefficient, exponent) pair exactly like CPython Decimal.
+// explicit (coefficient, exponent) pair.
 //
 // Only the operations ORB actually performs are implemented: parse-from-str,
 // compare, add, sub, mul, scalar-divide (x/100 in the hard-stop path and the
@@ -34,11 +34,11 @@ import (
 	"strings"
 )
 
-// decContextPrec mirrors CPython's default decimal context precision
-// (getcontext().prec == 28). Division rounds to this many significant digits.
+// decContextPrec is the decimal context precision (28). Division rounds to this
+// many significant digits.
 const decContextPrec = 28
 
-// pydec is coefficient * 10**exp, matching CPython Decimal's internal form.
+// pydec is coefficient * 10**exp.
 // A nil receiver is never produced; the zero value is unusable — always build
 // via mustDec / parseDec / decFromInt.
 type pydec struct {
@@ -94,16 +94,14 @@ func mustDec(s string) pydec {
 	return d
 }
 
-// decFromInt builds an integer-valued pydec with exponent 0 (matches
-// Python Decimal(int)).
+// decFromInt builds an integer-valued pydec with exponent 0.
 func decFromInt(v int64) pydec {
 	return pydec{coef: big.NewInt(v), exp: 0}
 }
 
 // decFromPyFloatStr builds Decimal(str(f)) — the float's shortest repr parsed
-// exactly, exactly as the Python SG does for config knobs (hard_stop_pct,
-// profit_target_r). Go's strconv 'g'/-1 yields the same shortest repr CPython
-// uses for str(float).
+// exactly, used for config knobs (hard_stop_pct, profit_target_r). Go's strconv
+// 'g'/-1 yields the shortest round-trip repr for str(float).
 func decFromPyFloatStr(f float64) pydec {
 	d, ok := parseDec(pyFloatRepr(f))
 	if !ok {
@@ -140,14 +138,13 @@ func scaleCoef(d pydec, target int) *big.Int {
 	return out.Mul(out, pow)
 }
 
-// cmp returns -1, 0, +1 comparing the *values* (scale-independent), exactly
-// like Python Decimal comparison.
+// cmp returns -1, 0, +1 comparing the *values* (scale-independent).
 func (d pydec) cmp(o pydec) int {
 	ca, cb, _ := align(d, o)
 	return ca.Cmp(cb)
 }
 
-// add returns d + o with exponent = min(d.exp, o.exp) (Python Decimal rule).
+// add returns d + o with exponent = min(d.exp, o.exp).
 func (d pydec) add(o pydec) pydec {
 	ca, cb, exp := align(d, o)
 	return pydec{coef: ca.Add(ca, cb), exp: exp}
@@ -159,23 +156,23 @@ func (d pydec) sub(o pydec) pydec {
 	return pydec{coef: ca.Sub(ca, cb), exp: exp}
 }
 
-// mul returns d * o; exponent = d.exp + o.exp (Python Decimal rule, no
-// trailing-zero stripping for multiply).
+// mul returns d * o; exponent = d.exp + o.exp (no trailing-zero stripping for
+// multiply).
 func (d pydec) mul(o pydec) pydec {
 	return pydec{coef: new(big.Int).Mul(d.coef, o.coef), exp: d.exp + o.exp}
 }
 
-// divInt returns d / n where n is a small positive integer, replicating
-// CPython true-division: compute to decContextPrec significant digits, then
-// strip trailing zeros toward the ideal exponent. For ORB the only division
-// is x/100, which is always exact and short (e.g. 1.0/100 -> 0.01).
+// divInt returns d / n where n is a small positive integer: compute to
+// decContextPrec significant digits, then strip trailing zeros toward the ideal
+// exponent. For ORB the only division is x/100, which is always exact and short
+// (e.g. 1.0/100 -> 0.01).
 func (d pydec) divInt(n int64) pydec {
 	return d.div(decFromInt(n))
 }
 
-// div implements CPython Decimal true division for the operand magnitudes ORB
-// uses. It produces up to decContextPrec significant digits and then removes
-// trailing zeros down to (but not past) the ideal exponent = d.exp - o.exp.
+// div implements decimal true division for the operand magnitudes ORB uses. It
+// produces up to decContextPrec significant digits and then removes trailing
+// zeros down to (but not past) the ideal exponent = d.exp - o.exp.
 func (d pydec) div(o pydec) pydec {
 	if o.isZero() {
 		// ORB never divides by zero on any live path; return zero defensively.
@@ -231,8 +228,8 @@ func (d pydec) div(o pydec) pydec {
 		q = new(big.Int).Neg(q)
 	}
 	res := pydec{coef: q, exp: resultExp}
-	// Strip trailing zeros down to the ideal exponent (Python's behaviour for
-	// exact divisions: 1.0/100 -> 0.01, not 0.0100000...).
+	// Strip trailing zeros down to the ideal exponent (for exact divisions:
+	// 1.0/100 -> 0.01, not 0.0100000...).
 	res = res.stripTrailingZerosTo(idealExp)
 	return res
 }
@@ -291,8 +288,8 @@ func roundRemainderHalfEven(q *big.Int, exp int, r, den *big.Int) (*big.Int, int
 }
 
 // stripTrailingZerosTo removes factors of ten from the coefficient, raising
-// the exponent, but never past `floorExp` (Python keeps the ideal exponent
-// for exact quotients).
+// the exponent, but never past `floorExp` (the ideal exponent is kept for exact
+// quotients).
 func (d pydec) stripTrailingZerosTo(floorExp int) pydec {
 	if d.coef.Sign() == 0 {
 		if d.exp < floorExp {
@@ -324,19 +321,18 @@ func numDigits(n *big.Int) int {
 	return len(new(big.Int).Abs(n).Text(10))
 }
 
-// float64 converts to the nearest float64 the same way Python float(Decimal)
-// does: build the exact decimal string and parse it (strconv.ParseFloat is
-// correctly rounded, matching CPython's float parse).
+// float64 converts to the nearest float64 by building the exact decimal string
+// and parsing it (strconv.ParseFloat is correctly rounded).
 func (d pydec) float64() float64 {
 	f, _ := strconv.ParseFloat(d.String(), 64)
 	return f
 }
 
-// pyFloatRepr renders f exactly as CPython's repr(float)/str(float) does.
-// Used for the {vol_multiple} field in the breakout reason and (via
-// Decimal(str(f))) for the hard_stop_pct / profit_target_r knobs. Mirrors the
-// SEPA package's implementation (kept local to avoid cross-package coupling of
-// an unexported helper).
+// pyFloatRepr renders f as a shortest round-trip float repr (repr(float) /
+// str(float)). Used for the {vol_multiple} field in the breakout reason and
+// (via Decimal(str(f))) for the hard_stop_pct / profit_target_r knobs. Matches
+// the SEPA package's implementation (kept local to avoid cross-package coupling
+// of an unexported helper).
 func pyFloatRepr(f float64) string {
 	if math.IsInf(f, 1) {
 		return "inf"
@@ -375,7 +371,7 @@ func pyFloatRepr(f float64) string {
 	return out
 }
 
-// formatPyDigits renders significant digits per CPython's repr threshold:
+// formatPyDigits renders significant digits per the repr threshold:
 // scientific when exp < -4 or exp >= 16, else positional with a trailing ".0"
 // for integral positional results.
 func formatPyDigits(digits string, exp int) string {
@@ -413,14 +409,14 @@ func formatPyDigits(digits string, exp int) string {
 	return "0." + strings.Repeat("0", -exp-1) + digits
 }
 
-// pyFmt0 renders f like Python f"{f:.0f}" (round-half-even to an integer
-// string). Used for the {avg_volume:.0f} field in the breakout reason.
+// pyFmt0 renders f like "%.0f" (round-half-even to an integer string). Used for
+// the {avg_volume:.0f} field in the breakout reason.
 func pyFmt0(f float64) string {
 	return strconv.FormatFloat(f, 'f', 0, 64)
 }
 
-// String renders exactly like CPython str(Decimal) for the non-exponential
-// magnitudes ORB uses (always |exp| small). Negative exponent -> fixed-point
+// String renders like str(Decimal) for the non-exponential magnitudes ORB uses
+// (always |exp| small). Negative exponent -> fixed-point
 // with that many fractional digits; non-negative exponent -> integer padded
 // with trailing zeros (ORB never hits exp>0 on a rendered value, but handle
 // it for completeness).

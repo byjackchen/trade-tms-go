@@ -2,12 +2,12 @@ package indicators
 
 import "math"
 
-// Trend Template + Stage primitives (SEPA). These pure functions back
-// strategies/sepa/trend_template.py and stage.py with the exact constants and
-// comparison semantics documented in docs/spec/strategy-sepa.md §3-4
-// [MUST-MATCH]. The SEPA strategy builder composes them with VCP + regime.
+// Trend Template + Stage primitives (SEPA). These pure functions implement the
+// exact constants and comparison semantics documented in
+// docs/spec/strategy-sepa.md §3-4. The SEPA strategy builder composes them with
+// VCP + regime.
 
-// Trend Template constants (trend_template.py:37-40).
+// Trend Template constants.
 const (
 	TTHighLowWindow = 252  // ~52 weeks
 	TTHighTolerance = 0.25 // within 25% of 52w high
@@ -15,8 +15,7 @@ const (
 	TTMinBars       = 200  // need MA200 history
 )
 
-// TrendTemplateResult mirrors the Python dataclass (trend_template.py:43-67):
-// the 8 boolean rules plus the diagnostic raw values.
+// TrendTemplateResult holds the 8 boolean rules plus the diagnostic raw values.
 type TrendTemplateResult struct {
 	Rule1CloseGtMA50       bool
 	Rule2CloseGtMA150      bool
@@ -37,14 +36,14 @@ type TrendTemplateResult struct {
 	MA200UptrendDays int
 }
 
-// Passed is true iff all 8 rules pass (trend_template.py:70-80).
+// Passed is true iff all 8 rules pass.
 func (r TrendTemplateResult) Passed() bool {
 	return r.Rule1CloseGtMA50 && r.Rule2CloseGtMA150 && r.Rule3CloseGtMA200 &&
 		r.Rule4MA50GtMA150 && r.Rule5MA150GtMA200 && r.Rule6Within25PctHigh &&
 		r.Rule7Above30PctLow && r.Rule8MarketCapAboveMin
 }
 
-// PassingRules counts how many of the 8 rules pass (trend_template.py:82-96).
+// PassingRules counts how many of the 8 rules pass.
 func (r TrendTemplateResult) PassingRules() int {
 	c := 0
 	for _, b := range []bool{
@@ -59,10 +58,10 @@ func (r TrendTemplateResult) PassingRules() int {
 	return c
 }
 
-// EvaluateTrendTemplate ports trend_template.py evaluate() EXACTLY. close, high,
-// low are full-history slices (oldest first). When n < 200, rules 1-7 are False
-// and only rule 8 (market cap) is evaluated; diagnostics carry the last close
-// (or 0 when n == 0), matching trend_template.py:114-134.
+// EvaluateTrendTemplate evaluates the 8 Trend Template rules. close, high, low
+// are full-history slices (oldest first). When n < 200, rules 1-7 are False and
+// only rule 8 (market cap) is evaluated; diagnostics carry the last close (or 0
+// when n == 0).
 func EvaluateTrendTemplate(close, high, low []float64, marketCapUSD, marketCapMinUSD float64) TrendTemplateResult {
 	n := len(close)
 	if n < TTMinBars {
@@ -111,8 +110,8 @@ func EvaluateTrendTemplate(close, high, low []float64, marketCapUSD, marketCapMi
 	}
 }
 
-// lastNonWindow returns the last element of a series (the reference reads
-// .iloc[-1] of the MA, which at n>=window is a real value).
+// lastNonWindow returns the last element of a series (the .iloc[-1] of the MA,
+// which at n>=window is a real value).
 func lastNonWindow(s []float64) float64 {
 	if len(s) == 0 {
 		return NaN
@@ -120,7 +119,7 @@ func lastNonWindow(s []float64) float64 {
 	return s[len(s)-1]
 }
 
-// Stage classification (stage.py). Constants from stage.py:29-35.
+// Stage classification constants.
 const (
 	StageMinBars                = 220
 	StageMomentumWindow         = 60
@@ -131,10 +130,10 @@ const (
 	StageAboveMAHistoryFraction = 0.7
 )
 
-// ClassifyStage ports stage.py classify_stage EXACTLY, returning "1"/"2"/"3"/
-// "4"/"unknown". close is the full close history (oldest first).
+// ClassifyStage returns "1"/"2"/"3"/"4"/"unknown". close is the full close
+// history (oldest first).
 //
-// Boundary semantics replicated precisely: the chained strict comparison
+// Boundary semantics: the chained strict comparison
 // last > ma150 > ma200, the slope/momentum thresholds (strict), the rolling-top
 // fallback using FractionAbove over the last 200 bars, and the momentum==5.0
 // dead zone where neither Stage 2 nor Stage 3-first fires.

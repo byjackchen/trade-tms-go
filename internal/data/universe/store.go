@@ -1,9 +1,8 @@
 package universe
 
 // store.go is the TimescaleDB-backed BarHistoryProvider + universe data
-// tier (docs/spec/calendar-universe.md §2): the Python reference reads the
-// parquet cache (data/sharadar_cache/reader.py); the Go port reads the
-// tables the P0 importer fills, with byte-identical filter semantics.
+// tier (docs/spec/calendar-universe.md §2): it reads the tables the P0
+// importer fills.
 
 import (
 	"context"
@@ -46,8 +45,7 @@ func utcMidnight(d calendar.Date) time.Time {
 }
 
 // ListUniverseForWindow returns tickers tradable at ANY point in
-// [start, end] inclusive, sorted ascending — survivor-bias-free
-// (reader.py:73-97 [MUST-MATCH]):
+// [start, end] inclusive, sorted ascending — survivor-bias-free:
 //
 //	first_price_date IS NULL OR first_price_date <= end, AND
 //	last_price_date  IS NULL OR last_price_date  >= start
@@ -78,17 +76,15 @@ func (s *Store) ListUniverseForWindow(ctx context.Context, start, end calendar.D
 	return out, nil
 }
 
-// ListActiveTickers returns tickers tradable on asOf (both tables) —
-// reader.list_active_tickers, i.e. the window filter with
-// start = end = asOf (reader.py:57-71 [MUST-MATCH]).
+// ListActiveTickers returns tickers tradable on asOf (both tables), i.e. the
+// window filter with start = end = asOf.
 func (s *Store) ListActiveTickers(ctx context.Context, asOf calendar.Date) ([]string, error) {
 	return s.ListUniverseForWindow(ctx, asOf, asOf, TableAny)
 }
 
 // GetBars returns daily bars for one ticker in [start, end] inclusive,
 // merged across SEP and SFP and sorted by date ascending (SEP before SFP on
-// a tie, mirroring the reference's concat order; reader.py:99-127
-// [MUST-MATCH]). Unknown tickers yield an empty slice, never an error.
+// a tie). Unknown tickers yield an empty slice, never an error.
 // NULL prices/volumes (source NaN) come back as NaN.
 func (s *Store) GetBars(ctx context.Context, ticker string, start, end calendar.Date) ([]OHLCV, error) {
 	rows, err := s.pool.Query(ctx, `
@@ -142,9 +138,8 @@ func priceFloat(raw *int64) float64 {
 
 // MarketCaps bulk-loads the latest market cap per ticker: the SF1 row with
 // the greatest datekey across ALL dimensions, dimension DESC as the
-// deterministic tie-break (byte-equivalent to the reference's stable
-// sort_values("datekey").iloc[-1] over dimension-sorted parquet rows —
-// multi_strategy_backtest.py:182-204 [MUST-MATCH], spec Open Q2 pinned).
+// deterministic tie-break (the latest datekey wins, dimension breaking ties;
+// spec Open Q2 pinned).
 // Tickers without SF1 rows, or whose latest row has NULL/NaN marketcap,
 // map to 0.0 ("unknown; fails rule 8; sorts last").
 func (s *Store) MarketCaps(ctx context.Context, tickers []string) (map[string]float64, error) {

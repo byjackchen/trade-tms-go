@@ -8,7 +8,7 @@ import (
 )
 
 // EvaluateIntent returns one SectorRotationIntent per universe ETF, in universe
-// declaration order (signal.py:249-340 [MUST-MATCH]).
+// declaration order.
 //
 // Warmup gate: if ANY symbol is still short of lookback+1 closes, ALL intents
 // are emitted as NO_SETUP with rank=0 — matching OnBar's _has_full_warmup gate,
@@ -21,7 +21,7 @@ func (sg *SignalGenerator) EvaluateIntent(asOf time.Time) []domain.SectorRotatio
 	topK := sg.cfg.TopK
 	n := len(universe)
 
-	// Warmup gate (signal.py:269-283): all-NO_SETUP, rank 0, strength 0.
+	// Warmup gate: all-NO_SETUP, rank 0, strength 0.
 	if !sg.hasFullWarmup() {
 		out := make([]domain.SectorRotationIntent, 0, n)
 		for _, sym := range universe {
@@ -40,7 +40,7 @@ func (sg *SignalGenerator) EvaluateIntent(asOf time.Time) []domain.SectorRotatio
 		return out
 	}
 
-	// Returns from history (signal.py:286-294). old <= 0 -> return 0.0.
+	// Returns from history. old <= 0 -> return 0.0.
 	returns := make(map[string]float64, n)
 	for _, sym := range universe {
 		h := sg.history[sym]
@@ -53,9 +53,8 @@ func (sg *SignalGenerator) EvaluateIntent(asOf time.Time) []domain.SectorRotatio
 		}
 	}
 
-	// Rank descending; STABLE so ties keep universe order
-	// (Python sorted(universe, key=..., reverse=True) is stable, iterating
-	// `universe` in order). signal.py:295-297.
+	// Rank descending; STABLE so ties keep universe order (the sort iterates
+	// `universe` in order).
 	rankedSyms := make([]string, n)
 	copy(rankedSyms, universe)
 	sort.SliceStable(rankedSyms, func(i, j int) bool {
@@ -71,7 +70,7 @@ func (sg *SignalGenerator) EvaluateIntent(asOf time.Time) []domain.SectorRotatio
 	}
 	targetW := 1.0 / float64(topK)
 
-	// current_weight = shares * last_close / equity (approximate). signal.py:300-307.
+	// current_weight = shares * last_close / equity (approximate).
 	equity := sg.cfg.EquityProvider()
 	currentWeights := make(map[string]float64, n)
 	for _, sym := range universe {
@@ -108,8 +107,8 @@ func (sg *SignalGenerator) EvaluateIntent(asOf time.Time) []domain.SectorRotatio
 		}
 
 		// Proximity: rank-positions distance below cutoff (negative = below
-		// top-K). Python: float((top_k - rank) / max(n, 1) * 100.0) — true
-		// (float) division. signal.py:325-326.
+		// top-K). float((top_k - rank) / max(n, 1) * 100.0) — true (float)
+		// division.
 		denom := n
 		if denom < 1 {
 			denom = 1

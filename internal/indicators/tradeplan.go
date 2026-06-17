@@ -1,11 +1,10 @@
 package indicators
 
-// tradeplan.go is a TMS ENHANCEMENT (not present in the Python SEPA reference):
-// the actionable trade-plan primitives that let a SEPA forming signal carry a
-// reliable, non-null buy point / stop / proximity / risk so it is rankable and
-// tradeable from the watchlist. The Python oracle's SEPA forming signal carries
-// only strength=100 (8/8 trend template) — these helpers deliberately diverge to
-// add the missing trade plan.
+// tradeplan.go provides the actionable trade-plan primitives that let a SEPA
+// forming signal carry a reliable, non-null buy point / stop / proximity / risk
+// so it is rankable and tradeable from the watchlist. The baseline SEPA forming
+// signal carries only strength=100 (8/8 trend template); these helpers add the
+// trade plan on top.
 //
 // All helpers are pure functions over OHLCV tails so they are unit-testable in
 // isolation; the SEPA generator composes them in EvaluateIntent.
@@ -13,11 +12,11 @@ package indicators
 import "math"
 
 // SwingPlanLookback is the number of COMPLETED daily bars the swing-high/low
-// pivot+stop fallback scans when no VCP base is detected. TMS enhancement.
+// pivot+stop fallback scans when no VCP base is detected.
 const SwingPlanLookback = 10
 
 // VolumeSMALookback is the volume baseline window for vol_ratio (today's volume
-// vs the trailing 50-bar volume SMA). TMS enhancement.
+// vs the trailing 50-bar volume SMA).
 const VolumeSMALookback = 50
 
 // SwingHighPivot returns the highest HIGH of the last `lookback` COMPLETED daily
@@ -25,8 +24,6 @@ const VolumeSMALookback = 50
 // full high history (oldest first); `completedExclusive` is true when the most
 // recent bar should be excluded as "today's forming bar" (the entry chain's
 // look-ahead guard), false to include it. Returns 0 when there is no history.
-//
-// TMS enhancement — not in the Python SEPA reference.
 func SwingHighPivot(high []float64, lookback int, completedExclusive bool) float64 {
 	seg := completedTail(high, lookback, completedExclusive)
 	if len(seg) == 0 {
@@ -125,7 +122,6 @@ type BuyReadinessInputs struct {
 
 // BuyReadiness is a transparent 0..100 composite ranking "ready to buy" =
 // near-but-not-above the pivot, leading on RS, tight base, acceptable risk.
-// TMS enhancement — not in the Python SEPA reference.
 //
 // Weighted blend (weights sum to 1.0):
 //

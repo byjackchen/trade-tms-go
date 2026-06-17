@@ -10,9 +10,8 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// loadDotenv mirrors python-dotenv's find_dotenv(usecwd=True) +
-// load_dotenv(override=False): walk up from the working directory looking
-// for a `.env` file, parse it with godotenv, and set only variables that
+// loadDotenv walks up from the working directory looking
+// for a `.env` file, parses it with godotenv, and sets only variables that
 // are not already present in the process environment (godotenv.Load never
 // overrides existing vars). Returns the path loaded ("" if no .env was
 // found). Idempotent: re-running never overrides anything.

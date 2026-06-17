@@ -1,9 +1,8 @@
 package core
 
 // clock.go defines the Clock seam and a deterministic simulated clock driven
-// by event timestamps. The Python reference relies on Nautilus's TestClock,
-// which advances to each data point's ts before dispatch; SimClock is the Go
-// analog.
+// by event timestamps. SimClock advances to each data point's ts before
+// dispatch, so the backtest loop sees a monotonic, replayable clock.
 
 import (
 	"fmt"

@@ -1,8 +1,7 @@
 package params
 
-// validate_test.go covers the typed-struct validation mirroring the Python
-// __post_init__ bodies (same predicates, same messages). Tests live in-package
-// to exercise the unexported *FromMap decoders directly.
+// validate_test.go covers the typed-struct validation predicates and messages.
+// Tests live in-package to exercise the unexported *FromMap decoders directly.
 
 import (
 	"strings"
@@ -123,7 +122,7 @@ func TestIntradayBreakoutValidate(t *testing.T) {
 }
 
 // TestIntegerDecodeRejectsNonIntegral ensures an int-typed param with a
-// non-whole tuned value is rejected at decode (Python int params are ints).
+// non-whole tuned value is rejected at decode (int params must be integral).
 func TestIntegerDecodeRejectsNonIntegral(t *testing.T) {
 	m := pmap{"vcp_lookback": 5.5}
 	if _, err := m.integer("vcp_lookback"); err == nil || !strings.Contains(err.Error(), "expected integer") {

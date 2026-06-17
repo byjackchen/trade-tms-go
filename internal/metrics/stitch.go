@@ -1,14 +1,14 @@
 package metrics
 
-// stitch.go ports the walk-forward equity-curve stitching and metric
-// re-computation of src/research/workers.py:83-146 (spec §4, [MUST-MATCH]).
-// Each fold's backtest starts fresh from the same starting balance;
+// stitch.go implements the walk-forward equity-curve stitching and metric
+// re-computation (spec §4). Each fold's backtest starts fresh from the same
+// starting balance;
 // aggregation concatenates per-period RETURNS (not balances) into one
 // continuous curve and recomputes the metrics over it (never averages
 // per-fold values), so sharpe and calmar describe the same return sequence.
 
 // Stitch concatenates fold curves into one continuous equity curve seeded at
-// startingBalance (spec §4.1; workers.py:83-109):
+// startingBalance (spec §4.1):
 //
 //	stitched = [startingBalance]
 //	for curve in foldCurves:
@@ -39,7 +39,7 @@ func Stitch(foldCurves [][]float64, startingBalance float64) []float64 {
 }
 
 // AggregateFolds recomputes BacktestMetrics over the stitched curve and SUMS
-// the four counters across folds (spec §4.2; workers.py:112-146). The starting
+// the four counters across folds (spec §4.2). The starting
 // balance is recovered from fold 0 as final_balance - total_pnl. Folds whose
 // metrics carry the per-fold counters are summed; the curve-derived metrics
 // (sharpe, calmar, max_drawdown_pct) come from the stitched curve, NOT averages.

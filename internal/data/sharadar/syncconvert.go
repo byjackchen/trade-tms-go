@@ -3,13 +3,13 @@ package sharadar
 // syncconvert.go converts Nasdaq Data Link API rows (wire.go Row) into the
 // same SQL cell rows the parquet importer produces (convert.go), so both
 // ingestion paths share the staging plans, merge SQL and numeric semantics:
-// prices through the Decimal(str(x)) half-even 1e-4 fixed-point bridge,
-// NaN/null -> SQL NULL, dates -> UTC midnight (spec §2.6).
+// prices through the half-even 1e-4 fixed-point rounding bridge, NaN/null ->
+// SQL NULL, dates -> UTC midnight (spec §2.6).
 //
-// P1 locked decision 3: the Python keep-column 'delistedate'
-// (writer_tickers.py:47) is a typo never present in real API output (spec
-// Q2). The Go sync reads 'delistdate' instead and drops the dead spelling;
-// see the addendum in docs/spec/data-sharadar.md.
+// P1 locked decision 3: the legacy 'delistedate' keep-column spelling is a
+// typo never present in real API output (spec Q2). The sync reads 'delistdate'
+// instead and drops the dead spelling; see the addendum in
+// docs/spec/data-sharadar.md.
 
 import (
 	"fmt"
@@ -54,8 +54,8 @@ func convertBarAPIRow(r Row, source string) ([]any, int, error) {
 // convertTickerAPIRow maps one TICKERS API row onto tickerColumns order.
 // The caller applies keepTickerRow first; this converter only maps
 // representations: isdelisted "Y"/"N" -> bool, empty-string/invalid price
-// dates -> NULL (pandas to_datetime(errors="coerce") parity, spec §2.5),
-// and delistdate (not the dead 'delistedate', P1 locked decision 3).
+// dates -> NULL (coerce-on-error, spec §2.5), and delistdate (not the dead
+// 'delistedate', P1 locked decision 3).
 func convertTickerAPIRow(r Row) ([]any, int, error) {
 	ticker, ok := r.Str("ticker")
 	if !ok || ticker == "" {

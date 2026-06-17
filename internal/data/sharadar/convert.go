@@ -1,26 +1,22 @@
 package sharadar
 
 // convert.go holds the pure conversion layer: parquet cell values -> SQL
-// cell values ([]any rows ready for pgx CopyFrom). All numeric semantics are
-// pinned to the Python reference:
+// cell values ([]any rows ready for pgx CopyFrom). Numeric semantics:
 //
 //   - Prices: float64 -> int64 1e-4 fixed point via domain.PriceFromFloat64,
-//     i.e. Decimal(str(x)).quantize(Decimal("0.0001"), ROUND_HALF_EVEN) —
-//     the documented project rounding (docs/spec/domain-types-money.md §1.2).
-//     The narrowing from the reference cache's raw float64 is sanctioned by
-//     the [IMPROVE] note in docs/spec/data-sharadar.md §2.1: out-of-range
-//     values (±Inf, |x| > ~9.22e14 USD) are stored NULL and surfaced in
-//     ImportStats.FieldsNulled; the parquet layer keeps raw float64 and
-//     remains the round-trip-parity surface (spec §12).
-//     NaN/NULL -> SQL NULL (NaN tickers are dropped by consumers, never
-//     cleaned in the store, spec §2.1).
+//     i.e. round-half-even to 0.0001 — the documented project rounding
+//     (docs/spec/domain-types-money.md §1.2). The narrowing from the cache's
+//     raw float64 is sanctioned by the [IMPROVE] note in
+//     docs/spec/data-sharadar.md §2.1: out-of-range values (±Inf, |x| >
+//     ~9.22e14 USD) are stored NULL and surfaced in ImportStats.FieldsNulled;
+//     the parquet layer keeps raw float64 and remains the round-trip surface
+//     (spec §12). NaN/NULL -> SQL NULL (NaN tickers are dropped by consumers,
+//     never cleaned in the store, spec §2.1).
 //   - Volume: float64 (NaN-able upstream) -> int64 by truncation toward
-//     zero, the Python int(row["volume"]) consumer cast (spec §2.1);
-//     NaN/NULL -> SQL NULL. Negative or out-of-int64-range values are
-//     unrepresentable in the schema (CHECK volume >= 0) and become NULL,
-//     counted as field warnings.
-//   - Dates: tz-naive cache timestamps -> UTC midnight (same instant as the
-//     engine's tz_localize("UTC"), spec §2.6).
+//     zero (spec §2.1); NaN/NULL -> SQL NULL. Negative or out-of-int64-range
+//     values are unrepresentable in the schema (CHECK volume >= 0) and become
+//     NULL, counted as field warnings.
+//   - Dates: tz-naive cache timestamps -> UTC midnight (spec §2.6).
 
 import (
 	"errors"
@@ -90,7 +86,7 @@ func priceCell(v float64, valid bool) (any, bool) {
 }
 
 // volumeCell converts the float volume column (NaN-able upstream, spec §2.1)
-// to a BIGINT cell by truncation toward zero — Python's int(float). Negative
+// to a BIGINT cell by truncation toward zero. Negative
 // or out-of-range values are unrepresentable under the schema CHECK and
 // become (nil, true).
 func volumeCell(v float64, valid bool) (any, bool) {
@@ -169,7 +165,7 @@ var tickerColumns = []string{
 }
 
 // convertTickerRow converts one TICKERS row. The on-disk file is already
-// filtered/pruned by the Python writer (spec §2.5); this converter only maps
+// filtered/pruned by the writer (spec §2.5); this converter only maps
 // representations: isdelisted "Y"/"N" -> bool, NaT/"" last price date ->
 // NULL ("still active"), the never-present delistedate keep-column -> NULL.
 func convertTickerRow(rec arrow.Record, c colmap, row int) ([]any, int, error) {

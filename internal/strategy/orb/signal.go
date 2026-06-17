@@ -1,11 +1,9 @@
 package orb
 
-// signal.go is the pure ORB (intraday_breakout) SignalGenerator, a
-// byte/value-faithful port of intraday_breakout/signal.py
-// (IntradayBreakoutSignalGenerator). Zero engine dependencies — bars in,
-// signals out — exactly like the reference's Eng-D2 contract.
+// signal.go is the pure ORB (intraday_breakout) SignalGenerator. Zero engine
+// dependencies — bars in, signals out.
 //
-// Algorithm (signal.py module docstring, lines 6-20):
+// Algorithm:
 //  1. Build the opening range from the first range_minutes of each session:
 //     range_high = max(highs), range_low = min(lows); track avg per-bar volume.
 //  2. After the range locks, on each subsequent bar: if flat, check breakout
@@ -24,13 +22,12 @@ import (
 )
 
 // Generator is the ORB SignalGenerator. Construct with New; it owns all
-// per-session mutable state (signal.py:99-112). Not safe for concurrent use.
+// per-session mutable state. Not safe for concurrent use.
 type Generator struct {
 	cfg Config
 	loc *time.Location
 
-	// Internal state (mirrors the reference field-for-field; pointers/strings
-	// model the Python None where a Decimal may be absent).
+	// Internal state; pointers/strings model an absent (nil) Decimal.
 	currentSessionDate *civilDate // nil == None
 	rangeBarsCount     int
 	rangeHigh          *pydec // nil == None
@@ -46,8 +43,8 @@ type Generator struct {
 	intentGeneration   int
 }
 
-// civilDate is a timezone-independent calendar date (the reference's
-// datetime.date used for session identity). Comparison is field-wise.
+// civilDate is a timezone-independent calendar date used for session identity.
+// Comparison is field-wise.
 type civilDate struct {
 	year  int
 	month time.Month
@@ -62,8 +59,8 @@ func (d civilDate) iso() string {
 	return fmt.Sprintf("%04d-%02d-%02d", d.year, int(d.month), d.day)
 }
 
-// New validates cfg and returns a cold-start Generator (all the Python field
-// defaults: no session, range None, flat, prices Decimal(0)).
+// New validates cfg and returns a cold-start Generator (no session, range nil,
+// flat, prices Decimal(0)).
 func New(cfg Config) (*Generator, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -81,12 +78,11 @@ func New(cfg Config) (*Generator, error) {
 	}, nil
 }
 
-// OnBar processes one bar and emits zero or more Signals, replicating
 // Symbol returns the single instrument this generator trades (its universe).
 func (g *Generator) Symbol() string { return g.cfg.Symbol }
 
-// signal.py:118-171 exactly (session change handling, opening-range window,
-// lock, entry/exit dispatch).
+// OnBar processes one bar and emits zero or more Signals (session change
+// handling, opening-range window, lock, entry/exit dispatch).
 func (g *Generator) OnBar(bar Bar) []Signal {
 	if bar.Symbol != g.cfg.Symbol {
 		return nil // out of universe: state completely unchanged, incl last_seen_close
@@ -116,7 +112,7 @@ func (g *Generator) OnBar(bar Bar) []Signal {
 	rangeEnd := sessionOpen.Add(time.Duration(g.cfg.RangeMinutes) * time.Minute)
 
 	// Strict `<`: a boundary bar whose ts == range_end is EXCLUDED from the
-	// range (signal.py:146-155, the conservative call).
+	// range (the conservative call).
 	if localTS.Before(rangeEnd) {
 		g.extendRange(bar)
 		return signals
@@ -140,7 +136,7 @@ func (g *Generator) OnBar(bar Bar) []Signal {
 	return signals
 }
 
-// extendRange accumulates one bar into the opening range (signal.py:177-183):
+// extendRange accumulates one bar into the opening range:
 // range_high = max(highs), range_low = min(lows), cumulative volume + count.
 func (g *Generator) extendRange(bar Bar) {
 	if g.rangeHigh == nil || bar.High.cmp(*g.rangeHigh) > 0 {
@@ -155,8 +151,8 @@ func (g *Generator) extendRange(bar Bar) {
 	g.rangeBarsCount++
 }
 
-// lockRange computes avg_volume and sets locked, unless no bars accumulated
-// (signal.py:185-190). Idempotent on the locked path (caller guards).
+// lockRange computes avg_volume and sets locked, unless no bars accumulated.
+// Idempotent on the locked path (caller guards).
 func (g *Generator) lockRange() {
 	if g.rangeBarsCount == 0 || g.rangeHigh == nil {
 		return
@@ -165,7 +161,7 @@ func (g *Generator) lockRange() {
 	g.rangeLocked = true
 }
 
-// maybeEnter applies the breakout entry logic (signal.py:196-248).
+// maybeEnter applies the breakout entry logic.
 func (g *Generator) maybeEnter(bar Bar, localTS time.Time) []Signal {
 	// Block new entries on or after EOD.
 	if !localTS.Before(g.eodDT(localTS)) {
@@ -230,7 +226,7 @@ func (g *Generator) maybeEnter(bar Bar, localTS time.Time) []Signal {
 }
 
 // maybeExit applies the exit logic with strict priority EOD > stop > target,
-// at most one signal per bar (signal.py:254-264).
+// at most one signal per bar.
 func (g *Generator) maybeExit(bar Bar, localTS time.Time) []Signal {
 	if !localTS.Before(g.eodDT(localTS)) {
 		return []Signal{g.makeFlatSignal(bar, "EOD exit at "+g.cfg.EODExitTime)}
@@ -245,7 +241,7 @@ func (g *Generator) maybeExit(bar Bar, localTS time.Time) []Signal {
 }
 
 // makeFlatSignal emits a FLAT carrying the pre-close held qty and then clears
-// position state (signal.py:266-278).
+// position state.
 func (g *Generator) makeFlatSignal(bar Bar, reason string) Signal {
 	sig := Signal{
 		Symbol:     g.cfg.Symbol,
@@ -263,13 +259,13 @@ func (g *Generator) makeFlatSignal(bar Bar, reason string) Signal {
 }
 
 // eodDT returns the EOD-exit instant on localTS's calendar day in the config
-// timezone (signal.py:284-288: local_ts.replace(hour, minute, 0, 0)).
+// timezone (local_ts with hour/minute set, seconds zeroed).
 func (g *Generator) eodDT(localTS time.Time) time.Time {
 	h, m, _ := parseHHMM(g.cfg.EODExitTime)
 	return time.Date(localTS.Year(), localTS.Month(), localTS.Day(), h, m, 0, 0, g.loc)
 }
 
-// resetSession clears all per-session state for new_date (signal.py:290-301).
+// resetSession clears all per-session state for new_date.
 func (g *Generator) resetSession(newDate civilDate) {
 	d := newDate
 	g.currentSessionDate = &d

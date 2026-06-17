@@ -221,7 +221,7 @@ func (t *TradeSession) postTimestamp(ctx context.Context, asOf time.Time) error 
 	latched, _ := t.gated.EvaluateDailyLossHalt()
 
 	// (2) live telemetry snapshot — MARKED to market so the cockpit health panel
-	// reflects the real day P&L (the parity snapshot keeps day P&L 0).
+	// reflects the real day P&L (the backtest-style snapshot keeps day P&L 0).
 	snap, err := t.account.MarkedSnapshot(t.cfg.NAV)
 	if err != nil {
 		return fmt.Errorf("livetrade: post-timestamp account snapshot: %w", err)

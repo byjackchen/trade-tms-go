@@ -1,12 +1,10 @@
 // Package exec is the simulated execution venue used by backtests. It provides
 // SimExecutor — a fill simulator that accepts order submissions during bar
 // processing and produces fills via a configured FillModel (slippage,
-// commission, next-bar fill timing identical to the Python reference) — along
-// with the small ports it depends on: FillModel (fill legs + timing), FillSink
-// (where produced fills are delivered, forwarded by the engine into
-// accounting) and SeqSource (monotonic deterministic sequence values for id
-// generation). Mirrors the fill-simulation responsibilities embedded in
-// src/runner/ and src/adapters of the reference repo.
+// commission, next-bar fill timing) — along with the small ports it depends on:
+// FillModel (fill legs + timing), FillSink (where produced fills are delivered,
+// forwarded by the engine into accounting) and SeqSource (monotonic
+// deterministic sequence values for id generation).
 //
 // SimExecutor sits *below* the engine: it is the simulated venue the batch
 // engine drives bar-by-bar (ProcessBar/FlushThisBar/FillAtBar). It is NOT the
@@ -21,7 +19,7 @@
 //
 // Rules:
 //   - Fills are deterministic: the same bars + orders produce the same fills,
-//     matching the Python reference byte-for-byte.
+//     bit-for-bit across platforms.
 //   - Live order paths (implemented elsewhere, behind engine.OrderSubmitter)
 //     must be idempotent and audit-logged.
 package exec

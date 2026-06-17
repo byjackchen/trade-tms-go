@@ -2,9 +2,9 @@
 --
 -- P5 locked decision 4: the EOD engine-REPLAY mode must be idempotent — running
 -- `tms eod --as-of <date>` twice produces the SAME live.signal_intents rows, not
--- duplicates. The reference Python EOD was a non-idempotent pure-Python side
--- path that appended; the Go port replays bars through the SAME engine and
--- UPSERTs on (strategy_id, symbol, as_of).
+-- duplicates. Rather than a non-idempotent side path that appends, the EOD
+-- mode replays bars through the SAME engine and UPSERTs on
+-- (strategy_id, symbol, as_of).
 --
 -- The streaming live path (tms.signal_intents 000005) is append-only by design
 -- (one row per evaluate_intent per bar, the SignalIntentUpdate audit trail), so

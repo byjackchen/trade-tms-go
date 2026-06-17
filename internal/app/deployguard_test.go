@@ -5,14 +5,13 @@ package app
 // executes in CI:
 //
 //  1. compose.yaml must never (re)introduce container_name values colliding
-//     with the Python reference stack, which runs containers literally named
-//     `tms-api` and `tms-ui` on the shared dev host. Enabling the `app`
-//     profile with those names would fail with a name conflict or tempt
-//     someone to stop the reference stack. Go app containers use the
-//     `tmsgo-` prefix.
+//     with a separate stack that may run containers literally named `tms-api`
+//     and `tms-ui` on the shared dev host. Enabling the `app` profile with
+//     those names would fail with a name conflict or tempt someone to stop the
+//     other stack. App containers use the `tmsgo-` prefix.
 //
 //  2. .dockerignore must exist and exclude bin/ (stale binaries bust the
-//     COPY . . layer cache), tmp/ (parity dumps), docs/, .git, and — most
+//     COPY . . layer cache), tmp/ (scratch dumps), docs/, .git, and — most
 //     importantly — .env* so a developer's secrets are never copied into an
 //     intermediate builder layer.
 
@@ -54,14 +53,14 @@ func TestComposeContainerNamesDoNotCollideWithReferenceStack(t *testing.T) {
 	// when nobody re-reviews the names.
 	collide := regexp.MustCompile(`container_name:\s*tms-(api|ui|worker|live)\b`)
 	assert.False(t, collide.Match(raw),
-		"compose.yaml pins container_name %q, owned by (or too close to) the "+
-			"Python reference stack (trade-multi-strategies runs tms-api/tms-ui "+
-			"on this host); use the tmsgo- prefix", collide.FindString(string(raw)))
+		"compose.yaml pins container_name %q, too close to a separate stack "+
+			"that may run tms-api/tms-ui on this host; use the tmsgo- prefix",
+		collide.FindString(string(raw)))
 }
 
 // TestAllContainerNamesUseTmsgoPrefix enforces the project convention that
 // EVERY compose container is named `tmsgo-*` (uniform branding + no collision
-// with the Python reference stack's `tms-*` containers on a shared host).
+// with a separate stack's `tms-*` containers on a shared host).
 func TestAllContainerNamesUseTmsgoPrefix(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(repoRoot(t), "compose.yaml"))
 	require.NoError(t, err)

@@ -1,9 +1,8 @@
 package riskgate
 
-// reconciliation.go ports src/portfolio/reconciliation.py (spec §6
-// [MUST-MATCH]): the EOD check that sum(strategy books) == broker net per
-// symbol. Pure data module — the caller supplies both sides and consumes the
-// report (log / alert / halt); this module never acts on has_issues.
+// reconciliation.go (spec §6): the EOD check that sum(strategy books) == broker
+// net per symbol. Pure data module — the caller supplies both sides and consumes
+// the report (log / alert / halt); this module never acts on has_issues.
 //
 // Independent positions (Eng-D3): each strategy keeps its own book; the broker
 // truth is the NET position. A drift between the two means a missed fill,
@@ -16,9 +15,9 @@ import (
 	"time"
 )
 
-// Mismatch is one symbol where the strategy-book sum disagrees with broker net
-// (reconciliation.py:18-29). diff is broker_net - strategy_books_sum (sign
-// matters: books 100 / broker 95 -> diff -5).
+// Mismatch is one symbol where the strategy-book sum disagrees with broker net.
+// diff is broker_net - strategy_books_sum (sign matters: books 100 / broker 95
+// -> diff -5).
 type Mismatch struct {
 	Symbol           string
 	StrategyBooksSum int64 // signed sum across strategies' tracked positions
@@ -26,12 +25,12 @@ type Mismatch struct {
 	Diff             int64 // BrokerNet - StrategyBooksSum
 }
 
-// DiffShares returns |Diff| (reconciliation.py:27-29).
+// DiffShares returns |Diff|.
 func (m Mismatch) DiffShares() int64 { return absInt64(m.Diff) }
 
-// ReconciliationReport is the per-symbol classification of a reconcile run
-// (reconciliation.py:32-69). The slices are deterministically ordered: symbols
-// are processed in lexicographic ascending order.
+// ReconciliationReport is the per-symbol classification of a reconcile run.
+// The slices are deterministically ordered: symbols are processed in
+// lexicographic ascending order.
 type ReconciliationReport struct {
 	TS                      time.Time
 	Matched                 []string   // symbols within tolerance
@@ -40,16 +39,15 @@ type ReconciliationReport struct {
 	SymbolsOnlyAtBroker     []string   // broker shows; no strategy claims
 }
 
-// HasIssues reports whether any of the three problem lists is non-empty
-// (reconciliation.py:40-46).
+// HasIssues reports whether any of the three problem lists is non-empty.
 func (r ReconciliationReport) HasIssues() bool {
 	return len(r.Mismatches) > 0 ||
 		len(r.SymbolsOnlyInStrategies) > 0 ||
 		len(r.SymbolsOnlyAtBroker) > 0
 }
 
-// Summary renders the human-facing report text (reconciliation.py:48-69,
-// spec §6.1 [MUST-MATCH]). Clean: "Reconciliation OK (N symbols matched)".
+// Summary renders the human-facing report text (spec §6.1). Clean:
+// "Reconciliation OK (N symbols matched)".
 // Issues: a header line with the RFC3339-ish timestamp, then the mismatch
 // block, then the one-sided blocks; lines joined with "\n". Signed ints use the
 // "%+d" format (always-signed).
@@ -77,20 +75,20 @@ func (r ReconciliationReport) Summary() string {
 	return strings.Join(lines, "\n")
 }
 
-// isoFormat renders ts like Python datetime.isoformat() for a UTC-aware
-// datetime (e.g. "2024-06-28T21:00:00+00:00"). Only used for the issues header.
+// isoFormat renders ts as an ISO-8601 UTC-aware datetime (e.g.
+// "2024-06-28T21:00:00+00:00"). Only used for the issues header.
 func isoFormat(ts time.Time) string {
 	u := ts.UTC()
 	base := u.Format("2006-01-02T15:04:05")
 	if ns := u.Nanosecond(); ns != 0 {
-		// Python prints microseconds when sub-second is present.
+		// Print microseconds when sub-second precision is present.
 		base += fmt.Sprintf(".%06d", ns/1000)
 	}
 	return base + "+00:00"
 }
 
 // Reconcile compares aggregated strategy books vs broker net per symbol
-// (reconciliation.py:72-131, spec §6.2 [MUST-MATCH]).
+// (spec §6.2).
 //
 // strategyBooks[(strategy_id, symbol)] = signed shares; broker[symbol] = signed
 // broker net. toleranceShares absorbs tiny diffs (inclusive <=).

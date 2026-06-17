@@ -19,10 +19,9 @@ Drop `--build` for a restart without rebuilding. The `live` profile needs
 
 ---
 
-A Go port of the Python reference `trade-multi-strategies` that **unifies five
-trading modes on one engine**. The entire system ships as a single static binary
-`tms` plus a Next.js control-plane UI, with **zero Python runtime dependency** in
-production — Python is only the offline parity oracle.
+A Go trading system that **unifies five trading modes on one engine**. The entire
+system ships as a single static binary `tms` plus a Next.js control-plane UI, with
+**zero language-runtime dependency** in production.
 
 The thesis: backtest, hyperopt, live-signal, paper, and live all run on the SAME
 deterministic event-loop engine (`internal/core` + `internal/engine`), the SAME
@@ -104,9 +103,9 @@ Local development:
 
 ```bash
 make build      # bin/tms (version injected)
-make test       # go test -race ./...  (hermetic; no Python needed)
+make test       # go test -race ./...  (hermetic; no external deps needed)
 make vet fmt-check
-make parity     # the Nautilus golden-parity gate (needs the read-only oracle venv)
+make lint       # vocabulary + import gates (parity-guard)
 ```
 
 ---
@@ -117,32 +116,29 @@ make parity     # the Nautilus golden-parity gate (needs the read-only oracle ve
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | Hexagonal design, five-modes-one-engine, deterministic event loop, sync-core/async-edge, DB-as-truth, Redis-as-transport, native moomoo client, 4-factor live gate |
 | [docs/deployment.md](docs/deployment.md) | Compose profiles (app/live), env + secrets, host-OpenD (`host.docker.internal:11111`), first-boot migrate, Postgres backup/restore, scaling the worker |
-| [docs/parity.md](docs/parity.md) | The production-grade accuracy proof ledger |
 | [docs/api.md](docs/api.md) | REST + WebSocket API contract |
 | [docs/runbooks/](docs/runbooks/) | Operational runbooks (e.g. the deferred live OpenD smoke) |
-| [docs/spec/](docs/spec/) | Per-component specs ported from the reference |
+| [docs/spec/](docs/spec/) | Per-component specifications |
 
 ---
 
-## The parity story (P0–P6 evidence)
+## Correctness gates (P0–P6 evidence)
 
-Every layer is **proven equal** to the Python reference, not merely close. See
-[docs/parity.md](docs/parity.md) for the full ledger; the headline gates:
+Every layer is pinned by committed golden fixtures; the headline gates:
 
 - **Fixed-point money** — exact int64 round-trip (`internal/domain`).
-- **Indicators** — ≤ 1e-9 vs numpy/pandas (golden + incremental).
-- **Data field parity** — Sharadar fields mirror the reference cache.
+- **Indicators** — ≤ 1e-9 (golden + incremental).
+- **Data fields** — Sharadar field contracts.
 - **Strategy signals — 0 mismatch** across all four strategies.
-- **Fill / engine parity vs Nautilus** — per-fill price/qty/timing exact,
-  equity within a cent (`make parity`).
-- **Metrics** — Sharpe/Calmar/MaxDD ≤ 1e-12 relative (Neumaier-compensated).
-- **Hyperopt objective parity** — per-fold + stitched match (`parity_folds` tag).
-- **moomoo protocol — byte-for-byte** vs the vendored Python SDK
+- **Fill / engine** — per-fill price/qty/timing exact, equity within a cent.
+- **Metrics** — Sharpe/Calmar/MaxDD bit-reproducible across platforms
+  (exact-rational accumulation).
+- **Hyperopt objective** — per-fold + stitched golden regression.
+- **moomoo protocol — byte-for-byte** against captured frames
   (`internal/adapters/moomoo`), proven with NO OpenD via a protocol-faithful mock.
 
 The default `go test ./...` is hermetic — it consumes committed golden fixtures
-and never shells to Python. Only the `parity` / `parity_folds` build tags invoke
-the oracle, and neither is part of the shipped image.
+with no external dependencies.
 
 ---
 
@@ -158,7 +154,7 @@ the oracle, and neither is part of the shipped image.
 
 ## Acceptance bar
 
-ACCURATE (semantically equal to the reference unless an `[IMPROVE]` is noted) /
+ACCURATE (matches the spec definitions in `docs/spec/`) /
 COMPLETE (no feature dropped) / NO SIMPLIFICATION / PRODUCTION-GRADE (error
 handling, context cancellation, graceful shutdown, structured logging, zero panic
 on the happy path) / SAFE (the 4-factor live activation gate + per-order

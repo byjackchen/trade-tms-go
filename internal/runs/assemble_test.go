@@ -41,7 +41,7 @@ func TestAssembleEndToEnd(t *testing.T) {
 		Start:           calendar.NewDate(2024, 1, 2),
 		End:             calendar.NewDate(2024, 1, 4),
 		StartingBalance: domain.MustMoney("100000.00"),
-		Profile:         engine.ProfileNautilusCompat,
+		Profile:         engine.ProfileCloseFill,
 		Strategies: []engine.StrategySpec{{
 			ID: "Scripted-000",
 			Intents: []engine.Intent{
@@ -70,7 +70,7 @@ func TestAssembleEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Bought 100 @ 10, sold 100 @ 12 (nautilus-compat fills at the bar close):
+	// Bought 100 @ 10, sold 100 @ 12 (close-fill fills at the bar close):
 	// realized = 200; final balance = 100200.
 	if res.FinalBalance != domain.MustMoney("100200.00") {
 		t.Fatalf("final balance: %s", res.FinalBalance)

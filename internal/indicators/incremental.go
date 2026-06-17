@@ -67,10 +67,11 @@ func (r *RollingSMA) Value() float64 {
 //
 // It maintains a ring buffer of the trailing `window` samples and computes the
 // std with the SAME two-pass mean/variance formulation as the batch RollingStd,
-// so the streaming output is bit-for-bit identical to the batch (pandas-parity)
-// form — no single-pass Σx² catastrophic-cancellation drift. The per-update
-// cost is O(window); for the small windows strategies use (lookback ~60) this
-// is negligible and buys exact parity, which matters more than micro-throughput.
+// so the streaming output is bit-for-bit identical to the batch form — no
+// single-pass Σx² catastrophic-cancellation drift. The per-update cost is
+// O(window); for the small windows strategies use (lookback ~60) this is
+// negligible and buys exact batch/stream agreement, which matters more than
+// micro-throughput.
 type RollingStdAcc struct {
 	window int
 	ddof   int

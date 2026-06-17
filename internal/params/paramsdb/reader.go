@@ -3,8 +3,8 @@ package paramsdb
 // Package paramsdb is the pgx-backed adapter for internal/params: it implements
 // params.PayloadReader against the P0 Postgres schema (tms.active_params ->
 // tms.param_sets.payload). It is split out of the params core so that the
-// params package — and therefore the pure strategy packages and the golden /
-// parity dependency closure — import NO pgx driver.
+// params package — and therefore the pure strategy packages and the golden
+// dependency closure — import NO pgx driver.
 //
 // Usage (engine assembly / api / jobs):
 //

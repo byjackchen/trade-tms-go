@@ -2,10 +2,10 @@ package sepa
 
 // incstate.go holds the per-generator incremental indicator state that replaces
 // the O(window)-per-bar BATCH recomputation in the flat-book entry chain
-// (maybeEnter -> ClassifyStage + EvaluateTrendTemplate). [PERF, parity-critical]
+// (maybeEnter -> ClassifyStage + EvaluateTrendTemplate). [PERF, agreement-critical]
 //
-// PARITY CONTRACT [HARD]: every value produced here is BYTE-IDENTICAL to the
-// batch form it replaces. The trend-template / stage / 52wk logic compares MA
+// BATCH-AGREEMENT CONTRACT [HARD]: every value produced here is BYTE-IDENTICAL
+// to the batch form it replaces. The trend-template / stage / 52wk logic compares MA
 // values with STRICT inequalities, so a single-ULP drift could flip a boolean
 // and change which signal fires. We therefore do NOT use a drifting running-sum
 // SMA (internal/indicators.RollingSMA keeps an incrementally maintained sum that

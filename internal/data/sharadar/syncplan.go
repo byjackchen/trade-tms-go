@@ -2,8 +2,8 @@ package sharadar
 
 // syncplan.go is the pure (IO-free) planning layer of the API -> PG sync:
 // catchup-day computation, bootstrap date chunking, ticker batching and the
-// TICKERS survivorship row filter. Everything here is unit-tested against
-// the Python reference oracles without a client or a database.
+// TICKERS survivorship row filter. Everything here is unit-tested without a
+// client or a database.
 
 import (
 	"fmt"
@@ -13,8 +13,8 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 )
 
-// sf1TickerBatchSize matches the Python _TICKER_BATCH_SIZE for SF1/EVENTS
-// per-call ticker lists (spec §6.4/§6.5 [MUST-MATCH]).
+// sf1TickerBatchSize is the SF1/EVENTS per-call ticker batch size
+// (spec §6.4/§6.5).
 const sf1TickerBatchSize = 500
 
 // dateRange is one inclusive [Start, End] window.
@@ -24,12 +24,10 @@ type dateRange struct {
 }
 
 // dateChunks splits [start, end] into calendar-aligned windows of `months`
-// width, inclusive on both ends — the exact _date_chunks algorithm of
-// writer_sep.py (spec §6.1 [MUST-MATCH], oracle test_writer_sep.py:57-77):
-// months must divide 12; with months=3 a full year yields the four
-// quarters. Rationale (from the original): quarterly SEP pulls are ~220k
-// rows/call, safely under the per-call ~1M row cap that half-year chunks
-// hit in 2021-H2.
+// width, inclusive on both ends (spec §6.1): months must divide 12; with
+// months=3 a full year yields the four quarters. Rationale: quarterly SEP
+// pulls are ~220k rows/call, safely under the per-call ~1M row cap that
+// half-year chunks hit in 2021-H2.
 func dateChunks(start, end calendar.Date, months int) ([]dateRange, error) {
 	switch months {
 	case 1, 2, 3, 4, 6, 12:
@@ -75,7 +73,7 @@ func tradingDays(cal *calendar.Calendar, start, end calendar.Date) []calendar.Da
 	for d := start; !d.After(end); d = d.AddDays(1) {
 		trading, err := cal.IsTradingDay(d)
 		if err != nil {
-			// Out of calendar range: pandas bdate_range parity (weekdays).
+			// Out of calendar range: fall back to weekdays.
 			wd := d.Weekday()
 			trading = wd != time.Saturday && wd != time.Sunday
 		}
@@ -108,8 +106,8 @@ func catchupWindow(startBasis, today calendar.Date) (start, target calendar.Date
 	return startBasis, today.AddDays(-1)
 }
 
-// batchTickers splits tickers into batches of size (the Python
-// _ticker_batches, spec §6.4). Empty input yields nil.
+// batchTickers splits tickers into batches of size (spec §6.4). Empty input
+// yields nil.
 func batchTickers(tickers []string, size int) [][]string {
 	if size <= 0 || len(tickers) == 0 {
 		return nil
@@ -125,8 +123,7 @@ func batchTickers(tickers []string, size int) [][]string {
 	return out
 }
 
-// keepTickerRow is the TICKERS survivorship-bias row filter
-// (writer_tickers.py:62-72; spec §2.5 [MUST-MATCH]):
+// keepTickerRow is the TICKERS survivorship-bias row filter (spec §2.5):
 //
 //   - SF1 stocks: keep iff category startswith "Domestic Common Stock" —
 //     both active AND delisted survive (survivor-bias-free backtests);

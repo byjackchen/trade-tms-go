@@ -1,8 +1,7 @@
 package riskgate
 
-// risk_constraints.go ports src/portfolio/risk_constraints.py (spec §5
-// [MUST-MATCH]): three aggregate hard rules evaluated per ProposedOrder, each
-// short-circuiting (first rejection wins) in the fixed order
+// risk_constraints.go (spec §5): three aggregate hard rules evaluated per
+// ProposedOrder, each short-circuiting (first rejection wins) in the fixed order
 // daily_loss_halt → max_single_name → concentration. FLAT and qty<=0 always
 // approve (closes reduce risk, including during a daily-loss halt). All money
 // comparisons are exact.
@@ -13,16 +12,16 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
-// RiskConstraintsConfig holds the three rule thresholds (risk_constraints.py:
-// 31-44). Defaults: max_single_name 0.20, concentration 0.30, daily_loss_halt
-// 0.05. Each must be strictly in (0, 1].
+// RiskConstraintsConfig holds the three rule thresholds. Defaults:
+// max_single_name 0.20, concentration 0.30, daily_loss_halt 0.05. Each must be
+// strictly in (0, 1].
 type RiskConstraintsConfig struct {
 	MaxSingleNamePct float64
 	ConcentrationPct float64
 	DailyLossHaltPct float64
 }
 
-// DefaultRiskConstraintsConfig returns the reference defaults.
+// DefaultRiskConstraintsConfig returns the default thresholds.
 func DefaultRiskConstraintsConfig() RiskConstraintsConfig {
 	return RiskConstraintsConfig{
 		MaxSingleNamePct: 0.20,
@@ -31,7 +30,7 @@ func DefaultRiskConstraintsConfig() RiskConstraintsConfig {
 	}
 }
 
-// Validate checks each pct is strictly in (0, 1] (risk_constraints.py:38-44).
+// Validate checks each pct is strictly in (0, 1].
 func (c RiskConstraintsConfig) Validate() error {
 	for name, v := range map[string]float64{
 		"max_single_name_pct": c.MaxSingleNamePct,
@@ -45,7 +44,7 @@ func (c RiskConstraintsConfig) Validate() error {
 	return nil
 }
 
-// RiskConstraints applies the aggregate hard rules (risk_constraints.py:47-141).
+// RiskConstraints applies the aggregate hard rules.
 type RiskConstraints struct {
 	cfg RiskConstraintsConfig
 }
@@ -61,8 +60,8 @@ func NewRiskConstraints(cfg RiskConstraintsConfig) (*RiskConstraints, error) {
 // Config returns the active configuration.
 func (r *RiskConstraints) Config() RiskConstraintsConfig { return r.cfg }
 
-// Check runs the three rules in order; first rejection wins
-// (risk_constraints.py:60-83). FLAT or qty<=0 → approve.
+// Check runs the three rules in order; first rejection wins. FLAT or qty<=0 →
+// approve.
 func (r *RiskConstraints) Check(order ProposedOrder, account PortfolioSnapshot) RiskDecision {
 	if order.Side == domain.SideFlat || order.Qty <= 0 {
 		return Approve()
@@ -79,7 +78,7 @@ func (r *RiskConstraints) Check(order ProposedOrder, account PortfolioSnapshot) 
 	return Approve()
 }
 
-// checkDailyLossHalt: pnl < -nav*pct (strict) → reject (risk_constraints.py:89-101).
+// checkDailyLossHalt: pnl < -nav*pct (strict) → reject.
 func (r *RiskConstraints) checkDailyLossHalt(account PortfolioSnapshot) RiskDecision {
 	threshold := account.NAV.Mul(decFromPctFloat(r.cfg.DailyLossHaltPct)).Neg()
 	pnl := account.TotalPnLToday()
@@ -91,8 +90,8 @@ func (r *RiskConstraints) checkDailyLossHalt(account PortfolioSnapshot) RiskDeci
 	return Approve()
 }
 
-// checkMaxSingleName: held_value + qty*price > nav*pct (strict) → reject
-// (risk_constraints.py:103-124). held_value uses last_close.get(symbol, price).
+// checkMaxSingleName: held_value + qty*price > nav*pct (strict) → reject.
+// held_value uses last_close for symbol, falling back to price.
 func (r *RiskConstraints) checkMaxSingleName(order ProposedOrder, account PortfolioSnapshot) RiskDecision {
 	heldQty := absInt64(account.StrategyPosition(order.StrategyID, order.Symbol))
 	lastClose, ok := account.LastClose[order.Symbol]
@@ -112,8 +111,8 @@ func (r *RiskConstraints) checkMaxSingleName(order ProposedOrder, account Portfo
 }
 
 // checkConcentration: |net_across_strategies + signed_qty| * order.price >
-// nav*pct (strict) → reject (risk_constraints.py:126-141). signed_qty = +qty if
-// LONG else -qty. Uses order.price for the whole net (per spec note).
+// nav*pct (strict) → reject. signed_qty = +qty if LONG else -qty. Uses
+// order.price for the whole net (per spec note).
 func (r *RiskConstraints) checkConcentration(order ProposedOrder, account PortfolioSnapshot) RiskDecision {
 	currentNet := account.NetPositionAcrossStrategies(order.Symbol)
 	signedQty := order.Qty

@@ -171,7 +171,7 @@ func TestBatchEqualsStreamingIntents(t *testing.T) {
 		Start:              calendar.Date{Year: 2024, Month: time.January, Day: 1},
 		End:                calendar.Date{Year: 2024, Month: time.February, Day: 2},
 		StartingBalance:    domain.MustMoney("100000"),
-		Profile:            engine.ProfileNautilusCompat,
+		Profile:            engine.ProfileCloseFill,
 		PrebuiltStrategies: proxies,
 		Gate:               batchAsm.Gate,
 		Context:            batchAsm.Context,

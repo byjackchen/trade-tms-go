@@ -43,7 +43,7 @@ function statusVariant(
 }
 
 /** Column definitions for the orders ResponsiveTable. Order id + Status are the
- * mobile-card primaries; the rest (full parity) fold under "More". */
+ * mobile-card primaries; the rest (full feature set) fold under "More". */
 const COLUMNS: ColumnDef<BacktestOrder>[] = [
   {
     key: "order",

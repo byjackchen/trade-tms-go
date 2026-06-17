@@ -234,7 +234,7 @@ func isCtxErr(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-// Run executes the import. Dataset order follows the Python bootstrap
+// Run executes the import. Dataset order follows the bootstrap order
 // (TICKERS -> SEP -> SFP -> SF1 -> EVENTS, spec §9). Per-dataset and
 // per-file failures are captured into the summary; only context
 // cancellation (or a nil-pool programming error) aborts the run, returning
@@ -325,7 +325,7 @@ type loader struct {
 	buf       [][]any
 	seq       int64
 	upserted  int64 // total rows affected (inserts + conflict updates)
-	inserted  int64 // net-new keys only (Python writers' `added` semantics)
+	inserted  int64 // net-new keys only (`added` semantics)
 }
 
 func newLoader(ctx context.Context, pool *pgxpool.Pool, plan stagingPlan, batchSize int) (*loader, error) {
@@ -600,8 +600,8 @@ func (im *Importer) importPerTicker(ctx context.Context, dataset string, stats *
 }
 
 // importTickers loads TICKERS.parquet into tms.tickers. With no --tickers
-// filter it replicates the Python writer's full-overwrite (upsert + delete
-// rows missing from the source) in one transaction. If the file is absent,
+// filter it performs the full-overwrite (upsert + delete rows missing from
+// the source) in one transaction. If the file is absent,
 // it derives a degraded universe from the cache structure itself (see
 // deriveTickerRows).
 func (im *Importer) importTickers(ctx context.Context, stats *TableStats) error {

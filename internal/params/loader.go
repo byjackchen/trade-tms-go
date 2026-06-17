@@ -10,14 +10,14 @@ package params
 //	ld := params.NewLoader(paramsdb.NewReader(pool), cfg.StrategyParamsDir)
 //	sepa, err := ld.SEPA(ctx)          // resolved + validated SEPAParams
 //
-// Strategy ids are the canonical Python stems.
+// Strategy ids are the canonical strategy stems.
 
 import (
 	"context"
 	"fmt"
 )
 
-// Canonical strategy ids (Python package stems; baseline file names).
+// Canonical strategy ids (strategy stems; baseline file names).
 const (
 	StrategySEPA             = "sepa"
 	StrategyPairs            = "pairs"

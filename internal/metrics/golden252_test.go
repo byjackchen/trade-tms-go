@@ -6,12 +6,11 @@ import (
 	"testing"
 )
 
-// TestParity252PointCurve asserts the Neumaier-compensated metrics agree with
-// the Python reference to <=1e-12 relative on a 252-point randomized walk
-// (spec §13.1 — the case where naive Go summation can drift in the last ulp).
-// The curve and the reference outputs were captured from the reference CPython
-// venv (research.metrics over the same seeded walk).
-func TestParity252PointCurve(t *testing.T) {
+// TestGolden252PointCurve pins the Neumaier-compensated metrics to <=1e-12
+// relative on a 252-point randomized walk (spec §13.1 — the case where naive Go
+// summation can drift in the last ulp). The curve and the expected outputs are
+// this repo's golden regression baseline; any drift is a regression.
+func TestGolden252PointCurve(t *testing.T) {
 	raw, err := os.ReadFile("testdata/curve252.json")
 	if err != nil {
 		t.Fatalf("read curve: %v", err)

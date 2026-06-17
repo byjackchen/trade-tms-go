@@ -76,7 +76,7 @@ func newBacktestCmd(env *runtimeEnv) *cobra.Command {
 	cmd.Flags().StringVar(&start, "start", "", "bar window start (YYYY-MM-DD, required)")
 	cmd.Flags().StringVar(&end, "end", "", "bar window end (YYYY-MM-DD, required)")
 	cmd.Flags().Float64Var(&startBalance, "starting-balance", 100000.0, "starting account balance in USD")
-	cmd.Flags().StringVar(&fillProfile, "fill-profile", "nautilus-compat", "fill model: nautilus-compat | realistic")
+	cmd.Flags().StringVar(&fillProfile, "fill-profile", "realistic", "fill model: close-fill | realistic")
 	cmd.Flags().StringVar(&strategy, "strategy", "scripted", "strategy: scripted | sepa | sector_rotation | pairs | orb | multi")
 	cmd.Flags().StringVar(&orbSymbol, "orb-symbol", "", "ORB strategy: the single intraday instrument symbol")
 	cmd.Flags().StringVar(&intentsPath, "intents", "", "path to a JSON array of scripted intents")

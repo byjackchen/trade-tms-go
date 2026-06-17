@@ -29,8 +29,8 @@ func legPrice(t *testing.T, legs []FillLeg) domain.Price {
 	return legs[0].Price
 }
 
-func TestNautilusCompatFillsAtClose(t *testing.T) {
-	m := NautilusCompatModel{}
+func TestCloseFillFillsAtClose(t *testing.T) {
+	m := CloseFillModel{}
 	assert.Equal(t, FillThisBar, m.Timing())
 	// qty 100 <= close-tick (1000/4=250) -> single leg at close 105.
 	legs, err := m.Fill(order("AAPL", domain.OrderSideBuy, 100), bar("AAPL", "100", "110", "95", "105"))
@@ -41,11 +41,11 @@ func TestNautilusCompatFillsAtClose(t *testing.T) {
 	assert.Equal(t, domain.Money(0), c)
 }
 
-// TestNautilusCompatDepthWalk reproduces the volume-decomposition fill: an
+// TestCloseFillDepthWalk reproduces the volume-decomposition fill: an
 // order exceeding the close-tick depth fills the depth at close and the
 // residual one increment adverse.
-func TestNautilusCompatDepthWalk(t *testing.T) {
-	m := NautilusCompatModel{}
+func TestCloseFillDepthWalk(t *testing.T) {
+	m := CloseFillModel{}
 	b := bar("AAPL", "100", "110", "95", "105")
 	b.Volume = 1000 // close tick = 1000 - 3*250 = 250
 	// BUY 300 -> 250 @105.00, 50 @105.01.
@@ -73,8 +73,8 @@ func TestCloseTickVolume(t *testing.T) {
 	assert.Equal(t, int64(2), closeTickVolume(8))
 	assert.Equal(t, int64(4), closeTickVolume(7))
 	// Small volumes hit the min-size floor + underflow guard of
-	// compute_bar_quarter_sizes (verified empirically against the Nautilus
-	// BacktestEngine — NOT the naive vol-3*floor(vol/4), which would wrongly
+	// compute_bar_quarter_sizes (the depth-walk formula — NOT the naive
+	// vol-3*floor(vol/4), which would wrongly
 	// give 3/2 here; see docs/spec/engine-fill-model.md §3.1).
 	assert.Equal(t, int64(1), closeTickVolume(3)) // quarter floors to 1; 3*1>=3 -> 1
 	assert.Equal(t, int64(1), closeTickVolume(2)) // quarter floors to 1; 3*1>=2 -> 1
@@ -119,14 +119,14 @@ func (s *fakeSeq) NextSeq() uint64 { v := s.n; s.n++; return v }
 
 func TestExecutorThisBarFlow(t *testing.T) {
 	sink := &fakeSink{}
-	ex := NewSimExecutor(NautilusCompatModel{}, sink, &fakeSeq{})
+	ex := NewSimExecutor(CloseFillModel{}, sink, &fakeSeq{})
 	o := order("AAPL", domain.OrderSideBuy, 100)
 	require.NoError(t, ex.Submit(o))
 	// This-bar model: ProcessBar RECORDS the bar (no fill yet); the order is
 	// filled by the end-of-timestamp FlushThisBar against the order's own
 	// symbol's recorded bar. This two-phase flow lets a strategy submit an order
 	// for symbol X while symbol Y's bar dispatches and still fill X at THIS
-	// timestamp's close (cross-symbol same-ts fill, Nautilus parity).
+	// timestamp's close (cross-symbol same-ts fill).
 	n, err := ex.ProcessBar(bar("AAPL", "100", "110", "95", "105"))
 	require.NoError(t, err)
 	assert.Equal(t, 0, n, "ProcessBar records (no fill) in the this-bar model")
@@ -148,7 +148,7 @@ func TestExecutorThisBarFlow(t *testing.T) {
 // (X would have filled one bar late).
 func TestExecutorThisBarCrossSymbol(t *testing.T) {
 	sink := &fakeSink{}
-	ex := NewSimExecutor(NautilusCompatModel{}, sink, &fakeSeq{})
+	ex := NewSimExecutor(CloseFillModel{}, sink, &fakeSeq{})
 	// Both legs' bars at the same timestamp are recorded (registration order),
 	// then both leg orders are submitted (e.g. during the 2nd leg's dispatch).
 	if _, err := ex.ProcessBar(bar("KO", "53", "54", "52", "53.15")); err != nil {
@@ -196,7 +196,7 @@ func TestExecutorNextBarFlow(t *testing.T) {
 }
 
 func TestExecutorRejectsNonMarket(t *testing.T) {
-	ex := NewSimExecutor(NautilusCompatModel{}, &fakeSink{}, &fakeSeq{})
+	ex := NewSimExecutor(CloseFillModel{}, &fakeSink{}, &fakeSeq{})
 	o := order("AAPL", domain.OrderSideBuy, 100)
 	o.Type = domain.OrderTypeLimit
 	lp := domain.MustPrice("100")
@@ -206,7 +206,7 @@ func TestExecutorRejectsNonMarket(t *testing.T) {
 }
 
 func TestExecutorDeterministicIDs(t *testing.T) {
-	ex := NewSimExecutor(NautilusCompatModel{}, &fakeSink{}, &fakeSeq{})
+	ex := NewSimExecutor(CloseFillModel{}, &fakeSink{}, &fakeSeq{})
 	assert.Equal(t, "O-0", ex.NewClientOrderID())
 	assert.Equal(t, "O-1", ex.NewClientOrderID())
 }

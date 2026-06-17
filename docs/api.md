@@ -11,11 +11,11 @@ endpoint, auth, validation and happy path) plus `internal/api/ws_test.go`.
 
 ## Authentication
 
-> **[IMPROVE] — deviation from `docs/spec/api-ws-redis.md §1.1`.** The Python
-> reference UI API has *no* authentication (CORS only). This Go control plane
-> mutates state (enqueues data refresh / universe rebuild / job cancel jobs),
-> so it requires a static bearer token. Trading mutation endpoints remain
-> absent, per the spec's [MUST-MATCH] "read-only forever" rule.
+> **Note — extends `docs/spec/api-ws-redis.md §1.1`.** The read-only UI API has
+> *no* authentication (CORS only). This control plane mutates state (enqueues
+> data refresh / universe rebuild / job cancel jobs), so it requires a static
+> bearer token. Trading mutation endpoints remain absent, per the spec's
+> "read-only forever" rule.
 
 - Every `/api/*` route requires `Authorization: Bearer <TMS_API_TOKEN>`.
 - `/healthz` and `/version` are **public** (no token).
@@ -653,7 +653,7 @@ Request body:
   "tickers": ["AAPL","KO"],        // explicit list, OR
   "universe": {"start":"...","end":"...","table":"SF1"}, // survivor-bias-free window
   "starting_balance": 100000.0,    // USD; default 100000
-  "fill_profile": "nautilus-compat", // or "realistic"; default nautilus-compat
+  "fill_profile": "realistic",       // or "close-fill"; default realistic
   "strategy": "scripted",          // scripted|sepa|sector_rotation|pairs|orb|multi
   "orb_symbol": "SPY",             // required for strategy "orb" (or exactly one ticker)
   "intents": [ {"date":"2024-01-03","ticker":"AAPL","side":"LONG","qty":100} ], // scripted only
@@ -1263,7 +1263,7 @@ Every frame is one JSON text message with the envelope:
 | `account_update` | `{total_assets, cash, available_funds, market_value, day_pnl, ts_event, ts_init}` | Redis stream `…:data.AccountUpdate` (P6 — broker funds / buying power). |
 
 The live-stream channels bridge the per-trader Redis **streams**
-(`trader-{id}:stream:{topic}`, the reference key shape — api-ws-redis.md
+(`trader-{id}:stream:{topic}`, the canonical key shape — api-ws-redis.md
 §2.1/§4.1) into the same WS hub: the server tails each topic with `XREAD BLOCK`
 from `$` (only new entries, no history replay), and forwards each entry's
 `payload` JSON under the matching `type`. The bridged trader id is

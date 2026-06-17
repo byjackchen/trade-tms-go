@@ -12,7 +12,7 @@ package study
 // The heartbeat and the trial-boundary progress writes race benignly: both take
 // progressMu and write atomically (tmp+rename), so it is always last-write-wins,
 // never torn. A corrupt/missing progress.json is left untouched (the tick
-// no-ops) exactly as the reference (test_optimizer_heartbeat.py:66-71).
+// no-ops).
 
 import (
 	"context"

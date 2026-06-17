@@ -1,12 +1,9 @@
 package sepa
 
-// fixtures_test.go reproduces the Python reference fixtures
-// (tests/strategies/sepa/test_signal.py + tmp/parity_sepa/dump_py.py)
-// bit-for-bit in Go: numpy.linspace replicated exactly (so the synthetic OHLC
-// float64 values are IEEE-identical to the reference), and the same bar
-// construction (high=close+0.5, low=close-0.5, the dryup volume window, the
-// breakout bar). The bar.close the reference feeds is float(Decimal(str(np))),
-// which equals the np float64 exactly; we use the linspace float64 directly.
+// fixtures_test.go builds the golden SEPA fixtures: a linspace helper
+// replicated exactly (so the synthetic OHLC float64 values are IEEE-stable),
+// and the bar construction (high=close+0.5, low=close-0.5, the dryup volume
+// window, the breakout bar). The bar.close fed is the linspace float64 directly.
 
 import (
 	"testing"

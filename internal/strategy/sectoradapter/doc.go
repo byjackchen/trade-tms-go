@@ -1,8 +1,7 @@
 // Package sectoradapter bridges the PURE SectorRotation SignalGenerator
 // (internal/strategy/sectorrotation) to the engine-facing Strategy seam
 // (internal/engine), translating the SG's multi-symbol rebalance signals into
-// market orders exactly as the reference SectorRotationRunner._submit_for_signal
-// (strategy-sector-orb.md, nautilus_runner.py):
+// market orders (strategy-sector-orb.md):
 //
 //   - LONG -> BUY of signal.target_qty (the SG only emits LONG for symbols not
 //     currently held, so target_qty is the full target position).
@@ -10,8 +9,8 @@
 //     a flat book is a no-op.
 //
 // This package — NOT the pure sectorrotation package — is the only place that
-// imports engine, preserving the Eng-D2 two-layer constraint: the core
-// strategy package never imports broker/engine code. It also implements the
+// imports engine, preserving the two-layer constraint: the core strategy
+// package never imports broker/engine code. It also implements the
 // P3 capability seams (IntentEvaluator, StateSummarizer, StatePersister) the
 // engine probes by type assertion. SectorRotation consumes no per-bar context,
 // so ContextConsumer is intentionally NOT implemented.

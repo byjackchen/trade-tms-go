@@ -1,7 +1,6 @@
 package sepa
 
-// sepa_test.go ports the behavioral assertions of
-// tests/strategies/sepa/test_signal.py beyond the golden parity dump: config
+// sepa_test.go covers the behavioral assertions beyond the golden dump: config
 // validation, symbol gating, insufficient history, the per-rule rejection
 // paths, exit-on-stop, hold-above-stop, the equity-scales-sizing invariant,
 // state_dict round-trip, warmup caps, and state_summary key/value shape.

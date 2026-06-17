@@ -1,9 +1,9 @@
 package main
 
 // hyperopt.go implements `tms hyperopt`: run / list / promote hyper-parameter
-// optimization studies over the backtest engine (internal/hyperopt/study). It
-// mirrors the Python scripts/run_hyperopt.py flags (spec §11) on the Go command,
-// plus list/promote subcommands for the control plane. `run` executes the study
+// optimization studies over the backtest engine (internal/hyperopt/study). The
+// flags follow spec §11, plus list/promote subcommands for the control plane.
+// `run` executes the study
 // inline (in-process) by default or enqueues a hyperopt.run job with --enqueue.
 
 import (

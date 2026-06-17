@@ -1,12 +1,11 @@
 package moomoo
 
 // conformance_reply_test.go is the INBOUND half of the conformance gate: it
-// asserts the Go decoder parses frames the Python SDK ENCODED (a reply and a
-// push), proving the native client correctly reads real-OpenD responses — not
-// just that it produces correct requests. Reference bytes come from
-// tmp/conformance/dump_replies.py (the SDK's own pack_pb_req over Response
-// messages); regenerate them alongside conformance_frames.json after a proto
-// change.
+// asserts the Go decoder parses frames the upstream moomoo protocol ENCODES (a
+// reply and a push), proving the native client correctly reads real-OpenD
+// responses — not just that it produces correct requests. The golden bytes are
+// captured from the upstream SDK's own pack_pb_req over Response messages,
+// alongside conformance_frames.json.
 
 import (
 	"encoding/hex"

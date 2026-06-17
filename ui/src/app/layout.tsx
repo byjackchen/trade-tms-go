@@ -28,7 +28,7 @@ export const metadata: Metadata = {
   },
 };
 
-// Mobile parity (LOCKED DECISION 2) needs a real responsive viewport so the
+// Mobile feature set (LOCKED DECISION 2) needs a real responsive viewport so the
 // mobile shell measures device-width, not a zoomed-out desktop canvas.
 // themeColor tints the mobile browser/standalone status bar (PWA).
 export const viewport: Viewport = {

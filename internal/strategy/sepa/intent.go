@@ -1,14 +1,12 @@
 package sepa
 
-// intent.go ports evaluate_intent (signal.py:398-513) and state_summary
-// (signal.py:515-539) — the read-only UI projections. evaluate_intent's only
-// state mutation is the monotonic _intent_generation increment (the reference
-// docstring claims "does NOT mutate" but the counter does advance, asserted by
-// test_intent.py:125-130); we replicate that.
+// intent.go computes evaluate_intent and state_summary — the read-only UI
+// projections. evaluate_intent's only state mutation is the monotonic
+// _intent_generation increment (the counter advances on every call).
 //
-// Deliberate asymmetry [MUST-MATCH spec §12 #7]: evaluate_intent's VCP runs on
-// the FULL klines (INCLUDING the current bar), unlike the entry path which
-// excludes it. This is a UI-only path, not a trading decision; do not "fix" it.
+// Deliberate asymmetry (spec §12 #7): evaluate_intent's VCP runs on the FULL
+// klines (INCLUDING the current bar), unlike the entry path which excludes it.
+// This is a UI-only path, not a trading decision; do not "fix" it.
 
 import (
 	"time"
@@ -16,8 +14,8 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/indicators"
 )
 
-// EvaluateIntent returns a typed UI snapshot of the current setup state
-// (signal.py:398-513). asOf is the snapshot timestamp (the bar ts in the
+// EvaluateIntent returns a typed UI snapshot of the current setup state.
+// asOf is the snapshot timestamp (the bar ts in the
 // streaming path). It increments the generation counter on every call.
 func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
 	g.intentGeneration++
@@ -42,7 +40,7 @@ func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
 
 	n := len(g.close)
 
-	// 1. Empty or < 50 bars -> NO_SETUP (signal.py:421-430).
+	// 1. Empty or < 50 bars -> NO_SETUP.
 	if n < 50 {
 		base.State = StateNoSetup
 		base.Strength = 0.0
@@ -53,9 +51,9 @@ func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
 
 	lastClose := g.close[n-1] // Decimal(str(close.iloc[-1]))
 
-	// 2. Held + stop>0 + last_close < stop (STRICT <) -> STOP_HIT
-	//    (signal.py:434-446). Note: on_bar uses <=; intent uses < (the
-	//    documented predicate mismatch, spec §8.8 [IMPROVE] — replicated).
+	// 2. Held + stop>0 + last_close < stop (STRICT <) -> STOP_HIT.
+	//    Note: on_bar uses <=; intent uses < (the documented predicate mismatch,
+	//    spec §8.8 [IMPROVE]).
 	if g.position != 0 && g.stopPrice.val > 0 && lastClose < g.stopPrice.val {
 		base.State = StateStopHit
 		base.Strength = 0.0
@@ -64,16 +62,16 @@ func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
 		return base
 	}
 
-	// 3. Held normally -> HOLD (signal.py:449-457). tt_pass hard-coded true.
+	// 3. Held normally -> HOLD. tt_pass hard-coded true.
 	if g.position != 0 {
 		base.State = StateHold
 		base.Strength = 50.0
 		base.TrendTemplatePass = true
 		base.Grade = 0
-		// TMS ENHANCEMENT: a held position has a real entry pivot + stop; attach
-		// the trade-plan metrics (signed proximity vs the entry pivot, risk vs the
-		// live stop, %off-52wk-high, vol_ratio) so the watchlist row stays
-		// actionable for the management decision too.
+		// A held position has a real entry pivot + stop; attach the trade-plan
+		// metrics (signed proximity vs the entry pivot, risk vs the live stop,
+		// %off-52wk-high, vol_ratio) so the watchlist row stays actionable for
+		// the management decision too.
 		g.attachHeldTradePlan(&base, lastClose)
 		return base
 	}
@@ -100,7 +98,7 @@ func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
 		)
 	}
 
-	// 4a. Trend template fails -> NO_SETUP (signal.py:478-486).
+	// 4a. Trend template fails -> NO_SETUP.
 	if !tt.Passed() {
 		base.State = StateNoSetup
 		base.Strength = float64(ttGrade)
@@ -122,15 +120,15 @@ func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
 	base.TrendTemplatePass = true
 	base.Grade = ttGrade
 
-	// --- TMS ENHANCEMENT: attach the actionable trade plan -------------------
+	// --- attach the actionable trade plan ------------------------------------
 	// A professional SEPA trader must be able to ACT from the watchlist, so every
 	// flat trend-template-passing signal (forming AND buy) carries a reliable,
 	// NON-NULL trade plan: pivot, stop, signed proximity, risk, %off-52wk-high,
-	// vol_ratio, and the buy-readiness composite. This deliberately diverges from
-	// the Python oracle (which leaves forming signals with only strength=100).
+	// vol_ratio, and the buy-readiness composite. Baseline SEPA leaves forming
+	// signals with only strength=100; this layer adds the plan.
 	g.attachTradePlan(&base, lastClose, vcp, haveVCP)
 
-	// 4b. pivot>0 AND last_close >= pivot -> BUY (signal.py:488-502).
+	// 4b. pivot>0 AND last_close >= pivot -> BUY.
 	if g.pivotPrice.val > 0 && lastClose >= g.pivotPrice.val {
 		base.State = StateBuy
 		return base
@@ -141,7 +139,7 @@ func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
 }
 
 // attachHeldTradePlan attaches trade-plan metrics for a HELD position using the
-// persisted entry pivot + stop. TMS ENHANCEMENT (not in the Python reference).
+// persisted entry pivot + stop.
 func (g *Generator) attachHeldTradePlan(base *SignalIntent, lastClose float64) {
 	pivot := g.pivotPrice.val
 	stop := g.stopPrice.val
@@ -160,8 +158,8 @@ func (g *Generator) attachHeldTradePlan(base *SignalIntent, lastClose float64) {
 	base.VolRatio = &volRatio
 }
 
-// attachTradePlan computes and attaches the TMS-enhancement actionable trade-plan
-// fields onto a flat-book (forming/buy) intent. NOT in the Python SEPA reference.
+// attachTradePlan computes and attaches the actionable trade-plan fields onto a
+// flat-book (forming/buy) intent.
 //
 // pivot/stop = the VCP base pivot/low when a VCP is detected, ELSE the swing-high/
 // low over the last SwingPlanLookback (10) COMPLETED daily bars (the bar before
@@ -226,9 +224,9 @@ func (g *Generator) attachTradePlan(base *SignalIntent, lastClose float64, vcp i
 	base.BuyReadiness = &readiness
 }
 
-// StateSummary returns the 11-key UI summary (signal.py:515-539). Flat-book
-// price/grade fields are empty strings (the reference's None); held-book prices
-// are str(Decimal). vcp_detected is (held) AND pivot>0.
+// StateSummary returns the 11-key UI summary. Flat-book price/grade fields are
+// empty strings (None); held-book prices are str(Decimal). vcp_detected is
+// (held) AND pivot>0.
 func (g *Generator) StateSummary() StateSummary {
 	flat := g.position == 0
 	s := StateSummary{
@@ -253,9 +251,9 @@ func (g *Generator) StateSummary() StateSummary {
 	return s
 }
 
-// StateSummary is the JSON-safe light state (signal.py:515-539). Optional
-// string fields are "" to denote the reference's None (the JSON encoder emits
-// null for them, see MarshalJSON in state.go).
+// StateSummary is the JSON-safe light state. Optional string fields are "" to
+// denote None (the JSON encoder emits null for them, see MarshalJSON in
+// state.go).
 type StateSummary struct {
 	Symbol        string
 	Regime        string

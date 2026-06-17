@@ -1,13 +1,13 @@
 -- 000002_marketdata: market-data domain.
 --
--- Mirrors the Sharadar parquet cache of the Python reference
--- (docs/spec/data-sharadar.md) into TimescaleDB. Conventions:
+-- Loads the Sharadar parquet cache (docs/spec/data-sharadar.md) into
+-- TimescaleDB. Conventions:
 --
 --   * MONEY: USD price columns are BIGINT fixed-point at 1e-4 scale
 --     (stored = dollars * 10000), matching the Go Money model. The Sharadar
---     price cap used by consumers (_NAUTILUS_PRICE_MAX = 17_014_118_346_046.0)
---     scales to 1.7e17, comfortably inside int64. This deviation from the
---     reference cache's raw float64 is sanctioned by the [IMPROVE] note in
+--     price cap used by consumers (17_014_118_346_046.0) scales to 1.7e17,
+--     comfortably inside int64. Storing fixed-point instead of the cache's
+--     raw float64 is sanctioned by the [IMPROVE] note in
 --     docs/spec/data-sharadar.md §2.1 (with §12 scoping the float64
 --     round-trip gate to the parquet layer): unrepresentable values
 --     (±Inf, >9.22e14 USD — empirically 3,479 cells of one ticker, BINI)
@@ -17,8 +17,8 @@
 --     (spec §2.1), so the store must be able to represent them.
 --   * Trading dates are stored as TIMESTAMPTZ at UTC midnight on hypertables
 --     (Timescale partitions on a time column) and as DATE elsewhere; the
---     cache layer in the Python reference is tz-naive-midnight, the engine
---     re-attaches UTC (spec §2.6) — UTC midnight is the same instant.
+--     cache layer is tz-naive-midnight, the engine re-attaches UTC
+--     (spec §2.6) — UTC midnight is the same instant.
 
 -- Shared helper: keep updated_at honest on every UPDATE.
 CREATE OR REPLACE FUNCTION tms.set_updated_at() RETURNS trigger

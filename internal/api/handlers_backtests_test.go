@@ -83,7 +83,7 @@ func TestBacktestEnqueue(t *testing.T) {
 	t.Run("happy path enqueues 202 and audits actor", func(t *testing.T) {
 		ts := newTestServer(t)
 		body := `{"start":"2024-01-02","end":"2024-12-31","tickers":["AAPL","KO"],` +
-			`"fill_profile":"nautilus-compat","kind":"smoke","actor":"bob",` +
+			`"fill_profile":"close-fill","kind":"smoke","actor":"bob",` +
 			`"intents":[{"date":"2024-01-03","ticker":"AAPL","side":"LONG","qty":100}]}`
 		rec := ts.do(t, http.MethodPost, "/api/v1/backtests", strings.NewReader(body), true)
 		require.Equal(t, http.StatusAccepted, rec.Code)

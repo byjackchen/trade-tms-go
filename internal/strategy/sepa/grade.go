@@ -1,11 +1,11 @@
 package sepa
 
-// grade.go ports sepa/grade.py grade_setup EXACTLY (spec §7 [MUST-MATCH]).
-// The grade decides position size (3 tranches for A+, 2 for B) and whether the
-// entry fires at all. Only the "bear" regime is a hard veto; "neutral",
-// "warning", and cold-start "unknown" can all still grade "B".
+// grade.go implements grade_setup (spec §7). The grade decides position size
+// (3 tranches for A+, 2 for B) and whether the entry fires at all. Only the
+// "bear" regime is a hard veto; "neutral", "warning", and cold-start "unknown"
+// can all still grade "B".
 
-// setupInputs mirrors grade.py SetupInputs.
+// setupInputs holds the grading inputs.
 type setupInputs struct {
 	trendTemplatePass   bool
 	earningsPass        bool
@@ -15,8 +15,8 @@ type setupInputs struct {
 	regime              string
 }
 
-// gradeSetup returns A+, B, or skip per the canonical Minervini gating rules
-// (grade.py:26-42), evaluated strictly in order:
+// gradeSetup returns A+, B, or skip per the canonical Minervini gating rules,
+// evaluated strictly in order:
 //
 //  1. bear regime OR stage != "2"                       -> skip
 //  2. NOT (trend_template_pass AND earnings_pass)       -> skip

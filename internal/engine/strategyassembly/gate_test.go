@@ -3,8 +3,7 @@ package strategyassembly
 // gate_test.go locks the Composition-driven gate-selection contract: the allocator
 // budgets and the risk constraints now come from the Composition (its ACTIVE members.
 // weights -> allocator budgets, and composition.Risk -> risk caps), NOT from hardcoded
-// constants or a MultiStrategyGate parity flag (which is gone — parity is
-// abandoned, docs/concept-alignment.md §3.2, D1).
+// constants or a MultiStrategyGate force-install flag (which is gone).
 //
 //   - A single-member Composition (sepa/pairs/orb-only) gates its lone strategy at its
 //     OWN member risk: weight 1.0 budget + the member's risk caps (sepa/pairs/orb

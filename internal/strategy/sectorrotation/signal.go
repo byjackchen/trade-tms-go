@@ -9,10 +9,9 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
-// DefaultUniverse is the canonical 11 Select Sector SPDR ETFs, in the
-// reference's declaration order (signal.py:61-73 [MUST-MATCH]). Declaration
-// order is load-bearing for state_dict ordering and as the tie-break-free
-// iteration order of evaluate_intent's output.
+// DefaultUniverse is the canonical 11 Select Sector SPDR ETFs, in declaration
+// order. Declaration order is load-bearing for state_dict ordering and as the
+// tie-break-free iteration order of evaluate_intent's output.
 var DefaultUniverse = []string{
 	"XLK",  // Technology
 	"XLF",  // Financials
@@ -27,14 +26,13 @@ var DefaultUniverse = []string{
 	"XLC",  // Communication Services
 }
 
-// EquityProvider returns live account equity as a float64 (the reference's
-// Callable[[], Decimal] pulled through float() at sizing time). It is invoked
-// at every rebalance and at every evaluate_intent so sizing/weights reflect the
-// up-to-date account value rather than a stale figure (PA-D1).
+// EquityProvider returns live account equity as a float64, pulled at sizing
+// time. It is invoked at every rebalance and at every evaluate_intent so
+// sizing/weights reflect the up-to-date account value rather than a stale
+// figure (PA-D1).
 type EquityProvider func() float64
 
-// Config is the resolved SectorRotation configuration, mirroring
-// SectorRotationSignalGeneratorConfig (signal.py:76-92). EquityProvider is
+// Config is the resolved SectorRotation configuration. EquityProvider is
 // required (no default); the remaining knobs come from resolved params.
 type Config struct {
 	EquityProvider   EquityProvider
@@ -44,8 +42,7 @@ type Config struct {
 	Timezone         string
 }
 
-// Validate mirrors SectorRotationSignalGeneratorConfig.__post_init__
-// (signal.py:80-92). The top_k message embeds len(universe), exactly as Python.
+// Validate checks the configuration. The top_k message embeds len(universe).
 func (c Config) Validate() error {
 	if c.EquityProvider == nil {
 		return fmt.Errorf("equity_provider must be a callable returning Decimal")
@@ -86,8 +83,7 @@ type SignalGenerator struct {
 }
 
 // New constructs a SignalGenerator after validating cfg. It seeds an empty
-// bounded deque and a zero position for every universe symbol, exactly like
-// the reference __post_init__ (signal.py:120-126).
+// bounded deque and a zero position for every universe symbol.
 func New(cfg Config) (*SignalGenerator, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -117,8 +113,7 @@ func (sg *SignalGenerator) Config() Config { return sg.cfg }
 
 // OnBar processes one bar from any universe symbol and returns the signals
 // produced (empty unless this bar is the first of a new month with full
-// warmup). Out-of-universe symbols are ignored with no state change
-// (signal.py:131-160 [MUST-MATCH]).
+// warmup). Out-of-universe symbols are ignored with no state change.
 //
 // Look-ahead guard: rebalance is computed BEFORE this bar is folded into
 // history/lastClose, so the snapshot is consistent across all symbols.
@@ -145,7 +140,7 @@ func (sg *SignalGenerator) OnBar(bar domain.Bar) []domain.Signal {
 }
 
 // hasFullWarmup reports whether every universe symbol has at least lookback+1
-// closes recorded (signal.py:162-167 [MUST-MATCH]).
+// closes recorded.
 func (sg *SignalGenerator) hasFullWarmup() bool {
 	needed := sg.cfg.MomentumLookback + 1
 	for _, sym := range sg.cfg.Universe {
@@ -158,9 +153,9 @@ func (sg *SignalGenerator) hasFullWarmup() bool {
 
 // computeRebalanceSignals ranks the universe by lookback return and emits the
 // transition signals: FLAT for dropped holdings (sorted), LONG for new entries
-// (sorted), nothing for stayers (signal.py:173-243 [MUST-MATCH]).
+// (sorted), nothing for stayers.
 func (sg *SignalGenerator) computeRebalanceSignals(ts time.Time) []domain.Signal {
-	// returns: only symbols with old close > 0 are eligible (signal.py:181-188).
+	// returns: only symbols with old close > 0 are eligible.
 	returns := make(map[string]float64, len(sg.cfg.Universe))
 	var eligible []string
 	for _, sym := range sg.cfg.Universe {
@@ -177,10 +172,8 @@ func (sg *SignalGenerator) computeRebalanceSignals(ts time.Time) []domain.Signal
 		return nil
 	}
 
-	// Top-K by return, descending. Python's sorted(..., reverse=True) is STABLE,
-	// so ties keep the input order of returns.items() — which iterates in the
-	// dict's insertion order == cfg.Universe order. We reproduce that by
-	// ranking over `eligible` (in universe order) with a stable sort by
+	// Top-K by return, descending, with a STABLE sort so ties keep universe
+	// order. We rank over `eligible` (in universe order) with a stable sort by
 	// descending return.
 	ranked := make([]string, len(eligible))
 	copy(ranked, eligible)
@@ -226,7 +219,7 @@ func (sg *SignalGenerator) computeRebalanceSignals(ts time.Time) []domain.Signal
 	}
 
 	// LONG: new top-K member not yet held. Pull live equity ONCE at rebalance
-	// time (signal.py:225-227). Sorted ascending by symbol.
+	// time. Sorted ascending by symbol.
 	equity := sg.cfg.EquityProvider()
 	targetValue := equity / float64(sg.cfg.TopK)
 	var toLong []string

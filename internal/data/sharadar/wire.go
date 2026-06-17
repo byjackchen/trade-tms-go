@@ -1,7 +1,7 @@
 package sharadar
 
 // wire.go decodes the Nasdaq Data Link "datatables" JSON wire format — the
-// same payload the Python SDK (`nasdaqdatalink.get_table`) consumes
+// payload the get_table endpoint returns
 // (spec docs/spec/data-sharadar.md §3.1):
 //
 //	{
@@ -172,7 +172,7 @@ func skipValue(dec *json.Decoder) error {
 
 // Row is one Sharadar API row. Values carry encoding/json's natural types
 // (string, float64, bool, nil); accessors do the tolerant coercions the
-// pandas layer of the Python reference performed implicitly.
+// downstream converters require.
 type Row struct {
 	cols map[string]int // lower-cased column name -> position
 	vals []any

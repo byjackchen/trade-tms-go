@@ -8,8 +8,8 @@ package api
 //	GET /api/v1/strategies/{id}   one strategy: metadata + active param values +
 //	                              full param schema (defaults + search bounds)
 //
-// The active param document is resolved with the SAME precedence the engine and
-// the Python loader use (DB active_params -> file env-dir -> embedded baseline;
+// The active param document is resolved with the SAME precedence the engine
+// loader uses (DB active_params -> file env-dir -> embedded baseline;
 // internal/params.Resolver). The param SCHEMA (type / search bounds / order /
 // description) comes from the resolved hyperopt.StrategyParams so a promoted
 // (tuned) document and the baseline both render with their own bounds.

@@ -67,10 +67,10 @@ linters:
             - pkg: github.com/byjackchen/trade-tms-go/internal/hyperopt
               desc: "internal/composition must not import internal/hyperopt (an outer layer)."
 
-        # Pure strategy packages (orb / sepa / pairs / sectorrotation) are the
-        # two-layer [MUST-MATCH] constraint: bars in, signals out. They must NOT
-        # import the engine / portfolio / runner — that bridge lives in the
-        # *adapter packages (see each strategy's doc.go and Eng-D2).
+        # Pure strategy packages (orb / sepa / pairs / sectorrotation) hold the
+        # two-layer contract: bars in, signals out. They must NOT import the
+        # engine / portfolio / runner — that bridge lives in the *adapter
+        # packages (see each strategy's doc.go and Eng-D2).
         strategy-pure:
           files:
             - "**/internal/strategy/orb/**"

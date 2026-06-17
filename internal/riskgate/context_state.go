@@ -1,23 +1,20 @@
 package riskgate
 
-// context_state.go ports src/portfolio/context_state.py (spec §7.1
-// [MUST-MATCH]): the single mutable context store consulted by every strategy
-// runner — market regime, per-ticker market cap, per-ticker earnings-blackout.
+// context_state.go (spec §7.1): the single mutable context store consulted by
+// every strategy runner — market regime, per-ticker market cap, per-ticker
+// earnings-blackout.
 //
-// [IMPROVE] (spec §7.1): the Python store is "Not thread-safe. The Nautilus
-// event loop is single-threaded." The Go system is concurrent, so we guard with
-// a sync.RWMutex (last-writer-wins per field, sole-writer-per-field convention
-// §7.4 unchanged). Snapshot returns a deep copy so readers never observe a torn
-// map mid-mutation.
+// The system is concurrent, so we guard with a sync.RWMutex (last-writer-wins
+// per field, sole-writer-per-field convention §7.4). Snapshot returns a deep
+// copy so readers never observe a torn map mid-mutation.
 
 import (
 	"sync"
 )
 
-// SharedContextState is the mutable context store (context_state.py:18-33).
-// regime defaults to "neutral"; both maps default empty. Construct via
-// NewSharedContextState (the Python module-level singleton is not replicated —
-// each backtest run owns its own instance for isolation).
+// SharedContextState is the mutable context store. regime defaults to
+// "neutral"; both maps default empty. Construct via NewSharedContextState —
+// each backtest run owns its own instance for isolation.
 type SharedContextState struct {
 	mu               sync.RWMutex
 	regime           string
@@ -25,8 +22,8 @@ type SharedContextState struct {
 	earningsBlackout map[string]bool
 }
 
-// NewSharedContextState returns a state with the reference defaults: regime
-// "neutral", empty maps (context_state.py:26-28).
+// NewSharedContextState returns a state with the defaults: regime "neutral",
+// empty maps.
 func NewSharedContextState() *SharedContextState {
 	return &SharedContextState{
 		regime:           RegimeNeutral,
