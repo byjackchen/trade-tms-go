@@ -27,7 +27,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	moo "github.com/byjackchen/trade-tms-go/internal/adapters/moomoo"
+	moo "github.com/byjackchen/trade-tms-go/internal/broker/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/livetrade"
 )

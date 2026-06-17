@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	mo "github.com/byjackchen/trade-tms-go/internal/adapters/moomoo"
+	mo "github.com/byjackchen/trade-tms-go/internal/broker/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 

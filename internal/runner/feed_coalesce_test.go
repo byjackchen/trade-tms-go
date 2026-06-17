@@ -20,7 +20,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/pb/qotcommon"
+	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo/pb/qotcommon"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 

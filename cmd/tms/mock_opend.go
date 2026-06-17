@@ -9,7 +9,7 @@ package main
 // (so DIRECTION-2 sync works too). Bars are driven from the project's Postgres
 // (tms.bars_daily / bars_intraday) so quotes/fills are priced off real data.
 //
-// This is the same mock used in the Go unit tests (internal/adapters/moomoo/mock),
+// This is the same mock used in the Go unit tests (internal/broker/moomoo/mock),
 // promoted to a first-class binary + compose service so the manual-desk e2e specs
 // can run the lifecycle end-to-end against a real listener — not only in-process.
 // It is NEVER a real broker: it places no real orders and holds no real money.
@@ -21,7 +21,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	moomock "github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/mock"
+	moomock "github.com/byjackchen/trade-tms-go/internal/broker/moomoo/mock"
 	"github.com/byjackchen/trade-tms-go/internal/app"
 	"github.com/byjackchen/trade-tms-go/internal/db"
 )

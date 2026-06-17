@@ -28,26 +28,8 @@ E2E_ENV := TMS_API_TOKEN=$(TMS_API_TOKEN) \
 	TMS_E2E_API_URL=http://localhost:18080 \
 	$(ITEST_ENV)
 
-# ---------------------------------------------------------------------------
-# Golden parity gate (Go engine vs reference Nautilus BacktestEngine).
-# ---------------------------------------------------------------------------
-# The reference Python repo (read-only) supplies Nautilus + the Sharadar cache.
-# MS_REPO points at it; MS_PY is its venv interpreter. Override on the CLI if
-# your checkout lives elsewhere. The harness, comparator and probe live under
-# tmp/parity/ (throwaway, gitignored); the canonical script + golden fixtures
-# are committed under testdata/.
-MS_REPO        ?= /Users/byjackchen/codespace/trade-multi-strategies
-MS_PY          ?= $(MS_REPO)/.venv/bin/python
-PARITY_DIR     := tmp/parity
-PARITY_SCRIPT  ?= testdata/parity/script_canonical.json
-PARITY_NAU_OUT := $(PARITY_DIR)/nautilus_out
-PARITY_GO_OUT  := $(PARITY_DIR)/go_out
-PARITY_RUN_TS  := 2021-01-04_00-00-00
-
 .PHONY: all build test vet lint fmt-check itest compose-up compose-down docker-build clean \
-	e2e-install e2e itest-full e2e-seed bench \
-	parity parity-nautilus parity-go parity-compare parity-depthwalk \
-	parity-backtest parity-backtest-bars parity-backtest-py parity-folds parity-tests
+	e2e-install e2e itest-full e2e-seed bench
 
 all: fmt-check vet lint build test
 
@@ -171,100 +153,3 @@ docker-build:
 
 clean:
 	rm -rf $(BIN_DIR)
-
-# ---------------------------------------------------------------------------
-# Golden parity targets.
-# ---------------------------------------------------------------------------
-
-# Run the reference Nautilus harness over the canonical script: loads the SAME
-# Sharadar bars, dumps bars.json (the shared inputs) + orders/positions/account/
-# equity to PARITY_NAU_OUT. Run with the reference repo's venv, cwd = MS_REPO so
-# its `src` + nautilus_trader import.
-parity-nautilus:
-	@mkdir -p $(PARITY_NAU_OUT)
-	cd $(MS_REPO) && $(MS_PY) $(CURDIR)/$(PARITY_DIR)/nautilus_parity.py \
-		--script $(CURDIR)/$(PARITY_SCRIPT) \
-		--out $(CURDIR)/$(PARITY_NAU_OUT)
-
-# Run the Go engine over the canonical script + the SAME bars.json the Nautilus
-# harness dumped, ZERO-COST (nautilus-compat), into PARITY_GO_OUT/<run-ts>.
-parity-go:
-	go run ./cmd/tms parity-backtest \
-		--script $(PARITY_SCRIPT) \
-		--bars $(PARITY_NAU_OUT)/bars.json \
-		--runs-root $(PARITY_GO_OUT) \
-		--run-ts $(PARITY_RUN_TS)
-
-# Diff the Go run against the Nautilus dump field-by-field (prices exact after
-# fixed-point, pnl/equity within a cent, counts + ordering exact).
-parity-compare:
-	$(MS_PY) $(PARITY_DIR)/compare_engine.py \
-		--go $(PARITY_GO_OUT)/$(PARITY_RUN_TS) \
-		--nautilus $(PARITY_NAU_OUT)
-
-# Regenerate the depth-walk golden table (the small-volume fill rule the Go
-# unit test asserts) by probing the Nautilus matching engine directly.
-parity-depthwalk:
-	cd $(MS_REPO) && $(MS_PY) $(CURDIR)/$(PARITY_DIR)/probe_depthwalk.py
-	cp $(PARITY_NAU_OUT)/depthwalk.json internal/exec/testdata/depthwalk.json
-
-# Full golden-parity gate: Nautilus side + Go side + comparator. Non-zero exit
-# if the engines diverge beyond tolerance.
-parity: parity-nautilus parity-go parity-compare
-	@echo "[parity] golden-parity gate passed"
-
-# ---------------------------------------------------------------------------
-# Integrated-backtest parity (the P3 gap-closer): proves the INTEGRATED real-
-# strategy path (engine loop + adapters + multi-strategy gate + equity sampler)
-# matches Python's scripts/multi_strategy_backtest over the SAME real fold and
-# bars — not just the pure signal.py layer. Pairs (KO/PEP, MA/V, XOM/CVX) under
-# the canonical multi-strategy gate.
-# ---------------------------------------------------------------------------
-
-# Pair legs + sector ETFs + SPY needed by the harness.
-PARITY_BT_TICKERS := KO PEP MA V XOM CVX SPY
-PARITY_BT_HARNESS := tmp/parity_pairs_harness.py
-
-# Export the bars the harness needs from tms.bars_daily into tmp/ CSVs (the
-# SAME bars the Go store reads). Requires the compose postgres up (55432).
-parity-backtest-bars:
-	@mkdir -p tmp
-	@for t in $(PARITY_BT_TICKERS); do \
-		PGPASSWORD=tms psql -h localhost -p 55432 -U tms -d tms -t -A -F',' \
-			-c "select to_char(ts,'YYYY-MM-DD'), open, high, low, close, volume from tms.bars_daily where ticker='$$t' order by ts" \
-			> tmp/bars_$$t.csv; \
-	done
-	@echo "[parity-backtest] exported bars for: $(PARITY_BT_TICKERS)"
-
-# Run the reference Python integrated harness (PairsRunner through a Nautilus
-# BacktestEngine + the canonical multi-strategy portfolio gate + equity sampler)
-# and print its metrics JSON. Use to (re)derive the numbers embedded in
-# internal/hyperopt/study/parity_backtest_test.go.
-parity-backtest-py: parity-backtest-bars
-	cd $(MS_REPO) && $(MS_PY) $(CURDIR)/$(PARITY_BT_HARNESS)
-
-# Run the Go integrated-backtest parity regression test against the compose
-# postgres, comparing the Go integrated pairs backtest to the embedded Python
-# expectations over the gate fold + a real fold.
-parity-backtest: compose-up parity-backtest-bars
-	$(ITEST_ENV) go test -tags parity_backtest -count=1 \
-		-run TestParityIntegratedBacktest -v ./internal/hyperopt/study/
-
-# Run the hyperopt walk-forward objective parity gate (build tag parity_folds):
-# drives the Go objective evaluator over multiple real adjacent folds and
-# compares per-fold + stitched Sharpe/Calmar/MaxDD to the reference
-# research.workers pipeline output. Requires the compose postgres up (55432).
-parity-folds: compose-up
-	$(ITEST_ENV) go test -tags parity_folds -count=1 \
-		-run TestParityFoldsObjective -v ./internal/hyperopt/study/
-
-# ---------------------------------------------------------------------------
-# parity-tests: every build-tag-gated, Python-touching gate, run explicitly.
-# ---------------------------------------------------------------------------
-# These are the ONLY tests that invoke the read-only trade-multi-strategies
-# venv (the offline oracle). They are deliberately excluded from the default
-# `go test ./...` and from the shipped distroless image — production has zero
-# Python runtime dependency (see docs/parity.md). Run them on demand to
-# re-prove golden parity against the reference.
-parity-tests: parity parity-backtest parity-folds
-	@echo "[parity-tests] all Python-oracle parity gates passed"

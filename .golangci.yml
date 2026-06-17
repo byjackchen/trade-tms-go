@@ -15,7 +15,6 @@ version: "2"
 run:
   build-tags:
     - integration
-    - parity
 
 linters:
   default: none
@@ -48,6 +47,25 @@ linters:
               desc: "internal/core may import internal/domain only (core/doc.go)."
             - pkg: github.com/byjackchen/trade-tms-go/internal/livengine
               desc: "internal/core may import internal/domain only (core/doc.go)."
+
+        # composition is a first-class inner entity package (risk/weights are
+        # plain values): it must NOT import upward into the outer layers.
+        composition:
+          files:
+            - "**/internal/composition/**"
+          deny:
+            - pkg: github.com/byjackchen/trade-tms-go/internal/engine
+              desc: "internal/composition is an inner entity package; engine is an outer layer."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/runner
+              desc: "internal/composition must not import the composition root internal/runner."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/livengine
+              desc: "internal/composition must not import internal/livengine."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/api
+              desc: "internal/composition must not import internal/api (an outer layer)."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/jobs
+              desc: "internal/composition must not import internal/jobs (an outer layer)."
+            - pkg: github.com/byjackchen/trade-tms-go/internal/hyperopt
+              desc: "internal/composition must not import internal/hyperopt (an outer layer)."
 
         # Pure strategy packages (orb / sepa / pairs / sectorrotation) are the
         # two-layer [MUST-MATCH] constraint: bars in, signals out. They must NOT

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo"
-	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/pb/qotcommon"
+	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo"
+	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo/pb/qotcommon"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 

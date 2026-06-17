@@ -1,7 +1,7 @@
 // Package moomoo (internal/exec/moomoo) is the live/paper order-execution
 // adapter: the MoomooExecutor that implements the engine's order-submission
 // seam (engine.OrderSubmitter + engine.PositionReader) on top of the native
-// moomoo Trd_* trading client (internal/adapters/moomoo.TradeClient),
+// moomoo Trd_* trading client (internal/broker/moomoo.TradeClient),
 // replacing the signal-mode NoopExecutor for paper and live trading.
 //
 // Components:

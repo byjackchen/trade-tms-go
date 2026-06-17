@@ -23,8 +23,8 @@ import (
 	"sort"
 	"sync"
 
-	mo "github.com/byjackchen/trade-tms-go/internal/adapters/moomoo"
-	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/pb/trdcommon"
+	mo "github.com/byjackchen/trade-tms-go/internal/broker/moomoo"
+	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo/pb/trdcommon"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 

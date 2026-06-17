@@ -28,7 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/mock"
+	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo/mock"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/runner"
 )

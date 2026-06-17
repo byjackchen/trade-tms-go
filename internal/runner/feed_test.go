@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo"
-	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/mock"
-	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/pb/qotcommon"
+	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo"
+	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo/mock"
+	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo/pb/qotcommon"
 	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/core"
 	"github.com/byjackchen/trade-tms-go/internal/domain"

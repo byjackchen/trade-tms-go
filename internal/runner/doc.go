@@ -17,7 +17,7 @@
 // internal/riskgate, internal/accounting, internal/engine,
 // internal/engine/strategyassembly, internal/livengine, internal/livetrade,
 // internal/commands, internal/publish, internal/data/calendar,
-// internal/data/universe, internal/adapters/moomoo (+ its pb/* messages),
+// internal/data/universe, internal/broker/moomoo (+ its pb/* messages),
 // internal/exec/moomoo, and the standard library / pgx. It is imported only by
 // cmd/tms (and tests); no inner package may import runner.
 package runner

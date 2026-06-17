@@ -10,7 +10,7 @@ package runner
 //   - MoomooWarmup implements livengine.WarmupProvider over Qot_RequestHistoryKL
 //     (paged), supplying the out-of-band SEPA warmup tail.
 //
-// The client owns reconnect/backoff/keepalive (internal/adapters/moomoo); this
+// The client owns reconnect/backoff/keepalive (internal/broker/moomoo); this
 // feed is a thin, ctx-aware bridge.
 
 import (
@@ -22,14 +22,14 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo"
-	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/pb/qotcommon"
+	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo"
+	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo/pb/qotcommon"
 	"github.com/byjackchen/trade-tms-go/internal/core"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
 // MoomooClient is the subset of *moomoo.Client the feed uses (so a test can
-// drive a fake). The real client (internal/adapters/moomoo) satisfies it.
+// drive a fake). The real client (internal/broker/moomoo) satisfies it.
 type MoomooClient interface {
 	Start(ctx context.Context)
 	Ready(ctx context.Context) error

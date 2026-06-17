@@ -28,8 +28,8 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/byjackchen/trade-tms-go/internal/accounting"
-	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo"
-	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo/pb/qotcommon"
+	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo"
+	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo/pb/qotcommon"
 	"github.com/byjackchen/trade-tms-go/internal/commands"
 	"github.com/byjackchen/trade-tms-go/internal/core"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"

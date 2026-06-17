@@ -30,7 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/byjackchen/trade-tms-go/internal/accounting"
-	mo "github.com/byjackchen/trade-tms-go/internal/adapters/moomoo"
+	mo "github.com/byjackchen/trade-tms-go/internal/broker/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/commands"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"

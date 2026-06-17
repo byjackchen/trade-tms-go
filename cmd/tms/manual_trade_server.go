@@ -21,7 +21,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	moo "github.com/byjackchen/trade-tms-go/internal/adapters/moomoo"
+	moo "github.com/byjackchen/trade-tms-go/internal/broker/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/livetrade"
 	"github.com/byjackchen/trade-tms-go/internal/runner"

@@ -11,7 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 
-	"github.com/byjackchen/trade-tms-go/internal/adapters/moomoo"
+	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/sharadar"
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
