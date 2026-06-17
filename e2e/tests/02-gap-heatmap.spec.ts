@@ -33,7 +33,7 @@ test.describe("session gap heatmap", () => {
       "no bars in DB — nothing to visualize",
     );
 
-    await page.goto("/data");
+    await page.goto("/systems?tab=data");
 
     // Prefer the seeded GAPPY (deterministic gaps); else fall back to whatever
     // ticker the coverage table's inspect button hands the heatmap.
@@ -79,7 +79,7 @@ test.describe("session gap heatmap", () => {
       "CLEAN seed ticker absent (running against real data)",
     );
 
-    await page.goto("/data");
+    await page.goto("/systems?tab=data");
     await page.getByTestId("gap-ticker-input").fill("CLEAN");
     await page.getByTestId("gap-ticker-submit").click();
 
@@ -91,7 +91,7 @@ test.describe("session gap heatmap", () => {
   });
 
   test("unknown ticker surfaces the not-found empty state", async ({ page }) => {
-    await page.goto("/data");
+    await page.goto("/systems?tab=data");
     await page.getByTestId("gap-ticker-input").fill("ZZZ_NO_SUCH_TICKER");
     await page.getByTestId("gap-ticker-submit").click();
     await expect(page.getByTestId("gap-not-found")).toBeVisible();

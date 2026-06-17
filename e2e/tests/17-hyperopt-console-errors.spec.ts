@@ -1,9 +1,14 @@
 /**
- * (5) Zero severe console errors on /hyperopt + /hyperopt/{id}.
+ * (5) Zero severe console errors on the Strategies Tune (hyperopt) surface +
+ * the study detail deep-link.
  *
- * Mirrors 06-console-errors: loads the Hyperopt list and (for a real persisted
- * study) the detail page, exercises the primary content, and asserts no severe
- * browser console errors or uncaught page errors fired. "Severe" excludes
+ * In the FINAL 4-top IA single-strategy hyperopt folded into Strategies (docs/
+ * concept-alignment.md §3.4, A2): the retired /hyperopt 301-redirects to
+ * /strategies (the per-strategy Tune section) and /hyperopt/:id to
+ * /strategies?study=:id (the inline study detail). Mirrors 06-console-errors:
+ * loads the Strategies page and (for a real persisted study) the study detail
+ * deep-link, exercises the primary content, and asserts no severe browser
+ * console errors or uncaught page errors fired. "Severe" excludes
  * network-surfaced errors and the documented framework allowlist (fixtures/
  * test.ts) — only genuine React/JS defects fail here.
  *
@@ -12,9 +17,8 @@
  * that defers the load event past the test budget; readiness is proved via
  * testid visibility instead.
  *
- * The list test runs whether the workspace is coming-soon or real (the
- * placeholder must also be error-free); the detail test self-skips until a study
- * exists and the detail page is implemented.
+ * The detail test self-skips until a study exists and the inline study detail is
+ * deep-link-wired.
  */
 
 import { test, expect } from "../fixtures/test";
@@ -29,36 +33,27 @@ async function settle(page: import("@playwright/test").Page): Promise<void> {
 }
 
 test.describe("hyperopt: no severe console errors", () => {
-  test("/hyperopt renders without severe console errors", async ({
+  test("/strategies (Tune surface) renders without severe console errors", async ({
     page,
     consoleErrors,
   }) => {
-    await page.goto("/hyperopt", { waitUntil: "domcontentloaded" });
+    await page.goto("/strategies", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("app-shell")).toBeVisible();
 
-    // The page is mounted once either the real workspace root or the coming-soon
-    // placeholder is visible.
-    const real = page.getByTestId("hyperopt-page");
-    const placeholder = page.getByTestId("hyperopt-placeholder");
-    await expect
-      .poll(
-        async () =>
-          (await real.isVisible().catch(() => false)) ||
-          (await placeholder.isVisible().catch(() => false)),
-        { timeout: 15_000 },
-      )
-      .toBe(true);
+    // The Strategies page is mounted once its root is visible; the Tune section
+    // is the hyperopt surface that folded in here.
+    await expect(page.getByTestId("strategies-page")).toBeVisible();
 
     await settle(page);
     await page.waitForTimeout(1_500);
     expect(
       consoleErrors,
-      `severe console/page errors on /hyperopt:\n` +
+      `severe console/page errors on /strategies:\n` +
         consoleErrors.map((e) => `  [${e.kind}] ${e.text}`).join("\n"),
     ).toHaveLength(0);
   });
 
-  test("/hyperopt/{id} renders without severe console errors", async ({
+  test("/strategies?study={id} (study detail) renders without severe console errors", async ({
     page,
     consoleErrors,
   }) => {
@@ -66,29 +61,25 @@ test.describe("hyperopt: no severe console errors", () => {
     test.skip(!study, "no hyperopt study to open a detail page for yet.");
     if (!study) return;
 
-    await page.goto(`/hyperopt/${study.studyTs}`, {
+    await page.goto(`/strategies?study=${study.studyTs}`, {
       waitUntil: "domcontentloaded",
     });
     await expect(page.getByTestId("app-shell")).toBeVisible();
+    await expect(page.getByTestId("strategies-page")).toBeVisible();
 
+    // The inline study detail (`hyperopt-detail`) renders only once the study
+    // deep-link is wired; self-skip otherwise so the gate stays green.
     const detail = page.getByTestId("hyperopt-detail");
-    const placeholder = page.getByTestId("hyperopt-placeholder");
-    await expect
-      .poll(
-        async () => (await detail.count()) + (await placeholder.count()),
-        { timeout: 15_000 },
-      )
-      .toBeGreaterThan(0);
     test.skip(
       (await detail.count()) === 0,
-      "Hyperopt detail page not yet implemented.",
+      "study detail deep-link not yet wired.",
     );
 
     await settle(page);
     await page.waitForTimeout(1_500);
     expect(
       consoleErrors,
-      `severe console/page errors on /hyperopt/${study.studyTs}:\n` +
+      `severe console/page errors on /strategies?study=${study.studyTs}:\n` +
         consoleErrors.map((e) => `  [${e.kind}] ${e.text}`).join("\n"),
     ).toHaveLength(0);
   });

@@ -82,7 +82,7 @@ function SystemsBody({
       <SystemsTabs active={tab} onChange={onChange} />
 
       <main
-        className="mx-auto w-full max-w-7xl flex-1 space-y-4 p-6"
+        className="mx-auto w-full max-w-7xl flex-1 space-y-4 p-4 md:p-6"
         data-testid="systems-page"
         data-active-tab={tab}
       >

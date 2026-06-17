@@ -8,13 +8,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ResponsiveTable,
+  type ColumnDef,
+} from "@/components/ui/responsive-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ErrorState, LoadingRows, EmptyState } from "@/components/shell/states";
@@ -41,6 +37,101 @@ function GapCell({ row }: { row: CoverageRow }) {
       days
     </Badge>
   );
+}
+
+function buildColumns(
+  onInspectTicker: (ticker: string) => void,
+): ColumnDef<CoverageRow>[] {
+  return [
+    {
+      key: "table",
+      header: "Table",
+      primary: true,
+      render: (row) => (
+        <span className="font-mono text-xs" data-testid="coverage-table-name">
+          {row.table}
+        </span>
+      ),
+    },
+    {
+      key: "rows",
+      header: "Rows",
+      align: "right",
+      render: (row) => (
+        <span className="tabular-nums" data-testid="coverage-rows">
+          {formatInt(row.rows)}
+        </span>
+      ),
+    },
+    {
+      key: "tickers",
+      header: "Tickers",
+      align: "right",
+      render: (row) => (
+        <span className="tabular-nums" data-testid="coverage-tickers">
+          {formatInt(row.tickers)}
+        </span>
+      ),
+    },
+    {
+      key: "range",
+      header: "Date range",
+      labelMobile: "Range",
+      render: (row) => (
+        <span className="text-xs text-muted-foreground" data-testid="coverage-range">
+          {row.min_date && row.max_date
+            ? `${row.min_date} → ${row.max_date}`
+            : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "freshness",
+      header: "Freshness",
+      primary: true,
+      render: (row) => (
+        <span data-testid="coverage-freshness">
+          {"freshness" in row && row.freshness ? (
+            <FreshnessBadge freshness={row.freshness} />
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: "gaps",
+      header: "Gaps",
+      primary: true,
+      render: (row) => (
+        <span data-testid="coverage-gaps">
+          <GapCell row={row} />
+        </span>
+      ),
+    },
+    {
+      key: "inspect",
+      header: "Inspect",
+      align: "right",
+      render: (row) =>
+        row.table === "bars_daily" ? (
+          <Button
+            size="sm"
+            variant="outline"
+            data-testid="coverage-inspect-gaps"
+            onClick={(e) => {
+              e.stopPropagation();
+              const worst = row.gaps?.worst?.[0]?.ticker ?? "AAPL";
+              onInspectTicker(worst);
+            }}
+          >
+            Gaps
+          </Button>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+  ];
 }
 
 export function CoverageTable({
@@ -78,66 +169,13 @@ export function CoverageTable({
             data-testid="coverage-empty"
           />
         ) : (
-          <Table data-testid="coverage-table">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Table</TableHead>
-                <TableHead className="text-right">Rows</TableHead>
-                <TableHead className="text-right">Tickers</TableHead>
-                <TableHead>Date range</TableHead>
-                <TableHead>Freshness</TableHead>
-                <TableHead>Gaps</TableHead>
-                <TableHead className="text-right">Inspect</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.tables.map((row) => (
-                <TableRow key={row.table} data-testid={`coverage-row-${row.table}`}>
-                  <TableCell className="font-mono text-xs" data-testid="coverage-table-name">
-                    {row.table}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums" data-testid="coverage-rows">
-                    {formatInt(row.rows)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums" data-testid="coverage-tickers">
-                    {formatInt(row.tickers)}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground" data-testid="coverage-range">
-                    {row.min_date && row.max_date
-                      ? `${row.min_date} → ${row.max_date}`
-                      : "—"}
-                  </TableCell>
-                  <TableCell data-testid="coverage-freshness">
-                    {"freshness" in row && row.freshness ? (
-                      <FreshnessBadge freshness={row.freshness} />
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell data-testid="coverage-gaps">
-                    <GapCell row={row} />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {row.table === "bars_daily" ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        data-testid="coverage-inspect-gaps"
-                        onClick={() => {
-                          const worst = row.gaps?.worst?.[0]?.ticker ?? "AAPL";
-                          onInspectTicker(worst);
-                        }}
-                      >
-                        Gaps
-                      </Button>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <ResponsiveTable
+            columns={buildColumns(onInspectTicker)}
+            rows={data.tables}
+            rowKey={(row) => row.table}
+            rowTestId={(row) => `coverage-row-${row.table}`}
+            data-testid="coverage-table"
+          />
         )}
       </CardContent>
     </Card>

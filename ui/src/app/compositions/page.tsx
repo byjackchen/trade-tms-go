@@ -96,9 +96,10 @@ function CompositionsBody() {
         actions={<StreamIndicator />}
       />
 
-      {/* tab switcher */}
+      {/* tab switcher — horizontally scrollable on mobile, with >=44px tap
+          targets, so additional tabs never overflow off-screen. */}
       <nav
-        className="flex items-center gap-1 border-b border-border px-6"
+        className="flex items-center gap-1 overflow-x-auto border-b border-border px-4 sm:px-6"
         data-testid="compositions-tabs"
         role="tablist"
       >
@@ -114,7 +115,7 @@ function CompositionsBody() {
               data-active={active ? "true" : "false"}
               onClick={() => setTab(t)}
               className={cn(
-                "border-b-2 px-3 py-2.5 text-sm font-medium capitalize transition-colors",
+                "min-h-11 shrink-0 border-b-2 px-3 py-2.5 text-sm font-medium capitalize transition-colors sm:min-h-0",
                 active
                   ? "border-primary text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground",
@@ -127,7 +128,7 @@ function CompositionsBody() {
       </nav>
 
       <main
-        className="mx-auto w-full max-w-7xl flex-1 space-y-6 p-6"
+        className="mx-auto w-full max-w-7xl flex-1 space-y-6 p-4 sm:p-6"
         data-testid="compositions-page"
         data-active-tab={tab}
       >

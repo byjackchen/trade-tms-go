@@ -1,13 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Dialog } from "@/components/ui/dialog";
+import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useUiMode } from "@/components/shell/ui-mode-provider";
+import { cn } from "@/lib/utils";
 import { JobProgress } from "@/components/systems/job-progress";
 import { useCreateBacktest, useCancelJob, useCompositions } from "@/lib/api/hooks";
 import { useJobTracker } from "@/lib/api/use-job-tracker";
@@ -110,6 +112,10 @@ export function NewBacktestDialog({
   /** Open the freshly-completed run in the inline backtest panel. */
   onView?: (id: number) => void;
 }) {
+  const { mode } = useUiMode();
+  const mobile = mode === "mobile";
+  const grid2 = cn("grid gap-3", mobile ? "grid-cols-1" : "grid-cols-2");
+
   const { data: compositionsData } = useCompositions();
   const compositions = useMemo<Composition[]>(() => compositionsData?.compositions ?? [], [compositionsData]);
 
@@ -295,7 +301,7 @@ export function NewBacktestDialog({
   const submitting = create.isPending;
 
   return (
-    <Dialog
+    <Sheet
       open={open}
       onClose={close}
       title="New backtest"
@@ -394,7 +400,7 @@ export function NewBacktestDialog({
           </div>
 
           {/* date range + balance */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className={grid2}>
             <div className="space-y-1.5">
               <Label htmlFor="bt-start">Start (YYYY-MM-DD)</Label>
               <Input
@@ -419,7 +425,7 @@ export function NewBacktestDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className={grid2}>
             <div className="space-y-1.5">
               <Label htmlFor="bt-balance">Starting balance (USD)</Label>
               <Input
@@ -608,6 +614,6 @@ export function NewBacktestDialog({
           ) : null}
         </div>
       )}
-    </Dialog>
+    </Sheet>
   );
 }

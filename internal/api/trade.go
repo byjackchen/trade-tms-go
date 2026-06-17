@@ -56,6 +56,10 @@ type TradeAccountInfo struct {
 	Env         string `json:"env"`
 	BrokerAccID int64  `json:"broker_acc_id"`
 	Label       string `json:"label"`
+	// Kind is the derived operator word ("paper"|"live"), computed from Env via
+	// domain.AccountKind (env=real => "live", else "paper"). It is NOT stored — the
+	// env stays the source of truth; the unified /trade UI badges accounts from it.
+	Kind string `json:"kind"`
 }
 
 // CommandEnqueuer enqueues an audited control command (satisfied by
@@ -216,6 +220,11 @@ func (s *Server) handleTradeAccounts(w http.ResponseWriter, r *http.Request) {
 	}
 	if accounts == nil {
 		accounts = []TradeAccountInfo{}
+	}
+	// Derive each account's kind ("paper"|"live") from its env (the UI badge reads
+	// it; env stays the source of truth). The store leaves Kind empty.
+	for i := range accounts {
+		accounts[i].Kind = domain.AccountKind(domain.BrokerEnv(accounts[i].Env))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"accounts": accounts})
 }

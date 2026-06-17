@@ -8,21 +8,16 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ResponsiveTable,
+  type ColumnDef,
+} from "@/components/ui/responsive-table";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
 import { ErrorState, LoadingRows, EmptyState } from "@/components/shell/states";
 import { StudyStatusBadge } from "./status-badge";
 import { useStudies } from "@/lib/api/hooks";
 import { formatNum, formatRelative, formatTs } from "@/lib/format";
-import { HYPEROPT_STRATEGIES } from "@/lib/api/types";
+import { HYPEROPT_STRATEGIES, type StudyRow } from "@/lib/api/types";
 
 const STRATEGY_OPTIONS = ["", ...HYPEROPT_STRATEGIES];
 
@@ -49,6 +44,111 @@ export function StudiesTable({
 }) {
   const { data, isLoading, error, refetch } = useStudies(strategy || undefined);
   const rows = data?.studies ?? [];
+
+  const columns: ColumnDef<StudyRow>[] = [
+    {
+      key: "study",
+      header: "Study",
+      primary: true,
+      render: (s) => (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect?.(s.ts);
+          }}
+          className="font-mono text-xs font-medium text-primary underline-offset-2 hover:underline"
+          data-testid={`study-link-${s.ts}`}
+        >
+          {s.ts}
+        </button>
+      ),
+    },
+    {
+      key: "strategy",
+      header: "Strategy",
+      primary: true,
+      render: (s) => <Badge variant="outline">{s.config.strategy}</Badge>,
+    },
+    {
+      key: "window",
+      header: "Window",
+      render: (s) => {
+        const wf = s.config.walk_forward;
+        return (
+          <span className="text-xs text-muted-foreground" data-testid="study-window">
+            {s.config.start} → {s.config.end}
+            {wf?.enabled ? (
+              <span className="ml-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                · {wf.folds}f/{wf.embargo_days}d
+              </span>
+            ) : null}
+          </span>
+        );
+      },
+    },
+    {
+      key: "trials",
+      header: "Trials",
+      align: "right",
+      render: (s) => (
+        <span className="tabular-nums" data-testid="study-trials">
+          {s.progress.completed_trials}
+          <span className="text-muted-foreground">/{s.progress.total_trials}</span>
+          {s.progress.failed_trials > 0 ? (
+            <span className="ml-1 text-xs text-destructive">
+              ({s.progress.failed_trials} fail)
+            </span>
+          ) : null}
+        </span>
+      ),
+    },
+    {
+      key: "best-sharpe",
+      header: "Best Sharpe",
+      align: "right",
+      primary: true,
+      render: (s) => (
+        <span className="tabular-nums" data-testid="study-best-sharpe">
+          {s.progress.current_best ? formatNum(s.progress.current_best.sharpe) : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "best-calmar",
+      header: "Best Calmar",
+      align: "right",
+      render: (s) => (
+        <span className="tabular-nums" data-testid="study-best-calmar">
+          {s.progress.current_best ? formatNum(s.progress.current_best.calmar) : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      primary: true,
+      render: (s) => (
+        <StudyStatusBadge
+          status={s.progress.status}
+          data-testid={`study-status-${s.ts}`}
+        />
+      ),
+    },
+    {
+      key: "created",
+      header: "Created",
+      render: (s) => (
+        <span
+          className="text-xs text-muted-foreground"
+          title={formatTs(s.config.created_at)}
+          data-testid="study-created"
+        >
+          {formatRelative(s.config.created_at)}
+        </span>
+      ),
+    },
+  ];
 
   return (
     <Card data-testid="studies-card">
@@ -91,106 +191,18 @@ export function StudiesTable({
             data-testid="studies-empty"
           />
         ) : (
-          <Table data-testid="studies-table">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Study</TableHead>
-                <TableHead>Strategy</TableHead>
-                <TableHead>Window</TableHead>
-                <TableHead className="text-right">Trials</TableHead>
-                <TableHead className="text-right">Best Sharpe</TableHead>
-                <TableHead className="text-right">Best Calmar</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((s) => {
-                const wf = s.config.walk_forward;
-                const best = s.progress.current_best;
-                const done = s.progress.completed_trials;
-                const total = s.progress.total_trials;
-                const isSelected = selectedTs === s.ts;
-                return (
-                  <TableRow
-                    key={s.ts}
-                    data-testid={`study-row-${s.ts}`}
-                    data-selected={isSelected ? "true" : "false"}
-                    onClick={() => onSelect?.(s.ts)}
-                    className={cn(
-                      "cursor-pointer",
-                      isSelected && "bg-accent/60",
-                    )}
-                  >
-                    <TableCell>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelect?.(s.ts);
-                        }}
-                        className="font-mono text-xs font-medium text-primary underline-offset-2 hover:underline"
-                        data-testid={`study-link-${s.ts}`}
-                      >
-                        {s.ts}
-                      </button>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{s.config.strategy}</Badge>
-                    </TableCell>
-                    <TableCell
-                      className="text-xs text-muted-foreground"
-                      data-testid="study-window"
-                    >
-                      {s.config.start} → {s.config.end}
-                      {wf?.enabled ? (
-                        <span className="ml-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">
-                          · {wf.folds}f/{wf.embargo_days}d
-                        </span>
-                      ) : null}
-                    </TableCell>
-                    <TableCell
-                      className="text-right tabular-nums"
-                      data-testid="study-trials"
-                    >
-                      {done}
-                      <span className="text-muted-foreground">/{total}</span>
-                      {s.progress.failed_trials > 0 ? (
-                        <span className="ml-1 text-xs text-destructive">
-                          ({s.progress.failed_trials} fail)
-                        </span>
-                      ) : null}
-                    </TableCell>
-                    <TableCell
-                      className="text-right tabular-nums"
-                      data-testid="study-best-sharpe"
-                    >
-                      {best ? formatNum(best.sharpe) : "—"}
-                    </TableCell>
-                    <TableCell
-                      className="text-right tabular-nums"
-                      data-testid="study-best-calmar"
-                    >
-                      {best ? formatNum(best.calmar) : "—"}
-                    </TableCell>
-                    <TableCell>
-                      <StudyStatusBadge
-                        status={s.progress.status}
-                        data-testid={`study-status-${s.ts}`}
-                      />
-                    </TableCell>
-                    <TableCell
-                      className="text-xs text-muted-foreground"
-                      title={formatTs(s.config.created_at)}
-                      data-testid="study-created"
-                    >
-                      {formatRelative(s.config.created_at)}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <ResponsiveTable
+            columns={columns}
+            rows={rows}
+            rowKey={(s) => s.ts}
+            data-testid="studies-table"
+            onRowClick={(s) => onSelect?.(s.ts)}
+            rowTestId={(s) => `study-row-${s.ts}`}
+            rowAttrs={(s) => ({
+              "data-selected": selectedTs === s.ts ? "true" : "false",
+            })}
+            rowClassName={(s) => (selectedTs === s.ts ? "bg-accent/60" : undefined)}
+          />
         )}
       </CardContent>
     </Card>

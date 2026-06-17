@@ -8,16 +8,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ResponsiveTable,
+  type ColumnDef,
+} from "@/components/ui/responsive-table";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
 import { ErrorState, LoadingRows, EmptyState } from "@/components/shell/states";
 import { BacktestStatusBadge } from "./status-badge";
 import { useBacktests } from "@/lib/api/hooks";
@@ -55,11 +50,139 @@ function ReturnCell({ b }: { b: BacktestSummary }) {
 
 const STATUS_OPTIONS = ["", "RUNNING", "COMPLETE", "INTERRUPTED", "FAIL"];
 
+/** Column definitions for the backtest-runs ResponsiveTable. The `#id` and
+ * Status columns are the always-visible primaries on the mobile card; the rest
+ * (full parity) fold under "More". */
+function buildColumns(
+  selectedId: number | null | undefined,
+  onSelect: ((id: number) => void) | undefined,
+): ColumnDef<BacktestSummary>[] {
+  return [
+    {
+      key: "id",
+      header: "ID",
+      primary: true,
+      className: "tabular-nums",
+      render: (b) => (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect?.(b.id);
+          }}
+          className="font-medium text-primary underline-offset-2 hover:underline"
+          data-testid={`run-link-${b.id}`}
+        >
+          #{b.id}
+        </button>
+      ),
+    },
+    {
+      key: "kind",
+      header: "Kind",
+      render: (b) => <Badge variant="outline">{b.kind}</Badge>,
+    },
+    {
+      key: "window",
+      header: "Window",
+      render: (b) => (
+        <span className="text-xs text-muted-foreground" data-testid="run-window">
+          {b.start_date} → {b.end_date}
+        </span>
+      ),
+    },
+    {
+      key: "start_bal",
+      header: "Start bal.",
+      labelMobile: "Start balance",
+      align: "right",
+      className: "tabular-nums text-muted-foreground",
+      render: (b) => formatMoney(b.starting_balance_usd),
+    },
+    {
+      key: "final_bal",
+      header: "Final bal.",
+      labelMobile: "Final balance",
+      align: "right",
+      className: "tabular-nums",
+      render: (b) => (
+        <span data-testid="run-final-balance">
+          {b.status === "RUNNING" ? "—" : formatMoney(b.final_balance_usd)}
+        </span>
+      ),
+    },
+    {
+      key: "return",
+      header: "Return",
+      align: "right",
+      className: "tabular-nums",
+      render: (b) => <ReturnCell b={b} />,
+    },
+    {
+      key: "pnl",
+      header: "P&L",
+      align: "right",
+      className: "tabular-nums",
+      render: (b) => (
+        <span data-testid="run-pnl">
+          {b.status === "RUNNING" ? (
+            <span className="text-muted-foreground">—</span>
+          ) : (
+            <span
+              className={
+                b.total_pnl_usd > 0
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : b.total_pnl_usd < 0
+                    ? "text-destructive"
+                    : undefined
+              }
+            >
+              {formatMoney(b.total_pnl_usd)}
+            </span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: "strategies",
+      header: "Strategies",
+      className: "max-w-[14rem] truncate text-xs text-muted-foreground",
+      render: (b) => (
+        <span title={b.strategies.join(", ")} data-testid="run-strategies">
+          {b.strategies.length ? b.strategies.join(", ") : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      primary: true,
+      render: (b) => (
+        <BacktestStatusBadge status={b.status} data-testid={`run-status-${b.id}`} />
+      ),
+    },
+    {
+      key: "created",
+      header: "Created",
+      className: "text-xs text-muted-foreground",
+      render: (b) => (
+        <span title={formatTs(b.created_at)} data-testid="run-created">
+          {formatRelative(b.created_at)}
+        </span>
+      ),
+    },
+  ];
+}
+
 /**
  * Backtest runs list for the Compositions module. A row click selects a run for the
  * inline backtest panel — the standalone `/backtests/[id]` route is retired and
  * results render in place (docs/concept-alignment.md §3.4 ③). `selectedId`
  * highlights the open run.
+ *
+ * Rendered via <ResponsiveTable>: the shadcn table on desktop, a stacked card
+ * list on mobile (full parity — every column carried, secondary columns under
+ * "More").
  */
 export function RunsTable({
   status,
@@ -80,7 +203,7 @@ export function RunsTable({
 
   return (
     <Card data-testid="runs-card">
-      <CardHeader className="flex-row items-start justify-between gap-2">
+      <CardHeader className="flex-col items-start gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <CardTitle>Backtest runs</CardTitle>
           <CardDescription>
@@ -90,7 +213,7 @@ export function RunsTable({
         <Select
           value={status}
           onChange={(e) => onStatusChange(e.target.value)}
-          className="h-7 w-40 text-xs"
+          className="h-9 w-full text-xs sm:h-7 sm:w-40"
           data-testid="runs-status-filter"
           aria-label="Filter by status"
         >
@@ -117,113 +240,14 @@ export function RunsTable({
             data-testid="runs-empty"
           />
         ) : (
-          <Table data-testid="runs-table">
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID</TableHead>
-                <TableHead>Kind</TableHead>
-                <TableHead>Window</TableHead>
-                <TableHead className="text-right">Start bal.</TableHead>
-                <TableHead className="text-right">Final bal.</TableHead>
-                <TableHead className="text-right">Return</TableHead>
-                <TableHead className="text-right">P&amp;L</TableHead>
-                <TableHead>Strategies</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((b) => {
-                const isSelected = selectedId === b.id;
-                return (
-                <TableRow
-                  key={b.id}
-                  data-testid={`run-row-${b.id}`}
-                  data-selected={isSelected ? "true" : "false"}
-                  onClick={() => onSelect?.(b.id)}
-                  className={cn("cursor-pointer", isSelected && "bg-accent/60")}
-                >
-                  <TableCell className="tabular-nums">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelect?.(b.id);
-                      }}
-                      className="font-medium text-primary underline-offset-2 hover:underline"
-                      data-testid={`run-link-${b.id}`}
-                    >
-                      #{b.id}
-                    </button>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{b.kind}</Badge>
-                  </TableCell>
-                  <TableCell
-                    className="text-xs text-muted-foreground"
-                    data-testid="run-window"
-                  >
-                    {b.start_date} → {b.end_date}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {formatMoney(b.starting_balance_usd)}
-                  </TableCell>
-                  <TableCell
-                    className="text-right tabular-nums"
-                    data-testid="run-final-balance"
-                  >
-                    {b.status === "RUNNING"
-                      ? "—"
-                      : formatMoney(b.final_balance_usd)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    <ReturnCell b={b} />
-                  </TableCell>
-                  <TableCell
-                    className="text-right tabular-nums"
-                    data-testid="run-pnl"
-                  >
-                    {b.status === "RUNNING" ? (
-                      <span className="text-muted-foreground">—</span>
-                    ) : (
-                      <span
-                        className={
-                          b.total_pnl_usd > 0
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : b.total_pnl_usd < 0
-                              ? "text-destructive"
-                              : undefined
-                        }
-                      >
-                        {formatMoney(b.total_pnl_usd)}
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell
-                    className="max-w-[14rem] truncate text-xs text-muted-foreground"
-                    title={b.strategies.join(", ")}
-                    data-testid="run-strategies"
-                  >
-                    {b.strategies.length ? b.strategies.join(", ") : "—"}
-                  </TableCell>
-                  <TableCell>
-                    <BacktestStatusBadge
-                      status={b.status}
-                      data-testid={`run-status-${b.id}`}
-                    />
-                  </TableCell>
-                  <TableCell
-                    className="text-xs text-muted-foreground"
-                    title={formatTs(b.created_at)}
-                    data-testid="run-created"
-                  >
-                    {formatRelative(b.created_at)}
-                  </TableCell>
-                </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <ResponsiveTable
+            columns={buildColumns(selectedId, onSelect)}
+            rows={rows}
+            rowKey={(b) => b.id}
+            rowTestId={(b) => `run-row-${b.id}`}
+            onRowClick={(b) => onSelect?.(b.id)}
+            data-testid="runs-table"
+          />
         )}
       </CardContent>
     </Card>

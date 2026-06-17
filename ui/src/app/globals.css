@@ -146,3 +146,30 @@
     border-radius: 9999px;
   }
 }
+
+/* Hide the scrollbar on horizontally-scrollable strips (mobile segmented tab
+   controls) while keeping them scrollable. */
+@layer utilities {
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Bottom-sheet entrance (mobile <Sheet>); no animation lib needed. */
+@layer utilities {
+  @keyframes sheet-slide-up {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+  .sheet-slide-up {
+    animation: sheet-slide-up 0.22s ease-out;
+  }
+}

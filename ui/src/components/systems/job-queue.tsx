@@ -10,13 +10,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ResponsiveTable,
+  type ColumnDef,
+} from "@/components/ui/responsive-table";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
@@ -37,6 +33,96 @@ const STATUSES: JobStatus[] = [
   "succeeded",
   "failed",
   "canceled",
+];
+
+/** Inline progress cell shared by the desktop row and the mobile card. */
+function ProgressCell({ job }: { job: Job }) {
+  const pct = jobPct(job);
+  const active = job.status === "queued" || job.status === "running";
+  if (active) {
+    return (
+      <div className="flex items-center justify-end gap-2 md:justify-start">
+        <Progress
+          className="h-1.5 w-16"
+          value={pct}
+          indeterminate={job.status === "running" && pct == null}
+          data-testid={`job-queue-progress-${job.id}`}
+        />
+        <span className="text-[11px] tabular-nums text-muted-foreground">
+          {pct != null ? `${pct}%` : "—"}
+        </span>
+      </div>
+    );
+  }
+  if (job.status === "failed") {
+    return <Badge variant="destructive">error</Badge>;
+  }
+  return <span className="text-muted-foreground">—</span>;
+}
+
+const JOB_QUEUE_COLUMNS: ColumnDef<Job>[] = [
+  {
+    key: "id",
+    header: "#",
+    labelMobile: "Job",
+    render: (job) => (
+      <span className="tabular-nums text-muted-foreground">{job.id}</span>
+    ),
+  },
+  {
+    key: "kind",
+    header: "Kind",
+    primary: true,
+    render: (job) => <span className="font-mono text-xs">{job.kind}</span>,
+  },
+  {
+    key: "status",
+    header: "Status",
+    primary: true,
+    render: (job) => (
+      <JobStatusBadge
+        status={job.status}
+        data-testid={`job-queue-status-${job.id}`}
+      />
+    ),
+  },
+  {
+    key: "progress",
+    header: "Progress",
+    primary: true,
+    className: "w-32",
+    render: (job) => <ProgressCell job={job} />,
+  },
+  {
+    key: "worker",
+    header: "Worker",
+    render: (job) => (
+      <span className="font-mono text-[11px] text-muted-foreground">
+        {job.claimed_by ?? "—"}
+      </span>
+    ),
+  },
+  {
+    key: "attempts",
+    header: "Attempts",
+    render: (job) => (
+      <span className="tabular-nums text-xs text-muted-foreground">
+        {job.attempts}/{job.max_attempts}
+      </span>
+    ),
+  },
+  {
+    key: "updated",
+    header: "Updated",
+    render: (job) => (
+      <span
+        className="text-xs text-muted-foreground"
+        title={formatTs(job.updated_at)}
+      >
+        {formatRelative(job.updated_at)}
+      </span>
+    ),
+  },
 ];
 
 /** The live JOB QUEUE: a filterable, self-refreshing table of ops.jobs with a
@@ -83,7 +169,7 @@ export function JobQueue() {
         <CardContent className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <Select
-              className="w-40"
+              className="min-w-0 flex-1 sm:w-40 sm:flex-none"
               value={status}
               onChange={(e) => setStatus(e.target.value)}
               data-testid="job-queue-status-filter"
@@ -97,7 +183,7 @@ export function JobQueue() {
               ))}
             </Select>
             <Input
-              className="w-48"
+              className="min-w-0 flex-1 sm:w-48 sm:flex-none"
               placeholder="Filter kind…"
               value={kind}
               onChange={(e) => setKind(e.target.value)}
@@ -132,81 +218,14 @@ export function JobQueue() {
             />
           ) : (
             <div className="overflow-x-auto">
-              <Table data-testid="job-queue-table">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>#</TableHead>
-                    <TableHead>Kind</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Progress</TableHead>
-                    <TableHead>Worker</TableHead>
-                    <TableHead>Attempts</TableHead>
-                    <TableHead>Updated</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((job) => {
-                    const pct = jobPct(job);
-                    const active =
-                      job.status === "queued" || job.status === "running";
-                    return (
-                      <TableRow
-                        key={job.id}
-                        data-testid={`job-queue-row-${job.id}`}
-                        data-status={job.status}
-                        className="cursor-pointer"
-                        onClick={() => setSelected(job)}
-                      >
-                        <TableCell className="tabular-nums text-muted-foreground">
-                          {job.id}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {job.kind}
-                        </TableCell>
-                        <TableCell>
-                          <JobStatusBadge
-                            status={job.status}
-                            data-testid={`job-queue-status-${job.id}`}
-                          />
-                        </TableCell>
-                        <TableCell className="w-32">
-                          {active ? (
-                            <div className="flex items-center gap-2">
-                              <Progress
-                                className="h-1.5 w-16"
-                                value={pct}
-                                indeterminate={
-                                  job.status === "running" && pct == null
-                                }
-                                data-testid={`job-queue-progress-${job.id}`}
-                              />
-                              <span className="text-[11px] tabular-nums text-muted-foreground">
-                                {pct != null ? `${pct}%` : "—"}
-                              </span>
-                            </div>
-                          ) : job.status === "failed" ? (
-                            <Badge variant="destructive">error</Badge>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-mono text-[11px] text-muted-foreground">
-                          {job.claimed_by ?? "—"}
-                        </TableCell>
-                        <TableCell className="tabular-nums text-xs text-muted-foreground">
-                          {job.attempts}/{job.max_attempts}
-                        </TableCell>
-                        <TableCell
-                          className="text-xs text-muted-foreground"
-                          title={formatTs(job.updated_at)}
-                        >
-                          {formatRelative(job.updated_at)}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+              <ResponsiveTable
+                columns={JOB_QUEUE_COLUMNS}
+                rows={rows}
+                rowKey={(job) => job.id}
+                rowTestId={(job) => `job-queue-row-${job.id}`}
+                onRowClick={(job) => setSelected(job)}
+                data-testid="job-queue-table"
+              />
             </div>
           )}
         </CardContent>

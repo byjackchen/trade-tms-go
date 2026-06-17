@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
 // TradeTradingReader is the paper/live trading read surface (PG-backed; satisfied
@@ -84,6 +86,11 @@ type TradeAccount struct {
 	MarketValue    float64   `json:"market_value"`
 	DayPnL         float64   `json:"day_pnl"`
 	TS             time.Time `json:"ts"`
+	// Kind is the derived operator word ("paper"|"live") for the running account,
+	// computed from the bound session's account env via domain.AccountKind (env=real
+	// => "live", else "paper"). Empty when no session/env is bound. Not stored — the
+	// env stays the source of truth.
+	Kind string `json:"kind,omitempty"`
 }
 
 // TradeReconciliation is the wire shape of the latest reconciliation report.
@@ -202,7 +209,26 @@ func (s *Server) handleTradeAccount(w http.ResponseWriter, r *http.Request) {
 		MarketValue: marketValue,
 		DayPnL:      dayPnL,
 		TS:          time.Now().UTC(),
+		// Derive the running account's kind ("paper"|"live") from the bound session's
+		// account env (env stays the source of truth). Empty when no session/env.
+		Kind: s.runningAccountKind(r.Context()),
 	})
+}
+
+// runningAccountKind derives the operator word ("paper"|"live") for the active
+// account from the latest session's bound account env (domain.AccountKind). It
+// returns "" when there is no session or no bound env, so the wire field is
+// omitted. Best-effort: a read error degrades to "" rather than failing the
+// account snapshot.
+func (s *Server) runningAccountKind(ctx context.Context) string {
+	if s.trade == nil {
+		return ""
+	}
+	sess, err := s.trade.LatestSession(ctx)
+	if err != nil || sess == nil || strings.TrimSpace(sess.AccountEnv) == "" {
+		return ""
+	}
+	return domain.AccountKind(domain.BrokerEnv(sess.AccountEnv))
 }
 
 // handleTradeReconciliation serves GET /api/v1/trade/reconciliation: the latest

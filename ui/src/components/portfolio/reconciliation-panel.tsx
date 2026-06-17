@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AlertOctagon, CheckCircle2 } from "lucide-react";
 import { useLiveReconciliation } from "@/lib/api/hooks";
 import { hasReconciliation } from "@/lib/api/types";
+import type { ReconMismatch } from "@/lib/api/types";
 import { ApiError } from "@/lib/api/client";
 import {
   Card,
@@ -13,13 +14,9 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ResponsiveTable,
+  type ColumnDef,
+} from "@/components/ui/responsive-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shell/states";
 import { formatInt, formatRelative } from "@/lib/format";
@@ -30,6 +27,41 @@ import { formatInt, formatRelative } from "@/lib/format";
  * here in red — it is never auto-corrected by trading (decision 5 /
  * portfolio-risk.md). `diff = broker_net − strategy_books_sum`.
  */
+const MISMATCH_COLUMNS: ColumnDef<ReconMismatch>[] = [
+  {
+    key: "symbol",
+    header: "Symbol",
+    primary: true,
+    render: (m) => <span className="font-mono font-medium">{m.symbol}</span>,
+  },
+  {
+    key: "strategy_books_sum",
+    header: "Strategy books",
+    align: "right",
+    render: (m) => (
+      <span className="font-mono">{formatInt(m.strategy_books_sum)}</span>
+    ),
+  },
+  {
+    key: "broker_net",
+    header: "Broker net",
+    align: "right",
+    render: (m) => <span className="font-mono">{formatInt(m.broker_net)}</span>,
+  },
+  {
+    key: "diff",
+    header: "Diff",
+    align: "right",
+    primary: true,
+    render: (m) => (
+      <span className="font-mono font-medium text-destructive">
+        {m.diff > 0 ? "+" : ""}
+        {formatInt(m.diff)}
+      </span>
+    ),
+  },
+];
+
 export function ReconciliationPanel() {
   const q = useLiveReconciliation();
   const [now, setNow] = useState(() => Date.now());
@@ -133,43 +165,19 @@ export function ReconciliationPanel() {
 
             {/* Mismatches table (only when present) */}
             {report.mismatches.length > 0 ? (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Symbol</TableHead>
-                    <TableHead className="text-right">Strategy books</TableHead>
-                    <TableHead className="text-right">Broker net</TableHead>
-                    <TableHead className="text-right">Diff</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {report.mismatches.map((m) => (
-                    <TableRow
-                      key={m.symbol}
-                      data-testid="live-recon-mismatch-row"
-                      data-symbol={m.symbol}
-                      data-diff={m.diff}
-                      data-broker-net={m.broker_net}
-                      data-strategy-sum={m.strategy_books_sum}
-                      className="bg-destructive/5"
-                    >
-                      <TableCell className="font-mono font-medium">
-                        {m.symbol}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {formatInt(m.strategy_books_sum)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {formatInt(m.broker_net)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono font-medium text-destructive">
-                        {m.diff > 0 ? "+" : ""}
-                        {formatInt(m.diff)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <ResponsiveTable
+                columns={MISMATCH_COLUMNS}
+                rows={report.mismatches}
+                rowKey={(m) => m.symbol}
+                rowTestId={() => "live-recon-mismatch-row"}
+                rowAttrs={(m) => ({
+                  "data-symbol": m.symbol,
+                  "data-diff": String(m.diff),
+                  "data-broker-net": String(m.broker_net),
+                  "data-strategy-sum": String(m.strategy_books_sum),
+                })}
+                data-testid="recon-mismatch-table"
+              />
             ) : null}
 
             {/* One-sided symbols */}

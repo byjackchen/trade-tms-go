@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { cn } from "@/lib/utils";
 import { Select } from "@/components/ui/select";
 import { useAccounts } from "@/lib/api/hooks";
 import { ApiError } from "@/lib/api/client";
@@ -68,7 +69,7 @@ export function accountLabel(a: TradeAccountInfo): string {
  * Degrades quietly: when the trade reader is unconfigured (503) or empty, the
  * control disables to a single "All accounts" entry rather than erroring.
  */
-export function AccountSelector() {
+export function AccountSelector({ compact = false }: { compact?: boolean }) {
   const { account, setAccount } = useSelectedAccount();
   const q = useAccounts();
   const accounts = useMemo<TradeAccountInfo[]>(
@@ -80,14 +81,25 @@ export function AccountSelector() {
 
   return (
     <label
-      className="flex items-center gap-2 text-xs text-muted-foreground"
+      className={cn(
+        "flex items-center gap-2 text-xs text-muted-foreground",
+        // In a tight bar (mobile app bar), let the whole control shrink so it
+        // never pushes its siblings off the edge.
+        compact && "min-w-0 shrink",
+      )}
       data-testid="account-selector"
     >
       <span className="hidden sm:inline">Account</span>
       <Select
         aria-label="Trading account"
         data-testid="account-selector-input"
-        className="h-8 w-auto min-w-[12rem]"
+        className={cn(
+          "h-8",
+          // Desktop: a comfortable fixed minimum. Mobile/compact: drop the rigid
+          // min width and cap it so the selector shrinks first and truncates its
+          // label instead of overflowing the app bar.
+          compact ? "min-w-0 max-w-[9rem] shrink" : "w-auto min-w-[12rem]",
+        )}
         value={account}
         disabled={disabled}
         onChange={(e) => setAccount(e.target.value)}

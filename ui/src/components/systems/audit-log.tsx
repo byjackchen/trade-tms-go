@@ -9,13 +9,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ResponsiveTable,
+  type ColumnDef,
+} from "@/components/ui/responsive-table";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ErrorState, LoadingRows, EmptyState } from "@/components/shell/states";
@@ -29,6 +25,63 @@ function target(e: AuditEntry): string {
   if (!e.entity) return "—";
   return e.entity_id ? `${e.entity} #${e.entity_id}` : e.entity;
 }
+
+const AUDIT_COLUMNS: ColumnDef<AuditEntry>[] = [
+  {
+    key: "when",
+    header: "When",
+    primary: true,
+    render: (e) => (
+      <span
+        className="whitespace-nowrap text-xs text-muted-foreground"
+        title={formatTs(e.ts)}
+      >
+        {formatRelative(e.ts)}
+      </span>
+    ),
+  },
+  {
+    key: "actor",
+    header: "Actor",
+    render: (e) => <span className="font-mono text-[11px]">{e.actor}</span>,
+  },
+  {
+    key: "action",
+    header: "Action",
+    primary: true,
+    render: (e) => (
+      <Badge variant="outline" data-testid={`audit-action-${e.id}`}>
+        {e.action}
+      </Badge>
+    ),
+  },
+  {
+    key: "target",
+    header: "Target",
+    render: (e) => (
+      <span className="font-mono text-[11px] text-muted-foreground">
+        {target(e)}
+      </span>
+    ),
+  },
+  {
+    key: "details",
+    header: "Details",
+    className: "max-w-xs",
+    render: (e) =>
+      e.details && Object.keys(e.details).length > 0 ? (
+        <code
+          className="block truncate text-[11px] text-muted-foreground"
+          title={JSON.stringify(e.details)}
+          data-testid={`audit-details-${e.id}`}
+        >
+          {JSON.stringify(e.details)}
+        </code>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      ),
+  },
+];
 
 /**
  * AUDIT LOG: the append-only operational trail (tms.audit_log), newest-first,
@@ -59,7 +112,7 @@ export function AuditLog() {
       <CardContent className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           <Input
-            className="w-48"
+            className="min-w-0 flex-1 sm:w-48 sm:flex-none"
             placeholder="Filter actor…"
             value={actor}
             onChange={(e) => setActor(e.target.value)}
@@ -67,7 +120,7 @@ export function AuditLog() {
             aria-label="Filter by actor"
           />
           <Input
-            className="w-48"
+            className="min-w-0 flex-1 sm:w-48 sm:flex-none"
             placeholder="Filter action…"
             value={action}
             onChange={(e) => setAction(e.target.value)}
@@ -108,53 +161,13 @@ export function AuditLog() {
           />
         ) : (
           <div className="overflow-x-auto">
-            <Table data-testid="audit-table">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>When</TableHead>
-                  <TableHead>Actor</TableHead>
-                  <TableHead>Action</TableHead>
-                  <TableHead>Target</TableHead>
-                  <TableHead>Details</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {entries.map((e) => (
-                  <TableRow key={e.id} data-testid={`audit-row-${e.id}`}>
-                    <TableCell
-                      className="whitespace-nowrap text-xs text-muted-foreground"
-                      title={formatTs(e.ts)}
-                    >
-                      {formatRelative(e.ts)}
-                    </TableCell>
-                    <TableCell className="font-mono text-[11px]">
-                      {e.actor}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" data-testid={`audit-action-${e.id}`}>
-                        {e.action}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono text-[11px] text-muted-foreground">
-                      {target(e)}
-                    </TableCell>
-                    <TableCell className="max-w-xs">
-                      {e.details && Object.keys(e.details).length > 0 ? (
-                        <code
-                          className="block truncate text-[11px] text-muted-foreground"
-                          title={JSON.stringify(e.details)}
-                          data-testid={`audit-details-${e.id}`}
-                        >
-                          {JSON.stringify(e.details)}
-                        </code>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <ResponsiveTable
+              columns={AUDIT_COLUMNS}
+              rows={entries}
+              rowKey={(e) => e.id}
+              rowTestId={(e) => `audit-row-${e.id}`}
+              data-testid="audit-table"
+            />
           </div>
         )}
       </CardContent>

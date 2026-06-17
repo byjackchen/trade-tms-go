@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Dialog } from "@/components/ui/dialog";
+import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -98,7 +98,7 @@ export function RefreshDialog({
   const submitting = refresh.isPending;
 
   return (
-    <Dialog
+    <Sheet
       open={open}
       onClose={close}
       title="Refresh market data"
@@ -232,6 +232,6 @@ export function RefreshDialog({
           ) : null}
         </div>
       )}
-    </Dialog>
+    </Sheet>
   );
 }

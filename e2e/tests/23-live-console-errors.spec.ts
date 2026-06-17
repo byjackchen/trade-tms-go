@@ -53,12 +53,12 @@ test.describe("no severe console errors on /trade", () => {
   }) => {
     // domcontentloaded, not the default "load": the app shell's SSE stream and
     // the cockpit's live WS defer the load event past the test budget.
-    await page.goto("/paper", { waitUntil: "domcontentloaded" });
+    await page.goto("/trade", { waitUntil: "domcontentloaded" });
 
     await expect(page.getByTestId("app-shell")).toBeVisible();
     // The page is "mounted" once EITHER the real cockpit root or the coming-soon
     // placeholder is visible (the cockpit ships after the earlier workspaces).
-    await waitReady(page, ["paper-header"]);
+    await waitReady(page, ["trade-header"]);
 
     // Let the live WS open + the first frames / REST snapshots flush so any late
     // render error fires. The cockpit subscribes to multiple streams on mount.
@@ -78,10 +78,10 @@ test.describe("no severe console errors on /trade", () => {
   }) => {
     // Only meaningful once the real cockpit + live reader are present; otherwise
     // this is redundant with the page-load check above.
-    await page.goto("/paper", { waitUntil: "domcontentloaded" });
+    await page.goto("/trade", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("app-shell")).toBeVisible();
 
-    const realCockpit = page.getByTestId("paper-header");
+    const realCockpit = page.getByTestId("trade-header");
     await expect
       .poll(async () => (await realCockpit.count()) > 0, { timeout: 15_000 })
       .toBeDefined();

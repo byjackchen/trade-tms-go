@@ -1,6 +1,5 @@
 "use client";
 
-import { TableHead } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
 // csvCell quotes a value per RFC 4180.
@@ -24,8 +23,14 @@ export function downloadCsv(filenameStem: string, lines: string[]) {
   URL.revokeObjectURL(url);
 }
 
-/** A clickable, sort-indicating column header. */
-export function SortHead<K extends string>({
+/**
+ * A clickable, sort-indicating header BUTTON (no <th> wrapper) for use as a
+ * <ResponsiveTable> ColumnDef `header`: ResponsiveTable supplies the desktop
+ * <th>, and on mobile this same button becomes the card's field label so the
+ * column stays sortable on both surfaces. `align` only flips the icon order
+ * (the desktop cell alignment is set by the ColumnDef `align`).
+ */
+export function SortButton<K extends string>({
   k,
   label,
   sortKey,
@@ -43,22 +48,22 @@ export function SortHead<K extends string>({
   title?: string;
 }) {
   return (
-    <TableHead className={align === "right" ? "text-right" : undefined} title={title}>
-      <button
-        type="button"
-        onClick={() => onSort(k)}
-        data-testid={`watchlist-sort-${k}`}
-        className={cn(
-          "inline-flex items-center gap-1 transition-colors hover:text-foreground",
-          align === "right" && "flex-row-reverse",
-          sortKey === k ? "text-foreground" : "text-muted-foreground",
-        )}
-      >
-        {label}
-        <span className="text-[10px] leading-none">
-          {sortKey === k ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
-        </span>
-      </button>
-    </TableHead>
+    <button
+      type="button"
+      onClick={() => onSort(k)}
+      data-testid={`watchlist-sort-${k}`}
+      title={title}
+      className={cn(
+        "inline-flex items-center gap-1 transition-colors hover:text-foreground",
+        align === "right" && "flex-row-reverse",
+        sortKey === k ? "text-foreground" : "text-muted-foreground",
+      )}
+    >
+      {label}
+      <span className="text-[10px] leading-none">
+        {sortKey === k ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+      </span>
+    </button>
   );
 }
+

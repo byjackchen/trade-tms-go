@@ -194,9 +194,9 @@ test.describe("manual desk — cancel a working order", () => {
     page,
     consoleErrors,
   }) => {
-    // Post-restructure the desk is the Desk view of the trade module at
-    // /paper?view=desk (the old /trade/desk route now 301-redirects to /paper).
-    await page.goto("/paper?view=desk", { waitUntil: "domcontentloaded" });
+    // In the FINAL 4-top IA the desk is the Desk view of the unified trade module
+    // at /trade?view=desk (the old /trade/desk + /paper?view=desk routes 301 here).
+    await page.goto("/trade?view=desk", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("app-shell")).toBeVisible();
 
     // Mounted once either the real desk root or the coming-soon placeholder shows.

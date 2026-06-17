@@ -76,8 +76,8 @@ test.describe("paper trading — blotter / positions / account", () => {
     }
 
     // Post-restructure the paper cockpit is the paper trade module (/paper); its
-    // ready signal is the module header (the old `live-page` root is gone).
-    await expect(page.getByTestId("paper-header")).toBeVisible();
+    // signal is the unified `trade-header` testid (the old paper/live page roots are retired).
+    await expect(page.getByTestId("trade-header")).toBeVisible();
 
     const session = await withDb((c) => latestSession(c));
     expect(session, "a trading session exists").not.toBeNull();

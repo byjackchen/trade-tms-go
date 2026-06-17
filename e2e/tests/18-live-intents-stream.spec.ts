@@ -49,7 +49,7 @@ test.describe("live cockpit — signal intents stream", () => {
 
     // The cockpit is up. Mount its live-intent surface.
     await expect(page.getByTestId("app-shell")).toBeVisible();
-    await expect(page.getByTestId("live-page")).toBeVisible();
+    await expect(page.getByTestId("trade-header")).toBeVisible();
 
     const intentsPanel = page.getByTestId("live-intents");
     await expect(intentsPanel).toBeVisible({ timeout: 15_000 });

@@ -79,8 +79,8 @@ test.describe("portfolio gate — over-budget / over-concentration rejection", (
     }
 
     // Post-restructure the cockpit is the trade module at /paper; its ready
-    // signal is `paper-header` (the old `live-page` root no longer exists).
-    await expect(page.getByTestId("paper-header")).toBeVisible();
+    // signal is the unified `trade-header` testid (the old paper/live page roots are retired).
+    await expect(page.getByTestId("trade-header")).toBeVisible();
 
     const session = await withDb((c) => latestSession(c));
     expect(session, "a trading session exists").not.toBeNull();

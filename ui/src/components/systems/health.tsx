@@ -11,6 +11,8 @@ import {
 import { ErrorState, LoadingRows } from "@/components/shell/states";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusDot } from "@/components/portfolio/live-badges";
+import { useUiMode } from "@/components/shell/ui-mode-provider";
+import { cn } from "@/lib/utils";
 import {
   useSystem,
   useSystemHealth,
@@ -160,6 +162,8 @@ export function SystemHealth() {
   const sessionQ = useLiveSession();
   const liveHealthQ = useLiveHealth();
   const { state: bridgeState } = useJobStream({});
+  const { mode } = useUiMode();
+  const mobile = mode === "mobile";
 
   // A ticking clock so the inferred data-feed freshness re-evaluates without a
   // re-fetch (keeps Date.now() out of render — purity rule).
@@ -267,7 +271,10 @@ export function SystemHealth() {
             />
           ) : (
             <div
-              className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+              className={cn(
+                "grid grid-cols-1 gap-3",
+                !mobile && "sm:grid-cols-2 lg:grid-cols-3",
+              )}
               data-testid="system-health-grid"
             >
               {COMPONENT_ORDER.filter((c) =>
@@ -356,7 +363,12 @@ export function SystemHealth() {
           <CardTitle className="text-sm">Metrics &amp; transport</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div
+            className={cn(
+              "grid gap-3",
+              mobile ? "grid-cols-1" : "grid-cols-2 lg:grid-cols-4",
+            )}
+          >
             <Metric
               label="Queued jobs"
               value={metrics ? String(metrics.jobs_queued) : "—"}

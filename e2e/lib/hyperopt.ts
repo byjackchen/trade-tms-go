@@ -11,20 +11,23 @@
  *   - exposes its progress / trials / promotion over the documented REST routes
  *     and the shared WS job stream.
  *
- * The Hyperopt UI is built after the P1 Data / P2 Backtests / P3 Strategies
- * workspaces. These specs are PERMANENT and assert the documented contract;
- * while the section is still the coming-soon placeholder (`hyperopt-placeholder`)
- * or a REST route is absent, they self-skip cleanly so the gate stays green,
- * exactly like specs 07-12 did for Backtests / Strategies before those landed.
+ * In the FINAL 4-top IA (docs/concept-alignment.md §3.4, A2): single-strategy
+ * hyperopt FOLDED INTO Strategies — it is the per-strategy "Tune" surface
+ * (`strategy-section-tune`) on /strategies, NOT a standalone /hyperopt workspace.
+ * The retired /hyperopt route 301-redirects to /strategies and /hyperopt/:id to
+ * /strategies?study=:id (see ui/next.config.ts). These specs are PERMANENT and
+ * assert the documented contract; while the Tune affordance / a REST route is
+ * absent, they self-skip cleanly so the gate stays green, exactly like specs
+ * 07-12 did for Backtests / Strategies before those landed.
  *
  * Ground truth is read independently from postgres (this module's `withDb`
  * helpers over tms.hyperopt_studies / hyperopt_trials / active_params /
  * param_sets) AND the Go API — the UI renders the UI's proxy of the API, and
  * both must agree with the DB. No fabricated values.
  *
- * Conventional `data-testid`s (mirroring the Backtests / Strategies workspaces):
- *   list page  /hyperopt
- *     hyperopt-page                 real workspace root (vs coming-soon placeholder)
+ * Conventional `data-testid`s (the Strategies "Tune" surface, /strategies):
+ *   strategy tab  /strategies (Tune section of the active strategy)
+ *     strategy-section-tune         the per-strategy hyperopt (Tune) surface root
  *     hyperopt-launch / open-hyperopt-dialog  launch affordance
  *     hyperopt-dialog / hyperopt-form         launch dialog + form
  *     hyperopt-strategy             strategy <select>
@@ -32,7 +35,7 @@
  *     hyperopt-population / hyperopt-generations / hyperopt-folds / hyperopt-tickers
  *     hyperopt-submit               submit
  *     hyperopt-study-row-<ts>       one row per study (list)
- *   detail page /hyperopt/{ts}
+ *   study detail (inline; deep-linked via /strategies?study={ts})
  *     hyperopt-detail               detail root (data-study-ts === route id)
  *     hyperopt-trials-table         trials table (rows: hyperopt-trial-row-<n>)
  *     pareto-scatter                Pareto-front scatter (canvas/svg points)
@@ -66,37 +69,43 @@ export const STUDY_STRATEGY = "pairs";
 // UI readiness — mirrors strategiesUiReady / strategyDetailReady.
 // ---------------------------------------------------------------------------
 
-/** True once the real Hyperopt workspace replaced the coming-soon placeholder.
- * The list root (`hyperopt-page`) exists only in the real workspace; the
- * placeholder (`hyperopt-placeholder`) marks coming-soon. Returns false when
- * neither has appeared (route not built at all). Navigates to /hyperopt. */
+/** True once the Strategies "Tune" (hyperopt) surface is reachable. In the FINAL
+ * 4-top IA single-strategy hyperopt lives as the per-strategy Tune section
+ * (`strategy-section-tune`) on /strategies — the retired /hyperopt 301-redirects
+ * here. Returns false when the Strategies page or the Tune section never appears
+ * (not built / strategy has no tuning, e.g. intraday). Navigates to /strategies. */
 export async function hyperoptUiReady(page: Page): Promise<boolean> {
-  await page.goto("/hyperopt", { waitUntil: "domcontentloaded" });
+  await page.goto("/strategies", { waitUntil: "domcontentloaded" });
   const shell = page.getByTestId("app-shell");
   try {
     await shell.waitFor({ state: "visible", timeout: 15_000 });
   } catch {
     return false;
   }
-  const real = page.getByTestId("hyperopt-page");
-  const placeholder = page.getByTestId("hyperopt-placeholder");
+  const page_ = page.getByTestId("strategies-page");
+  try {
+    await page_.waitFor({ state: "visible", timeout: 15_000 });
+  } catch {
+    return false;
+  }
+  const tune = page.getByTestId("strategy-section-tune");
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
-    if (await real.count()) return true;
-    if (await placeholder.count()) return false;
+    if (await tune.count()) return true;
     await page.waitForTimeout(250);
   }
   return false;
 }
 
-/** Detail route is real once /hyperopt/{ts} exposes the `hyperopt-detail` root
- * (vs the coming-soon placeholder / an unbuilt route). Navigates to the detail
- * URL for `ts`. */
+/** Study detail is reachable once the inline `hyperopt-detail` root renders. In
+ * the FINAL IA a study deep-links via /strategies?study={ts} (the retired
+ * /hyperopt/{ts} 301-redirects there). Returns false when the detail root never
+ * appears (deep-link not wired / study absent). Navigates to the deep-link. */
 export async function hyperoptDetailReady(
   page: Page,
   ts: string,
 ): Promise<boolean> {
-  await page.goto(`/hyperopt/${ts}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`/strategies?study=${ts}`, { waitUntil: "domcontentloaded" });
   const shell = page.getByTestId("app-shell");
   try {
     await shell.waitFor({ state: "visible", timeout: 15_000 });
@@ -104,11 +113,9 @@ export async function hyperoptDetailReady(
     return false;
   }
   const detail = page.getByTestId("hyperopt-detail");
-  const placeholder = page.getByTestId("hyperopt-placeholder");
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     if (await detail.count()) return true;
-    if (await placeholder.count()) return false;
     await page.waitForTimeout(250);
   }
   return false;

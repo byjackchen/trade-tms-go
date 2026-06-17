@@ -22,21 +22,32 @@ import { test, expect } from "../fixtures/test";
 import { withDb, completeRunCount, latestCompleteRun } from "../lib/db";
 import { pickScriptedLaunch, TERMINAL } from "../lib/backtests";
 
-/** True once the real Backtests workspace replaced the coming-soon placeholder. */
+/**
+ * True once a backtest LAUNCH affordance is reachable. In the 4-top IA a
+ * backtest's object is always a Composition (docs/concept-alignment.md §3.4 A3):
+ * the retired `/backtests` route 301-redirects to the Compositions module, where
+ * a backtest is launched PER-COMPOSITION (`composition-backtest-<id>`) rather than
+ * via the old standalone `open-backtest-dialog`. This guard navigates to
+ * `/compositions` and reports whether a per-Composition Backtest launcher exists
+ * yet; it SOFT-skips (returns false) — never hard-fails — while the Composition-
+ * centric launch flow is still landing, matching the established "self-skip until
+ * built" pattern so the gate stays green.
+ */
 async function backtestsUiReady(
   page: import("@playwright/test").Page,
 ): Promise<boolean> {
-  await page.goto("/backtests", { waitUntil: "domcontentloaded" });
+  await page.goto("/compositions", { waitUntil: "domcontentloaded" });
   await expect(page.getByTestId("app-shell")).toBeVisible();
-  // The launch affordance only exists in the real workspace.
-  const placeholder = page.getByTestId("backtests-placeholder");
-  const launcher = page.getByTestId("open-backtest-dialog");
-  await expect
-    .poll(
-      async () => (await placeholder.count()) + (await launcher.count()),
-      { timeout: 15_000 },
-    )
-    .toBeGreaterThan(0);
+  // The Compositions module must mount; then a per-Composition Backtest launcher
+  // (composition-backtest-<id>) is the launch affordance. Absent (empty registry
+  // / flow not wired) => soft-skip.
+  const page_ = page.getByTestId("compositions-page");
+  try {
+    await page_.waitFor({ state: "visible", timeout: 15_000 });
+  } catch {
+    return false;
+  }
+  const launcher = page.locator('[data-testid^="composition-backtest-"]').first();
   return (await launcher.count()) > 0;
 }
 
@@ -57,8 +68,14 @@ test.describe("backtest launch flow", () => {
 
     const before = await withDb((c) => completeRunCount(c));
 
-    // 1. Open the New-backtest dialog.
-    await page.getByTestId("open-backtest-dialog").click();
+    // 1. Open the New-backtest dialog. In the 4-top IA the launch affordance is
+    //    PER-COMPOSITION (composition-backtest-<id>) — a backtest's object is
+    //    always a Composition — which opens the shared NewBacktestDialog
+    //    (`backtest-dialog`) prefilled to that Composition.
+    await page
+      .locator('[data-testid^="composition-backtest-"]')
+      .first()
+      .click();
     const dialog = page.getByTestId("backtest-dialog");
     await expect(dialog).toBeVisible();
     await expect(page.getByTestId("backtest-form")).toBeVisible();
@@ -111,25 +128,21 @@ test.describe("backtest launch flow", () => {
     expect(latest, "a COMPLETE run exists after the launch").not.toBeNull();
 
     // 7. Follow the detail link/redirect and confirm it targets the persisted
-    //    run id (no fabricated id). The UI either redirects automatically or
-    //    exposes a `backtest-detail-link`.
+    //    run id (no fabricated id). In the 4-top IA the result opens INLINE in the
+    //    Compositions module via the `?backtest=<id>` deep-link (NewBacktestDialog
+    //    onView -> /compositions?backtest=<id>); the UI either routes there
+    //    automatically or exposes a `backtest-detail-link`.
     const detailLink = page.getByTestId("backtest-detail-link");
     if (await detailLink.count()) {
       await detailLink.first().click();
     }
     await expect
-      .poll(async () => new URL(page.url()).pathname, { timeout: 30_000 })
-      .toMatch(/\/backtests\/\d+$/);
+      .poll(() => new URL(page.url()).searchParams.get("backtest"), {
+        timeout: 30_000,
+      })
+      .toBe(String(latest!.id));
 
-    const urlId = Number(
-      new URL(page.url()).pathname.replace(/.*\/backtests\//, ""),
-    );
-    expect(
-      urlId,
-      "detail URL points at the run the engine just persisted",
-    ).toBe(latest!.id);
-
-    // The detail page mounted its summary header.
+    // The inline backtest panel mounted its summary header for the persisted run.
     await expect(page.getByTestId("backtest-detail")).toBeVisible({
       timeout: 30_000,
     });

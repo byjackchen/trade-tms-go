@@ -1131,6 +1131,12 @@ export type LiveAccount = {
   market_value: number;
   day_pnl: number;
   ts: string;
+  /**
+   * Derived operator word ("paper" | "live") for the RUNNING account, computed
+   * server-side from the bound session's account env. Empty/absent when no session
+   * is bound. Source of truth stays env.
+   */
+  kind?: "paper" | "live";
 };
 
 // ---- Account registry (GET /api/v1/trade/accounts) ----
@@ -1147,6 +1153,13 @@ export type TradeAccountInfo = {
   env: string;
   broker_acc_id: number;
   label: string;
+  /**
+   * Derived operator word ("paper" | "live"), computed server-side from `env`
+   * (env=real => "live", else "paper") via domain.AccountKind. The unified /trade
+   * account selector badges each account from this; the env stays the source of
+   * truth. Optional for forward-compat with older API builds (fall back to env).
+   */
+  kind?: "paper" | "live";
 };
 
 export type TradeAccountsResponse = { accounts: TradeAccountInfo[] };

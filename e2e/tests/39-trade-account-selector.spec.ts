@@ -80,8 +80,8 @@ test.describe("trade cockpit — account selector", () => {
 
     // The selector mounts and is enabled (a non-empty registry). Post-restructure
     // the cockpit is the trade module at /paper, whose ready signal is the
-    // `paper-header` testid (the old `live-page` root is retired).
-    await expect(page.getByTestId("paper-header")).toBeVisible();
+    // signal is the unified `trade-header` testid (the old paper/live page roots are retired).
+    await expect(page.getByTestId("trade-header")).toBeVisible();
     const selector = page.getByTestId("account-selector");
     await expect(selector).toBeVisible({ timeout: 15_000 });
     const input = page.getByTestId("account-selector-input");
@@ -129,7 +129,7 @@ test.describe("trade cockpit — account selector", () => {
     }
     const target = accounts[0].id;
 
-    await expect(page.getByTestId("paper-header")).toBeVisible();
+    await expect(page.getByTestId("trade-header")).toBeVisible();
     const input = page.getByTestId("account-selector-input");
     await expect(input).toBeEnabled({ timeout: 15_000 });
 

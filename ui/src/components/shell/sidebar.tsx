@@ -2,68 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
-import {
-  ServerCog,
-  Boxes,
-  Layers,
-  FlaskConical,
-  Activity,
-  Moon,
-  Sun,
-  CircleDot,
-} from "lucide-react";
+import { CircleDot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-
-type Section = {
-  href: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  testid: string;
-  /** Implemented now (P1) vs. placeholder (P2+). */
-  ready: boolean;
-};
-
-// The five top-level sections, in pipeline order (docs/concept-alignment.md §3.4,
-// C7): Systems & Data → Strategies → Compositions → Paper Trade → Live Trade. Backtest
-// lives under Compositions (a backtest's object is always a Composition); Hyperopt lives under
-// Strategies (single-strategy tuning).
-const SECTIONS: Section[] = [
-  { href: "/systems", label: "Systems & Data", icon: ServerCog, testid: "nav-systems", ready: true },
-  { href: "/strategies", label: "Strategies", icon: Boxes, testid: "nav-strategies", ready: true },
-  { href: "/compositions", label: "Compositions", icon: Layers, testid: "nav-compositions", ready: true },
-  { href: "/paper", label: "Paper Trade", icon: FlaskConical, testid: "nav-paper", ready: true },
-  { href: "/live", label: "Live Trade", icon: Activity, testid: "nav-live", ready: true },
-];
-
-function ThemeToggle() {
-  const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  // Hydration guard: theme is only known client-side, so defer icon/label until
-  // mounted to avoid an SSR/CSR mismatch. This one-shot setState is the
-  // canonical next-themes pattern.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setMounted(true), []);
-  const isDark = resolvedTheme === "dark";
-  return (
-    <button
-      type="button"
-      data-testid="theme-toggle"
-      aria-label="Toggle theme"
-      onClick={() => setTheme(isDark ? "light" : "dark")}
-      className="flex h-8 w-full items-center gap-2 rounded-lg px-3 text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
-    >
-      {mounted ? (
-        isDark ? <Moon className="size-4" /> : <Sun className="size-4" />
-      ) : (
-        <Moon className="size-4" />
-      )}
-      <span>{mounted && !isDark ? "Light" : "Dark"} theme</span>
-    </button>
-  );
-}
+import { NAV_SECTIONS, isSectionActive } from "@/components/shell/nav";
+import { ThemeToggle } from "@/components/shell/theme-toggle";
+import { ModeToggle } from "@/components/shell/mode-toggle";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -81,9 +25,8 @@ export function Sidebar() {
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 p-2" data-testid="nav">
-        {SECTIONS.map((s) => {
-          const active =
-            pathname === s.href || pathname.startsWith(`${s.href}/`);
+        {NAV_SECTIONS.map((s) => {
+          const active = isSectionActive(pathname, s.href);
           const Icon = s.icon;
           return (
             <Link
@@ -111,7 +54,11 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="border-t border-sidebar-border p-2">
+      <div className="flex flex-col gap-1 border-t border-sidebar-border p-2">
+        {/* The explicit display-mode toggle (desktop|mobile|auto). Mounted here
+            so a desktop user has an in-app path to force the mobile shell —
+            LOCKED DECISION 4; the cookie/provider/refresh path already works. */}
+        <ModeToggle className="w-full justify-between" />
         <ThemeToggle />
       </div>
     </aside>

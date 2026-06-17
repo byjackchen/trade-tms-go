@@ -37,7 +37,7 @@ export function SystemsTabs({
 }) {
   return (
     <nav
-      className="flex items-center gap-1 border-b border-border px-6"
+      className="flex items-center gap-1 overflow-x-auto border-b border-border px-4 [scrollbar-width:none] md:px-6 [&::-webkit-scrollbar]:hidden"
       data-testid="systems-tabs"
     >
       {SYSTEMS_TABS.map((t) => {
@@ -51,7 +51,7 @@ export function SystemsTabs({
             aria-current={isActive ? "page" : undefined}
             onClick={() => onChange(t.id)}
             className={cn(
-              "border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+              "flex min-h-11 shrink-0 items-center whitespace-nowrap border-b-2 px-3 text-sm font-medium transition-colors md:min-h-0 md:py-2",
               isActive
                 ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground",

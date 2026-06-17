@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { JobStatusBadge } from "@/components/systems/status-badge";
 import { ErrorState, LoadingRows } from "@/components/shell/states";
+import { useUiMode } from "@/components/shell/ui-mode-provider";
+import { cn } from "@/lib/utils";
 import { useOpsJob, useCancelJob, useRetryJob } from "@/lib/api/hooks";
 import { formatTs, formatRelative, formatDuration } from "@/lib/format";
 import { jobPct, jobStage } from "./job-progress-util";
@@ -81,6 +83,8 @@ export function JobDrawer({
   const detail = useOpsJob(jobId);
   const cancel = useCancelJob();
   const retry = useRetryJob();
+  const { mode } = useUiMode();
+  const bottom = mode === "mobile";
 
   const job = detail.data?.job ?? seed;
   const pct = job ? jobPct(job) : null;
@@ -99,12 +103,25 @@ export function JobDrawer({
         data-testid="job-drawer-backdrop"
       />
       <aside
-        className="fixed inset-y-0 right-0 z-50 flex w-[min(28rem,calc(100vw-2rem))] flex-col border-l border-border bg-card shadow-xl"
+        className={cn(
+          "fixed z-50 flex flex-col bg-card shadow-xl",
+          bottom
+            ? // Mobile: bottom sheet — full width, slides up, rounded top.
+              "inset-x-0 bottom-0 max-h-[90vh] rounded-t-2xl border-t border-border sheet-slide-up"
+            : // Desktop: right-side drawer (unchanged).
+              "inset-y-0 right-0 w-[min(28rem,calc(100vw-2rem))] border-l border-border",
+        )}
         data-testid="job-drawer"
         data-job-id={jobId}
+        data-side={bottom ? "bottom" : "right"}
         role="dialog"
         aria-label={`Job ${jobId} detail`}
       >
+        {bottom ? (
+          <div className="flex justify-center pt-2.5">
+            <span aria-hidden className="h-1 w-9 rounded-full bg-foreground/20" />
+          </div>
+        ) : null}
         <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
           <div className="flex items-center gap-2">
             <span className="font-mono text-sm">job #{jobId}</span>

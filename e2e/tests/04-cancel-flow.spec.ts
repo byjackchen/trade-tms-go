@@ -30,7 +30,7 @@ async function latestJobStatus(): Promise<string | null> {
 
 test.describe("job cancel flow", () => {
   test("cancel a refresh job from the progress dialog", async ({ page }) => {
-    await page.goto("/data");
+    await page.goto("/systems?tab=data");
 
     await page.getByTestId("open-refresh-dialog").click();
     await expect(page.getByTestId("refresh-dialog")).toBeVisible();
@@ -86,7 +86,7 @@ test.describe("job cancel flow", () => {
   });
 
   test("the jobs panel offers cancel only for active jobs", async ({ page }) => {
-    await page.goto("/data");
+    await page.goto("/systems?tab=data");
     const jobsCard = page.getByTestId("jobs-card");
     await expect(jobsCard).toBeVisible();
 

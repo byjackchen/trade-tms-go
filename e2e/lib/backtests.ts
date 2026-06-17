@@ -1,15 +1,17 @@
 /**
  * Backtests e2e helpers.
  *
- * These specs exercise the Backtests workspace — the result + control plane over
- * the DB source of truth (tms.runs / run_metrics / equity_curves / trades; P2
- * locked decision 4). The conventions mirror the Data workspace exactly:
- *   - a launch dialog opened by `open-backtest-dialog`, carrying a
- *     `backtest-form` with scoped inputs, submitted by `backtest-submit`;
+ * These specs exercise backtests — the result + control plane over the DB source
+ * of truth (tms.runs / run_metrics / equity_curves / trades; P2 locked decision
+ * 4). In the FINAL 4-top IA (docs/concept-alignment.md §3.4 A3) a backtest's
+ * object is always a Composition, so this all lives in the Compositions module:
+ *   - a launch dialog opened PER-COMPOSITION (`composition-backtest-<id>`),
+ *     carrying a `backtest-form` with scoped inputs, submitted by `backtest-submit`;
  *   - the shared `job-progress` panel (data-job-id / job-cancel / job-complete
  *     with a terminal data-outcome) drives every job, backtests included;
- *   - a detail route /backtests/{id} renders metric cards, an equity chart, a
- *     trades table and an orders table, all keyed off the documented contract.
+ *   - an inline detail panel (deep-linked via /compositions?backtest=<id>) renders
+ *     metric cards, an equity chart, a trades table and an orders table, all keyed
+ *     off the documented contract.
  *
  * The suite asserts what the UI renders against ground truth queried directly
  * from postgres (lib/db) and the Go API (lib/api) — never fabricated numbers.
@@ -18,7 +20,7 @@
  * deterministic seed plants CLEAN/GAPPY/DELIS tickers; a real stack carries
  * Sharadar tickers (AAPL/KO/…). `pickTickers` chooses two symbols that actually
  * have bars so the engine has something to trade, and specs self-skip when the
- * stack has neither the Backtests UI nor any tradable data yet.
+ * stack has neither the Compositions backtest flow nor any tradable data yet.
  */
 
 import { withDb } from "./db";

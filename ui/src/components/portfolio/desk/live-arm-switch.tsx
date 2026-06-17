@@ -5,7 +5,7 @@ import { Banknote, FlaskConical, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog } from "@/components/ui/dialog";
+import { Sheet } from "@/components/ui/sheet";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { MANUAL_LIVE_CONFIRM_PHRASE } from "@/lib/api/types";
 
@@ -101,7 +101,7 @@ export function LiveArmSwitch({
         </span>
       </div>
 
-      <Dialog
+      <Sheet
         open={open}
         onClose={closeDialog}
         data-testid="manual-live-confirm"
@@ -161,7 +161,7 @@ export function LiveArmSwitch({
             />
           </div>
         </div>
-      </Dialog>
+      </Sheet>
     </>
   );
 }

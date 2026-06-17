@@ -8,18 +8,125 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ResponsiveTable,
+  type ColumnDef,
+} from "@/components/ui/responsive-table";
 import { Badge } from "@/components/ui/badge";
 import { ErrorState, LoadingRows, EmptyState } from "@/components/shell/states";
 import { SyncStatusBadge } from "./status-badge";
 import { useSyncRuns } from "@/lib/api/hooks";
 import { formatInt, formatTs, formatDuration, formatRelative } from "@/lib/format";
+import type { DatasetWatermark, SyncRun } from "@/lib/api/types";
+
+const WATERMARK_COLUMNS: ColumnDef<DatasetWatermark>[] = [
+  {
+    key: "dataset",
+    header: "Dataset",
+    primary: true,
+    render: (d) => (
+      <span className="font-mono text-xs" data-testid="sync-dataset">
+        {d.dataset}
+      </span>
+    ),
+  },
+  {
+    key: "rows",
+    header: "Rows",
+    align: "right",
+    render: (d) => (
+      <span className="tabular-nums">{formatInt(d.row_count)}</span>
+    ),
+  },
+  {
+    key: "last-sync",
+    header: "Last sync",
+    primary: true,
+    render: (d) => (
+      <span
+        className="text-xs text-muted-foreground"
+        data-testid="sync-last"
+        title={d.last_sync ? formatTs(d.last_sync) : "never"}
+      >
+        {d.last_sync ? formatRelative(d.last_sync) : "never"}
+      </span>
+    ),
+  },
+  {
+    key: "schema",
+    header: "Schema",
+    render: (d) => <Badge variant="outline">v{d.schema_version}</Badge>,
+  },
+];
+
+const RUN_COLUMNS: ColumnDef<SyncRun>[] = [
+  {
+    key: "id",
+    header: "#",
+    labelMobile: "Run",
+    render: (r) => (
+      <span className="tabular-nums text-muted-foreground">{r.id}</span>
+    ),
+  },
+  {
+    key: "dataset",
+    header: "Dataset",
+    primary: true,
+    render: (r) => <span className="font-mono text-xs">{r.dataset}</span>,
+  },
+  {
+    key: "kind",
+    header: "Kind",
+    render: (r) => <span className="text-xs">{r.kind}</span>,
+  },
+  {
+    key: "started",
+    header: "Started",
+    render: (r) => (
+      <span
+        className="text-xs text-muted-foreground"
+        title={formatTs(r.started_at)}
+      >
+        {formatRelative(r.started_at)}
+      </span>
+    ),
+  },
+  {
+    key: "duration",
+    header: "Duration",
+    render: (r) => (
+      <span className="text-xs tabular-nums">
+        {formatDuration(r.started_at, r.finished_at)}
+      </span>
+    ),
+  },
+  {
+    key: "rows-added",
+    header: "Rows +",
+    align: "right",
+    render: (r) => (
+      <span className="tabular-nums">{formatInt(r.rows_added)}</span>
+    ),
+  },
+  {
+    key: "status",
+    header: "Status",
+    primary: true,
+    render: (r) => (
+      <div className="flex flex-col items-end gap-0.5 md:items-start">
+        <SyncStatusBadge status={r.status} />
+        {r.error ? (
+          <span
+            className="max-w-[18rem] truncate text-[11px] text-destructive"
+            title={r.error}
+            data-testid="sync-run-error"
+          >
+            {r.error}
+          </span>
+        ) : null}
+      </div>
+    ),
+  },
+];
 
 export function SyncRunsTable() {
   const { data, isLoading, error, refetch } = useSyncRuns();
@@ -55,41 +162,13 @@ export function SyncRunsTable() {
                   data-testid="sync-watermarks-empty"
                 />
               ) : (
-                <Table data-testid="sync-watermarks-table">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Dataset</TableHead>
-                      <TableHead className="text-right">Rows</TableHead>
-                      <TableHead>Last sync</TableHead>
-                      <TableHead>Schema</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.datasets.map((d) => (
-                      <TableRow
-                        key={d.dataset}
-                        data-testid={`sync-watermark-${d.dataset}`}
-                      >
-                        <TableCell className="font-mono text-xs" data-testid="sync-dataset">
-                          {d.dataset}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatInt(d.row_count)}
-                        </TableCell>
-                        <TableCell
-                          className="text-xs text-muted-foreground"
-                          data-testid="sync-last"
-                          title={d.last_sync ? formatTs(d.last_sync) : "never"}
-                        >
-                          {d.last_sync ? formatRelative(d.last_sync) : "never"}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">v{d.schema_version}</Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <ResponsiveTable
+                  columns={WATERMARK_COLUMNS}
+                  rows={data.datasets}
+                  rowKey={(d) => d.dataset}
+                  rowTestId={(d) => `sync-watermark-${d.dataset}`}
+                  data-testid="sync-watermarks-table"
+                />
               )}
             </div>
 
@@ -104,55 +183,13 @@ export function SyncRunsTable() {
                   data-testid="sync-runs-empty"
                 />
               ) : (
-                <Table data-testid="sync-runs-table">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>#</TableHead>
-                      <TableHead>Dataset</TableHead>
-                      <TableHead>Kind</TableHead>
-                      <TableHead>Started</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead className="text-right">Rows +</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.runs.map((r) => (
-                      <TableRow key={r.id} data-testid={`sync-run-${r.id}`}>
-                        <TableCell className="tabular-nums text-muted-foreground">
-                          {r.id}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {r.dataset}
-                        </TableCell>
-                        <TableCell className="text-xs">{r.kind}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground" title={formatTs(r.started_at)}>
-                          {formatRelative(r.started_at)}
-                        </TableCell>
-                        <TableCell className="text-xs tabular-nums">
-                          {formatDuration(r.started_at, r.finished_at)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {formatInt(r.rows_added)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-0.5">
-                            <SyncStatusBadge status={r.status} />
-                            {r.error ? (
-                              <span
-                                className="max-w-[18rem] truncate text-[11px] text-destructive"
-                                title={r.error}
-                                data-testid="sync-run-error"
-                              >
-                                {r.error}
-                              </span>
-                            ) : null}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <ResponsiveTable
+                  columns={RUN_COLUMNS}
+                  rows={data.runs}
+                  rowKey={(r) => r.id}
+                  rowTestId={(r) => `sync-run-${r.id}`}
+                  data-testid="sync-runs-table"
+                />
               )}
             </div>
           </>

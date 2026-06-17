@@ -3,13 +3,9 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ResponsiveTable,
+  type ColumnDef,
+} from "@/components/ui/responsive-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { EmptyState, ErrorState } from "@/components/shell/states";
@@ -21,7 +17,7 @@ import {
   num,
   type StrategyIntentRow,
 } from "./use-strategy-intents";
-import { SortHead, csvCell, downloadCsv } from "./shared";
+import { SortButton, csvCell, downloadCsv } from "./shared";
 
 /**
  * Sector tab — the 11 sector ETFs ranked by momentum + their current rotation
@@ -162,6 +158,114 @@ export function SectorTable({
   const pctWeight = (v: number | null) =>
     v != null ? `${formatNum(v * 100, 1)}%` : "—";
 
+  const columns: ColumnDef<StrategyIntentRow>[] = [
+    {
+      key: "rank",
+      header: (
+        <SortButton k="rank" label="#" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Momentum rank" />
+      ),
+      align: "right",
+      labelMobile: "Rank",
+      render: (r) => {
+        const rank = num(r.intent, "rank");
+        return (
+          <span className="font-mono text-muted-foreground">
+            {rank != null && rank > 0 ? rank : "—"}
+          </span>
+        );
+      },
+    },
+    {
+      key: "symbol",
+      header: (
+        <SortButton k="symbol" label="ETF" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+      ),
+      primary: true,
+      render: (r) => <span className="font-mono font-medium">{r.symbol}</span>,
+    },
+    {
+      key: "momentum",
+      header: (
+        <SortButton k="momentum" label="Momentum" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
+      ),
+      align: "right",
+      primary: true,
+      render: (r) => {
+        const momentum = num(r.intent, "momentum_score");
+        return (
+          <span className="font-mono">{momentum != null ? formatNum(momentum, 2) : "—"}</span>
+        );
+      },
+    },
+    {
+      key: "state",
+      header: "State",
+      primary: true,
+      render: (r) => <IntentStateBadge state={r.state} />,
+    },
+    {
+      key: "target",
+      header: (
+        <SortButton k="target" label="Target wt" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
+      ),
+      align: "right",
+      render: (r) => (
+        <span className="font-mono">{pctWeight(num(r.intent, "target_weight"))}</span>
+      ),
+    },
+    {
+      key: "current",
+      header: (
+        <SortButton k="current" label="Current wt" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
+      ),
+      align: "right",
+      render: (r) => (
+        <span className="font-mono text-muted-foreground">
+          {pctWeight(num(r.intent, "current_weight"))}
+        </span>
+      ),
+    },
+    {
+      key: "drift",
+      header: (
+        <SortButton k="drift" label="Drift" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Target − current weight" />
+      ),
+      align: "right",
+      render: (r) => {
+        const d = drift(r);
+        return (
+          <span
+            className={cn(
+              "font-mono",
+              d != null && d > 0 && "text-emerald-600 dark:text-emerald-400",
+              d != null && d < 0 && "text-red-600 dark:text-red-400",
+            )}
+          >
+            {d != null ? `${d > 0 ? "+" : ""}${formatNum(d * 100, 1)}%` : "—"}
+          </span>
+        );
+      },
+    },
+    {
+      key: "trade",
+      header: <span className="sr-only">Trade</span>,
+      labelMobile: "Action",
+      align: "right",
+      primary: true,
+      render: (r) => (
+        <Link
+          href={`/trade?view=desk&symbol=${encodeURIComponent(r.symbol)}&side=${suggestedSide(r.state)}${accountId ? `&account=${encodeURIComponent(accountId)}` : ""}`}
+          data-testid="manual-trade-from-signal"
+          data-symbol={r.symbol}
+          data-side={suggestedSide(r.state)}
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+        >
+          Trade
+        </Link>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-3" data-testid="sector-table" data-row-count={sorted.length}>
       <div className="flex items-center justify-between gap-2">
@@ -178,74 +282,19 @@ export function SectorTable({
           Download CSV
         </Button>
       </div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <SortHead k="rank" label="#" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Momentum rank" />
-            <SortHead k="symbol" label="ETF" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-            <SortHead k="momentum" label="Momentum" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
-            <TableHead>State</TableHead>
-            <SortHead k="target" label="Target wt" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
-            <SortHead k="current" label="Current wt" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
-            <SortHead k="drift" label="Drift" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Target − current weight" />
-            <TableHead className="text-right" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {sorted.map((r) => {
-            const rank = num(r.intent, "rank");
-            const momentum = num(r.intent, "momentum_score");
-            const target = num(r.intent, "target_weight");
-            const current = num(r.intent, "current_weight");
-            const d = drift(r);
-            return (
-              <TableRow
-                key={r.symbol}
-                data-testid="live-watchlist-row"
-                data-symbol={r.symbol}
-                data-rank={rank ?? ""}
-              >
-                <TableCell className="text-right font-mono text-muted-foreground">
-                  {rank != null && rank > 0 ? rank : "—"}
-                </TableCell>
-                <TableCell className="font-mono font-medium">{r.symbol}</TableCell>
-                <TableCell className="text-right font-mono">
-                  {momentum != null ? formatNum(momentum, 2) : "—"}
-                </TableCell>
-                <TableCell>
-                  <IntentStateBadge state={r.state} />
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {pctWeight(target)}
-                </TableCell>
-                <TableCell className="text-right font-mono text-muted-foreground">
-                  {pctWeight(current)}
-                </TableCell>
-                <TableCell
-                  className={cn(
-                    "text-right font-mono",
-                    d != null && d > 0 && "text-emerald-600 dark:text-emerald-400",
-                    d != null && d < 0 && "text-red-600 dark:text-red-400",
-                  )}
-                >
-                  {d != null ? `${d > 0 ? "+" : ""}${formatNum(d * 100, 1)}%` : "—"}
-                </TableCell>
-                <TableCell className="text-right">
-                  <Link
-                    href={`/paper?view=desk&symbol=${encodeURIComponent(r.symbol)}&side=${suggestedSide(r.state)}${accountId ? `&account=${encodeURIComponent(accountId)}` : ""}`}
-                    data-testid="manual-trade-from-signal"
-                    data-symbol={r.symbol}
-                    data-side={suggestedSide(r.state)}
-                    className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-                  >
-                    Trade
-                  </Link>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+      <ResponsiveTable
+        columns={columns}
+        rows={sorted}
+        rowKey={(r) => r.symbol}
+        rowTestId={() => "live-watchlist-row"}
+        rowAttrs={(r) => {
+          const rank = num(r.intent, "rank");
+          return {
+            "data-symbol": r.symbol,
+            "data-rank": rank != null ? String(rank) : "",
+          };
+        }}
+      />
     </div>
   );
 }

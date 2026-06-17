@@ -27,8 +27,8 @@ test.describe("ops workspace", () => {
   test("job queue renders and matches the DB; drawer opens", async ({
     page,
   }) => {
-    await page.goto("/ops");
-    await expect(page.getByTestId("ops-page")).toBeVisible();
+    await page.goto("/systems?tab=jobs");
+    await expect(page.getByTestId("systems-page")).toBeVisible();
     // The queue tab is the default.
     await expect(page.getByTestId("job-queue-card")).toBeVisible();
 
@@ -88,8 +88,8 @@ test.describe("ops workspace", () => {
   });
 
   test("audit log renders and matches the DB", async ({ page }) => {
-    await page.goto("/ops");
-    await page.getByTestId("ops-tab-audit").click();
+    await page.goto("/systems?tab=jobs");
+    await page.getByTestId("systems-tab-audit").click();
     await expect(page.getByTestId("audit-log-card")).toBeVisible();
 
     const [n, dbRows] = await withDb(async (c) => [
@@ -143,9 +143,9 @@ test.describe("ops workspace", () => {
   });
 
   test("system health cards show postgres + redis ok", async ({ page }) => {
-    await page.goto("/ops");
-    await page.getByTestId("ops-tab-health").click();
-    await expect(page.getByTestId("ops-system-health")).toBeVisible();
+    await page.goto("/systems?tab=jobs");
+    await page.getByTestId("systems-tab-health").click();
+    await expect(page.getByTestId("system-health-card")).toBeVisible();
 
     const grid = page.getByTestId("system-health-grid");
     await expect(grid).toBeVisible();
@@ -183,7 +183,7 @@ test.describe("ops workspace", () => {
     // path), then watch it land + reach terminal in the Ops queue.
     const before = await withDb((c) => latestJobId(c));
 
-    await page.goto("/data");
+    await page.goto("/systems?tab=data");
     await page.getByTestId("open-refresh-dialog").click();
     await expect(page.getByTestId("refresh-dialog")).toBeVisible();
     await page.getByTestId("refresh-source").selectOption("parquet");
@@ -197,7 +197,7 @@ test.describe("ops workspace", () => {
     expect(Number(jobId)).toBeGreaterThan(before ?? 0);
 
     // Now switch to the Ops queue: the new job must appear as a row.
-    await page.goto("/ops");
+    await page.goto("/systems?tab=jobs");
     await expect(page.getByTestId("job-queue-card")).toBeVisible();
     const row = page.getByTestId(`job-queue-row-${jobId}`);
     await expect(row).toBeVisible({ timeout: 20_000 });

@@ -32,7 +32,7 @@ test.describe("no severe console errors on the paper-trading cockpit", () => {
     page,
     consoleErrors,
   }) => {
-    await page.goto("/paper", { waitUntil: "domcontentloaded" });
+    await page.goto("/trade", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("app-shell")).toBeVisible();
 
     // Mounted once either the real cockpit root or the coming-soon placeholder is
@@ -40,7 +40,7 @@ test.describe("no severe console errors on the paper-trading cockpit", () => {
     await expect
       .poll(
         async () => {
-          for (const id of ["paper-header"]) {
+          for (const id of ["trade-header"]) {
             if (await page.getByTestId(id).first().isVisible()) return true;
           }
           return false;
@@ -65,10 +65,10 @@ test.describe("no severe console errors on the paper-trading cockpit", () => {
     page,
     consoleErrors,
   }) => {
-    await page.goto("/paper", { waitUntil: "domcontentloaded" });
+    await page.goto("/trade", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("app-shell")).toBeVisible();
 
-    const realCockpit = page.getByTestId("paper-header");
+    const realCockpit = page.getByTestId("trade-header");
     await expect
       .poll(async () => (await realCockpit.count()) > 0, { timeout: 15_000 })
       .toBeDefined();

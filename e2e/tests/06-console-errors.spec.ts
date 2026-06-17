@@ -36,18 +36,21 @@ async function settle(page: import("@playwright/test").Page): Promise<void> {
 
 type Route = {
   path: string;
-  /** Stable testids; the page is "mounted" once ANY of them is visible (the
-   * Backtests section may render either the coming-soon placeholder or the real
-   * workspace root, depending on build order). */
+  /** Stable testids; the page is "mounted" once ANY of them is visible. */
   ready: string[];
 };
 
+// The FINAL 4-top IA (docs/concept-alignment.md §3.4, C7): Systems & Data →
+// Strategies → Compositions → Trade. The retired 6-top routes (/data,/backtests,
+// /hyperopt,/ops) and the interim 5-top (/paper,/live) 301-redirect onto these
+// (see ui/next.config.ts). Each `ready` testid is the page's main-content root as
+// rendered today (ui/src/app/*/page.tsx); Trade's is the unified <TradeModule>
+// wrapper (`trade-module`) + its header (`trade-header`).
 const ROUTES: Route[] = [
-  { path: "/data", ready: ["data-page"] },
-  { path: "/backtests", ready: ["backtests-placeholder", "backtests-page"] },
-  { path: "/hyperopt", ready: ["hyperopt-placeholder", "hyperopt-page"] },
-  { path: "/trade", ready: ["live-page", "live-placeholder"] },
-  { path: "/ops", ready: ["ops-page", "ops-placeholder"] },
+  { path: "/systems", ready: ["systems-page"] },
+  { path: "/strategies", ready: ["strategies-page"] },
+  { path: "/compositions", ready: ["compositions-page"] },
+  { path: "/trade", ready: ["trade-module", "trade-header"] },
 ];
 
 /** Wait for the first of the candidate readiness testids to become visible. */
@@ -94,10 +97,12 @@ test.describe("no severe console errors", () => {
     });
   }
 
-  // (5) The backtest DETAIL route must also be free of severe console errors,
-  // for a real persisted run. Self-skips until there is a COMPLETE run and the
-  // detail page is implemented.
-  test("/backtests/{id} renders without severe console errors", async ({
+  // (5) The backtest DETAIL view must also be free of severe console errors, for
+  // a real persisted run. In the 4-top IA a backtest's object is always a
+  // Composition: the retired `/backtests/:id` route 301-redirects to
+  // `/compositions?backtest=:id`, where the inline BacktestPanel (`backtest-detail`)
+  // renders. Self-skips until there is a COMPLETE run.
+  test("/backtests/{id} (-> /compositions?backtest=) renders without severe console errors", async ({
     page,
     consoleErrors,
   }) => {
@@ -107,25 +112,19 @@ test.describe("no severe console errors", () => {
 
     await page.goto(`/backtests/${run.id}`, { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("app-shell")).toBeVisible();
+    // The redirect lands on the Compositions module with the deep-linked panel.
+    await expect(page).toHaveURL(new RegExp(`/compositions\\?backtest=${run.id}`));
 
     const detail = page.getByTestId("backtest-detail");
-    const placeholder = page.getByTestId("backtests-placeholder");
     await expect
-      .poll(
-        async () => (await detail.count()) + (await placeholder.count()),
-        { timeout: 15_000 },
-      )
+      .poll(async () => detail.count(), { timeout: 15_000 })
       .toBeGreaterThan(0);
-    test.skip(
-      (await detail.count()) === 0,
-      "Backtests detail page not yet implemented.",
-    );
 
     await settle(page);
     await page.waitForTimeout(1_500);
     expect(
       consoleErrors,
-      `severe console/page errors on /backtests/${run.id}:\n` +
+      `severe console/page errors on /compositions?backtest=${run.id}:\n` +
         consoleErrors.map((e) => `  [${e.kind}] ${e.text}`).join("\n"),
     ).toHaveLength(0);
   });
@@ -176,13 +175,14 @@ test.describe("no severe console errors", () => {
     ).toHaveLength(0);
   });
 
-  test("root redirects to /data without severe console errors", async ({
+  test("root redirects to /systems without severe console errors", async ({
     page,
     consoleErrors,
   }) => {
+    // The 4-top IA lands the root on Systems & Data (ui/src/app/page.tsx).
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    await expect(page).toHaveURL(/\/data$/);
-    await expect(page.getByTestId("data-page")).toBeVisible();
+    await expect(page).toHaveURL(/\/systems$/);
+    await expect(page.getByTestId("systems-page")).toBeVisible();
     await settle(page);
     await page.waitForTimeout(1_000);
     expect(
@@ -191,12 +191,13 @@ test.describe("no severe console errors", () => {
     ).toHaveLength(0);
   });
 
-  test("the Data page sync-runs + watermarks tables render", async ({
+  test("the Data tab sync-runs + watermarks tables render", async ({
     page,
   }) => {
     // A light smoke that the sync history surface mounts (used by the refresh
-    // flow's "sync-runs table gains a row" assertion path).
-    await page.goto("/data", { waitUntil: "domcontentloaded" });
+    // flow's "sync-runs table gains a row" assertion path). Data now lives as the
+    // `?tab=data` tab of Systems & Data; the retired /data route 301s here.
+    await page.goto("/systems?tab=data", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("sync-runs-card")).toBeVisible();
   });
 });

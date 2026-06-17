@@ -55,7 +55,7 @@ test.describe("live cockpit — kill-switch / halt", () => {
       return;
     }
 
-    await expect(page.getByTestId("live-page")).toBeVisible();
+    await expect(page.getByTestId("trade-header")).toBeVisible();
 
     const before = await withDb(async (c) => ({
       halts: await haltRowCount(c),

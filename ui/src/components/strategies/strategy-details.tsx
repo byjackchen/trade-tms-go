@@ -3,13 +3,10 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ResponsiveTable,
+  type ColumnDef,
+} from "@/components/ui/responsive-table";
+import { useUiMode } from "@/components/shell/ui-mode-provider";
 import { ErrorState, EmptyState, LoadingRows } from "@/components/shell/states";
 import { useStrategy } from "@/lib/api/hooks";
 import { type ParamSchema } from "@/lib/api/types";
@@ -52,7 +49,68 @@ function formatRange(p: ParamSchema): string {
  * weight + on/off are Composition-member properties now, served by /compositions — so this
  * view does NOT render allocation or an enabled flag.
  */
+/** Build the param-table columns; `activeValues` resolves the active value/row. */
+function buildParamColumns(
+  activeValues: Record<string, unknown>,
+): ColumnDef<ParamSchema>[] {
+  const activeOf = (p: ParamSchema) =>
+    p.name in activeValues ? activeValues[p.name] : p.default;
+  return [
+    {
+      key: "name",
+      header: "Name",
+      primary: true,
+      render: (p) => <span className="font-mono text-sm">{p.name}</span>,
+    },
+    {
+      key: "type",
+      header: "Type",
+      render: (p) => (
+        <span className="text-sm text-muted-foreground">{p.type}</span>
+      ),
+    },
+    {
+      key: "active",
+      header: "Active value",
+      labelMobile: "Active",
+      align: "right",
+      primary: true,
+      render: (p) => (
+        <span
+          className="font-mono text-sm"
+          data-testid={`param-value-${p.name}`}
+          data-param-name={p.name}
+          data-param-value={valueAttr(activeOf(p))}
+        >
+          {formatValue(activeOf(p))}
+        </span>
+      ),
+    },
+    {
+      key: "range",
+      header: "Search range",
+      labelMobile: "Range",
+      render: (p) => (
+        <span className="font-mono text-sm text-muted-foreground">
+          {formatRange(p)}
+        </span>
+      ),
+    },
+    {
+      key: "description",
+      header: "Description",
+      className: "max-w-xs",
+      render: (p) => (
+        <span className="text-sm text-muted-foreground">
+          {p.description || "—"}
+        </span>
+      ),
+    },
+  ];
+}
+
 export function StrategyDetails({ strategyId }: { strategyId: string }) {
+  const { mode } = useUiMode();
   const query = useStrategy(strategyId);
   const m = query.data?.strategy;
 
@@ -124,57 +182,19 @@ export function StrategyDetails({ strategyId }: { strategyId: string }) {
                   />
                 ) : (
                   <div
-                    className="overflow-hidden rounded-lg border border-border"
+                    className={
+                      mode === "mobile"
+                        ? undefined
+                        : "overflow-hidden rounded-lg border border-border"
+                    }
                     data-testid="strategy-params-table"
                   >
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Type</TableHead>
-                          <TableHead className="text-right">
-                            Active value
-                          </TableHead>
-                          <TableHead>Search range</TableHead>
-                          <TableHead>Description</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {m.parameters.map((p) => {
-                          const activeValue =
-                            p.name in m.active_values
-                              ? m.active_values[p.name]
-                              : p.default;
-                          return (
-                            <TableRow
-                              key={p.name}
-                              data-testid={`param-row-${p.name}`}
-                              data-param-name={p.name}
-                              data-param-value={valueAttr(activeValue)}
-                            >
-                              <TableCell className="font-mono text-sm">
-                                {p.name}
-                              </TableCell>
-                              <TableCell className="text-sm text-muted-foreground">
-                                {p.type}
-                              </TableCell>
-                              <TableCell
-                                className="text-right font-mono text-sm"
-                                data-testid={`param-value-${p.name}`}
-                              >
-                                {formatValue(activeValue)}
-                              </TableCell>
-                              <TableCell className="font-mono text-sm text-muted-foreground">
-                                {formatRange(p)}
-                              </TableCell>
-                              <TableCell className="max-w-xs text-sm text-muted-foreground">
-                                {p.description || "—"}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
+                    <ResponsiveTable
+                      columns={buildParamColumns(m.active_values)}
+                      rows={m.parameters}
+                      rowKey={(p) => p.name}
+                      rowTestId={(p) => `param-row-${p.name}`}
+                    />
                   </div>
                 )}
               </CardContent>

@@ -11,13 +11,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ResponsiveTable,
+  type ColumnDef,
+} from "@/components/ui/responsive-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/shell/states";
 import { DisconnectedBanner } from "./disconnected-banner";
@@ -144,53 +140,76 @@ export function FillsList({ accountId }: { accountId?: string } = {}) {
             data-testid="fills-empty"
           />
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Symbol</TableHead>
-                <TableHead className="text-right">Qty</TableHead>
-                <TableHead className="text-right">Price</TableHead>
-                <TableHead className="text-right">Commission</TableHead>
-                <TableHead>Trade id</TableHead>
-                <TableHead className="text-right">As of</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => (
-                <TableRow
-                  key={r.trade_id}
-                  data-testid="live-fill-row"
-                  data-trade-id={r.trade_id}
-                  data-symbol={r.symbol}
-                >
-                  <TableCell className="font-mono font-medium">
-                    {r.symbol}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {formatInt(r.qty)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {formatMoney(r.price)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-muted-foreground">
+          <ResponsiveTable<Row>
+            columns={[
+              {
+                key: "symbol",
+                header: "Symbol",
+                primary: true,
+                render: (r) => (
+                  <span className="font-mono font-medium">{r.symbol}</span>
+                ),
+              },
+              {
+                key: "qty",
+                header: "Qty",
+                align: "right",
+                primary: true,
+                render: (r) => (
+                  <span className="font-mono">{formatInt(r.qty)}</span>
+                ),
+              },
+              {
+                key: "price",
+                header: "Price",
+                align: "right",
+                primary: true,
+                render: (r) => (
+                  <span className="font-mono">{formatMoney(r.price)}</span>
+                ),
+              },
+              {
+                key: "commission",
+                header: "Commission",
+                align: "right",
+                render: (r) => (
+                  <span className="font-mono text-muted-foreground">
                     {formatMoney(r.commission)}
-                  </TableCell>
-                  <TableCell
-                    className="max-w-[12rem] truncate font-mono text-xs text-muted-foreground"
+                  </span>
+                ),
+              },
+              {
+                key: "trade_id",
+                header: "Trade id",
+                render: (r) => (
+                  <span
+                    className="block max-w-[12rem] truncate font-mono text-xs text-muted-foreground"
                     title={r.trade_id}
                   >
                     {r.trade_id}
-                  </TableCell>
-                  <TableCell
-                    className="text-right text-xs text-muted-foreground"
-                    title={r.ts}
-                  >
+                  </span>
+                ),
+              },
+              {
+                key: "asof",
+                header: "As of",
+                align: "right",
+                render: (r) => (
+                  <span className="text-xs text-muted-foreground" title={r.ts}>
                     {formatRelative(r.ts, now)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                  </span>
+                ),
+              },
+            ]}
+            rows={rows}
+            rowKey={(r) => r.trade_id}
+            rowTestId={() => "live-fill-row"}
+            rowAttrs={(r) => ({
+              "data-trade-id": r.trade_id,
+              "data-symbol": r.symbol,
+            })}
+            data-testid="fills-responsive-table"
+          />
         )}
       </CardContent>
     </Card>

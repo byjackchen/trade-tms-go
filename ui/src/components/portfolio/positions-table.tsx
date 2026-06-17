@@ -6,20 +6,15 @@ import { useLiveStream } from "@/lib/api/use-live-stream";
 import { ApiError } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableFooter,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ResponsiveTable,
+  type ColumnDef,
+} from "@/components/ui/responsive-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog } from "@/components/ui/dialog";
+import { Sheet } from "@/components/ui/sheet";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EmptyState, ErrorState } from "@/components/shell/states";
 import { DisconnectedBanner } from "./disconnected-banner";
@@ -199,8 +194,114 @@ export function PositionsTable({
   const rowId = withActions ? "manual-position-row" : "live-position-row";
   const countId = withActions ? "manual-positions-count" : "positions-count";
   const panelId = withActions ? "manual-positions" : "positions-panel";
-  // The Total footer spans Symbol|Book/Strategy|Side|Qty|Avg px before the MV cell.
-  const colSpan = 5;
+
+  // Column definitions drive both the desktop table and the mobile card list
+  // (full parity — every column ports). Symbol + Side are `primary` so each
+  // mobile card leads with the at-a-glance line; the rest fold under "More".
+  const columns: ColumnDef<Row>[] = [
+    {
+      key: "symbol",
+      header: "Symbol",
+      primary: true,
+      render: (r) => <span className="font-mono font-medium">{r.symbol}</span>,
+    },
+    {
+      key: "book",
+      header: withActions ? "Book" : "Strategy",
+      render: (r) =>
+        withActions && r.strategy_id === MANUAL_STRATEGY_ID ? (
+          <Badge variant="secondary" data-testid="position-manual-badge">
+            MANUAL
+          </Badge>
+        ) : (
+          <span className="font-mono text-xs text-muted-foreground">
+            {r.strategy_id}
+          </span>
+        ),
+    },
+    {
+      key: "side",
+      header: "Side",
+      primary: true,
+      render: (r) => <SideBadge side={r.signed_qty >= 0 ? "LONG" : "SHORT"} />,
+    },
+    {
+      key: "qty",
+      header: "Qty",
+      align: "right",
+      render: (r) => (
+        <span className="font-mono">{formatInt(Math.abs(r.signed_qty))}</span>
+      ),
+    },
+    {
+      key: "avg_px",
+      header: "Avg px",
+      align: "right",
+      render: (r) => <span className="font-mono">{formatMoney(r.avg_px)}</span>,
+    },
+    {
+      key: "market_value",
+      header: "Market value",
+      align: "right",
+      render: (r) => (
+        <span className="font-mono">{formatMoney(r.market_value)}</span>
+      ),
+    },
+    {
+      key: "realized_pnl",
+      header: "Realized P/L",
+      align: "right",
+      render: (r) => (
+        <span
+          className={`font-mono ${pnlTone(r.realized_pnl)}`}
+          data-testid={withActions ? undefined : "position-realized-pnl"}
+        >
+          {formatMoney(r.realized_pnl)}
+        </span>
+      ),
+    },
+    ...(withActions
+      ? [
+          {
+            key: "actions",
+            header: "Actions",
+            align: "right" as const,
+            render: (r: Row) => {
+              const isManual = r.strategy_id === MANUAL_STRATEGY_ID;
+              return (
+                <span className="flex justify-end gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      desk.requestTrade(r.symbol, flatteningSide(r.signed_qty))
+                    }
+                    data-testid="position-trade-button"
+                  >
+                    Trade
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => openClose(r.symbol)}
+                    disabled={!isManual || r.signed_qty === 0}
+                    title={
+                      isManual
+                        ? "Close the MANUAL position in this symbol"
+                        : "Only MANUAL positions are closable here"
+                    }
+                    data-testid="manual-position-close"
+                    data-symbol={r.symbol}
+                  >
+                    Close
+                  </Button>
+                </span>
+              );
+            },
+          },
+        ]
+      : []),
+  ];
 
   return (
     <Card
@@ -250,124 +351,58 @@ export function PositionsTable({
             data-testid={withActions ? "manual-positions-empty" : "positions-empty"}
           />
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Symbol</TableHead>
-                <TableHead>{withActions ? "Book" : "Strategy"}</TableHead>
-                <TableHead>Side</TableHead>
-                <TableHead className="text-right">Qty</TableHead>
-                <TableHead className="text-right">Avg px</TableHead>
-                <TableHead className="text-right">Market value</TableHead>
-                <TableHead className="text-right">Realized P/L</TableHead>
-                {withActions ? (
-                  <TableHead className="text-right">Actions</TableHead>
-                ) : null}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => {
-                const isManual = r.strategy_id === MANUAL_STRATEGY_ID;
-                return (
-                  <TableRow
-                    key={r.key}
-                    data-testid={rowId}
-                    data-strategy-id={r.strategy_id}
-                    data-symbol={r.symbol}
-                    data-signed-qty={r.signed_qty}
-                    data-manual={withActions ? (isManual ? "true" : "false") : undefined}
-                  >
-                    <TableCell className="font-mono font-medium">
-                      {r.symbol}
-                    </TableCell>
-                    <TableCell>
-                      {withActions && isManual ? (
-                        <Badge variant="secondary" data-testid="position-manual-badge">
-                          MANUAL
-                        </Badge>
-                      ) : (
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {r.strategy_id}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <SideBadge side={r.signed_qty >= 0 ? "LONG" : "SHORT"} />
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {formatInt(Math.abs(r.signed_qty))}
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {formatMoney(r.avg_px)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {formatMoney(r.market_value)}
-                    </TableCell>
-                    <TableCell
-                      className={`text-right font-mono ${pnlTone(r.realized_pnl)}`}
-                      data-testid={withActions ? undefined : "position-realized-pnl"}
-                    >
-                      {formatMoney(r.realized_pnl)}
-                    </TableCell>
-                    {withActions ? (
-                      <TableCell className="text-right">
-                        <span className="flex justify-end gap-1.5">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                              desk.requestTrade(r.symbol, flatteningSide(r.signed_qty))
-                            }
-                            data-testid="position-trade-button"
-                          >
-                            Trade
-                          </Button>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => openClose(r.symbol)}
-                            disabled={!isManual || r.signed_qty === 0}
-                            title={
-                              isManual
-                                ? "Close the MANUAL position in this symbol"
-                                : "Only MANUAL positions are closable here"
-                            }
-                            data-testid="manual-position-close"
-                            data-symbol={r.symbol}
-                          >
-                            Close
-                          </Button>
-                        </span>
-                      </TableCell>
-                    ) : null}
-                  </TableRow>
-                );
+          <>
+            <ResponsiveTable<Row>
+              columns={columns}
+              rows={rows}
+              rowKey={(r) => r.key}
+              rowTestId={() => rowId}
+              rowAttrs={(r) => ({
+                "data-strategy-id": r.strategy_id,
+                "data-symbol": r.symbol,
+                "data-signed-qty": String(r.signed_qty),
+                "data-manual": withActions
+                  ? r.strategy_id === MANUAL_STRATEGY_ID
+                    ? "true"
+                    : "false"
+                  : undefined,
               })}
-            </TableBody>
-            <TableFooter>
-              <TableRow data-testid={withActions ? "manual-positions-totals" : "positions-totals"}>
-                <TableCell
-                  colSpan={colSpan}
-                  className="text-xs uppercase tracking-wide text-muted-foreground"
-                >
-                  Total
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {formatMoney(totals.mv)}
-                </TableCell>
-                <TableCell className={`text-right font-mono ${pnlTone(totals.rp)}`}>
-                  {formatMoney(totals.rp)}
-                </TableCell>
-                {withActions ? <TableCell /> : null}
-              </TableRow>
-            </TableFooter>
-          </Table>
+              data-testid="positions-responsive-table"
+            />
+            {/* Totals — kept as a dedicated strip below the table so it works in
+                BOTH surfaces (desktop table + mobile card list) and preserves the
+                `…-totals` e2e contract with the MV / realized-P&L values. */}
+            <div
+              data-testid={withActions ? "manual-positions-totals" : "positions-totals"}
+              className="flex items-center justify-between gap-3 border-t pt-2 text-sm"
+            >
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                Total
+              </span>
+              <span className="flex items-center gap-6">
+                <span className="flex flex-col items-end">
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    Market value
+                  </span>
+                  <span className="font-mono">{formatMoney(totals.mv)}</span>
+                </span>
+                <span className="flex flex-col items-end">
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    Realized P/L
+                  </span>
+                  <span className={`font-mono ${pnlTone(totals.rp)}`}>
+                    {formatMoney(totals.rp)}
+                  </span>
+                </span>
+              </span>
+            </div>
+          </>
         )}
       </CardContent>
 
       {/* ---- Close confirmation dialog (desk only) ---- */}
       {withActions ? (
-        <Dialog
+        <Sheet
           open={closeSym !== null}
           onClose={closeDialog}
           data-testid="manual-close-confirm"
@@ -458,7 +493,7 @@ export function PositionsTable({
               </Alert>
             ) : null}
           </div>
-        </Dialog>
+        </Sheet>
       ) : null}
     </Card>
   );

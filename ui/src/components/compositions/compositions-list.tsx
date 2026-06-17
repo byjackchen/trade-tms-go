@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ErrorState, LoadingRows, EmptyState } from "@/components/shell/states";
+import { useUiMode } from "@/components/shell/ui-mode-provider";
+import { cn } from "@/lib/utils";
 import { useCompositions, useDeleteComposition } from "@/lib/api/hooks";
 import { ApiError } from "@/lib/api/client";
 import type { Composition } from "@/lib/api/types";
@@ -49,6 +51,8 @@ export function CompositionsList({
   onBacktest: (composition: Composition) => void;
   onHyperopt: (composition: Composition) => void;
 }) {
+  const { mode } = useUiMode();
+  const mobile = mode === "mobile";
   const { data, isLoading, error, refetch } = useCompositions();
   const del = useDeleteComposition();
   const compositions = data?.compositions ?? [];
@@ -116,7 +120,10 @@ export function CompositionsList({
           data-testid="compositions-empty"
         />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2" data-testid="compositions-grid">
+        <div
+          className={cn("grid gap-4", mobile ? "grid-cols-1" : "lg:grid-cols-2")}
+          data-testid="compositions-grid"
+        >
           {compositions.map((m) => {
             const aw = activeWeight(m);
             const remainder = 1 - aw - m.cash_pct;
@@ -187,10 +194,11 @@ export function CompositionsList({
                     </span>
                   </div>
 
-                  {/* actions */}
+                  {/* actions — larger tap targets on mobile (>=44px) */}
                   <div className="flex flex-wrap gap-2 pt-1">
                     <Button
-                      size="sm"
+                      size={mobile ? "lg" : "sm"}
+                      className={mobile ? "min-h-11" : undefined}
                       onClick={() => onBacktest(m)}
                       data-testid={`composition-backtest-${m.id}`}
                     >
@@ -198,7 +206,8 @@ export function CompositionsList({
                       Backtest
                     </Button>
                     <Button
-                      size="sm"
+                      size={mobile ? "lg" : "sm"}
+                      className={mobile ? "min-h-11" : undefined}
                       variant="outline"
                       onClick={() => onHyperopt(m)}
                       data-testid={`composition-hyperopt-${m.id}`}
@@ -207,7 +216,8 @@ export function CompositionsList({
                       Hyperopt
                     </Button>
                     <Button
-                      size="sm"
+                      size={mobile ? "lg" : "sm"}
+                      className={mobile ? "min-h-11" : undefined}
                       variant="ghost"
                       onClick={() => onEdit(m)}
                       data-testid={`composition-edit-${m.id}`}
@@ -216,7 +226,8 @@ export function CompositionsList({
                       Edit
                     </Button>
                     <Button
-                      size="sm"
+                      size={mobile ? "lg" : "sm"}
+                      className={mobile ? "min-h-11" : undefined}
                       variant="ghost"
                       onClick={() => remove(m)}
                       disabled={del.isPending}

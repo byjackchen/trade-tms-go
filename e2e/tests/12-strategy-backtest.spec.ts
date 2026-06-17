@@ -3,25 +3,24 @@
  *
  * Drives a real (non-scripted) strategy run — e.g. SEPA over a handful of
  * tickers, ~1 year — purely through the browser:
- *   1. open the launch affordance (the strategy detail page's `strategy-backtest-
- *      launch`, or the shared New-backtest dialog with a `backtest-strategy`
- *      selector set to a real strategy id);
+ *   1. open the launch affordance (the strategy detail page's per-strategy
+ *      `strategy-backtest-<id>` button, or — since a single-member Composition IS
+ *      a single strategy — the Compositions module's `composition-backtest-<id>`);
  *   2. fill tickers + a ~1-year window, submit;
  *   3. watch the shared `job-progress` panel transition running -> succeeded via
  *      the UI (the worker drives it; the tracker reconciles over the WS job
  *      stream + REST poll — the requirement's "WS progress -> succeeded");
- *   4. follow the detail link to /backtests/{id} and confirm the equity chart +
- *      trades render and the metric cards == the API ground truth.
+ *   4. follow the inline detail deep-link (/compositions?backtest={id}) and confirm
+ *      the equity chart + trades render and the metric cards == the API ground truth.
  *
  * Ground-truth coupling: the linked run is the run the engine persisted
  * (tms.runs gains a COMPLETE row whose id == the detail URL), it carries the
  * launched strategy in its config, and the rendered metric cards equal
  * GET /api/v1/backtests/{id}.metrics exactly. No fabricated ids/numbers.
  *
- * Robustness: self-skips while the strategy-launch affordance is unbuilt, while
- * the Backtests workspace is still coming-soon, or when the stack has no
- * tradable bars for a real-strategy run. Once wired, the assertions are exact
- * and permanent.
+ * Robustness: self-skips while the strategy-launch / Compositions backtest
+ * affordance is unbuilt, or when the stack has no tradable bars for a
+ * real-strategy run. Once wired, the assertions are exact and permanent.
  */
 
 import { test, expect } from "../fixtures/test";
@@ -44,38 +43,37 @@ type Page = import("@playwright/test").Page;
 
 /**
  * Open a launch affordance pre-targeting the real strategy and return whether
- * the New-backtest dialog became visible. Tries, in order:
- *   (a) the strategy detail page's `strategy-backtest-launch` button;
- *   (b) the Backtests workspace `open-backtest-dialog` + a `backtest-strategy`
- *       selector set to the real strategy id.
- * Returns false when neither path can target a real strategy run.
+ * the New-backtest dialog became visible. In the FINAL 4-top IA a single-strategy
+ * backtest = a single-member Composition backtest (docs/concept-alignment.md
+ * §3.4 A3). Tries, in order:
+ *   (a) the strategy detail page's per-strategy `strategy-backtest-<id>` button;
+ *   (b) the Compositions module's per-Composition `composition-backtest-<id>`
+ *       launcher (a single-member Composition IS a single strategy).
+ * Returns false when neither path can open a backtest dialog.
  */
 async function openRealStrategyLaunch(page: Page): Promise<boolean> {
-  // (a) Strategy detail page launch.
+  // (a) Strategy detail page launch (per-strategy backtest button).
   if (await strategyDetailReady(page, STRATEGY)) {
-    const launch = page.getByTestId("strategy-backtest-launch");
+    const launch = page.getByTestId(`strategy-backtest-${STRATEGY}`);
     if (await launch.count()) {
       await launch.first().click();
       const dialog = page.getByTestId("backtest-dialog");
       try {
         await dialog.waitFor({ state: "visible", timeout: 10_000 });
+        return true;
       } catch {
-        return false;
+        /* fall through to the Compositions path */
       }
-      // The dialog should be pre-set to this strategy; if it exposes the
-      // selector, assert/repair it to the real strategy.
-      const sel = page.getByTestId("backtest-strategy");
-      if (await sel.count()) {
-        await sel.selectOption(STRATEGY).catch(() => {});
-      }
-      return true;
     }
   }
 
-  // (b) Shared Backtests dialog with a strategy selector.
-  await page.goto("/backtests", { waitUntil: "domcontentloaded" });
+  // (b) Compositions module: a per-Composition backtest launcher (a single-member
+  // Composition is the single-strategy backtest object).
+  await page.goto("/compositions", { waitUntil: "domcontentloaded" });
   await expect(page.getByTestId("app-shell")).toBeVisible();
-  const opener = page.getByTestId("open-backtest-dialog");
+  const opener = page
+    .locator('[data-testid^="composition-backtest-"]')
+    .first();
   if (!(await opener.count())) return false;
   await opener.click();
   const dialog = page.getByTestId("backtest-dialog");
@@ -84,16 +82,6 @@ async function openRealStrategyLaunch(page: Page): Promise<boolean> {
   } catch {
     return false;
   }
-  const sel = page.getByTestId("backtest-strategy");
-  if (!(await sel.count())) {
-    // No strategy selector and not on the detail launch path — the UI cannot
-    // launch a real (non-scripted) strategy yet.
-    return false;
-  }
-  // Only proceed if the real strategy is actually an option.
-  const hasOption = await sel.locator(`option[value="${STRATEGY}"]`).count();
-  if (!hasOption) return false;
-  await sel.selectOption(STRATEGY);
   return true;
 }
 
@@ -163,18 +151,18 @@ test.describe("real single-strategy backtest", () => {
     const latest = await withDb((c) => latestCompleteRun(c));
     expect(latest, "a COMPLETE run exists after the launch").not.toBeNull();
 
-    // Follow the detail link/redirect to the persisted run id.
+    // Follow the detail link/redirect to the persisted run id. In the FINAL IA
+    // the result opens INLINE in the Compositions module via the `?backtest=<id>`
+    // deep-link (NewBacktestDialog onView -> /compositions?backtest=<id>).
     const detailLink = page.getByTestId("backtest-detail-link");
     if (await detailLink.count()) {
       await detailLink.first().click();
     }
     await expect
-      .poll(async () => new URL(page.url()).pathname, { timeout: 30_000 })
-      .toMatch(/\/backtests\/\d+$/);
-    const urlId = Number(
-      new URL(page.url()).pathname.replace(/.*\/backtests\//, ""),
-    );
-    expect(urlId, "detail URL points at the persisted run").toBe(latest!.id);
+      .poll(() => new URL(page.url()).searchParams.get("backtest"), {
+        timeout: 30_000,
+      })
+      .toBe(String(latest!.id));
 
     // The launched run actually used the real strategy (config ground truth).
     const apiDetail = await getAuthed(`backtests/${latest!.id}`);

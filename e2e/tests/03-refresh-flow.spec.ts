@@ -27,7 +27,7 @@ test.describe("data refresh flow", () => {
       runs: await syncRunCount(c),
     }));
 
-    await page.goto("/data");
+    await page.goto("/systems?tab=data");
 
     // 1. Open the refresh dialog.
     await page.getByTestId("open-refresh-dialog").click();

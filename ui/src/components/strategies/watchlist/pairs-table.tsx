@@ -2,13 +2,9 @@
 
 import { useMemo, useState } from "react";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ResponsiveTable,
+  type ColumnDef,
+} from "@/components/ui/responsive-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState } from "@/components/shell/states";
@@ -16,7 +12,7 @@ import { IntentStateBadge } from "@/components/portfolio/live-badges";
 import { cn } from "@/lib/utils";
 import { formatNum } from "@/lib/format";
 import { useStrategyIntents, num, str } from "./use-strategy-intents";
-import { SortHead, csvCell, downloadCsv } from "./shared";
+import { SortButton, csvCell, downloadCsv } from "./shared";
 
 /**
  * Pairs tab — ONE row per pair (pair_id), not per leg. The pairs strategy emits a
@@ -194,6 +190,102 @@ export function PairsTable({ symbolFilter }: { symbolFilter: string; accountId?:
     );
   }
 
+  const columns: ColumnDef<PairRow>[] = [
+    {
+      key: "pair",
+      header: (
+        <SortButton k="pair" label="Pair" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+      ),
+      primary: true,
+      render: (p) => <span className="font-mono font-medium">{p.pair_id}</span>,
+    },
+    {
+      key: "z",
+      header: (
+        <SortButton k="z" label="z-score" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Spread z-score vs entry/exit thresholds" />
+      ),
+      align: "right",
+      primary: true,
+      render: (p) => (
+        <span className="font-mono">
+          {p.z_score != null ? formatNum(p.z_score, 2) : "—"}
+          {p.z_entry != null ? (
+            <span className="ml-1 text-[10px] text-muted-foreground">
+              /±{formatNum(p.z_entry, 1)}
+            </span>
+          ) : null}
+        </span>
+      ),
+    },
+    {
+      key: "stretch",
+      header: (
+        <SortButton k="stretch" label="Stretch" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="|z| / entry threshold (≥1 = past entry)" />
+      ),
+      align: "right",
+      primary: true,
+      render: (p) => {
+        const stretch = stretchOf(p);
+        const stretched = stretch != null && stretch >= 1;
+        return (
+          <span
+            className={cn(
+              "font-mono",
+              stretched && "font-semibold text-amber-700 dark:text-amber-300",
+            )}
+          >
+            {stretch != null ? `${formatNum(stretch * 100, 0)}%` : "—"}
+          </span>
+        );
+      },
+    },
+    {
+      key: "hedge",
+      header: (
+        <SortButton k="hedge" label="Hedge" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Hedge ratio (β)" />
+      ),
+      align: "right",
+      render: (p) => (
+        <span className="font-mono">
+          {p.hedge_ratio != null ? formatNum(p.hedge_ratio, 3) : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "halflife",
+      header: (
+        <SortButton k="halflife" label="Half-life" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Mean-reversion half-life (days)" />
+      ),
+      align: "right",
+      render: (p) => (
+        <span className="font-mono">
+          {p.half_life_days != null ? `${formatNum(p.half_life_days, 1)}d` : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "state",
+      header: "State",
+      primary: true,
+      render: (p) => <IntentStateBadge state={p.state} />,
+    },
+    {
+      key: "legs",
+      header: "Long / Short",
+      render: (p) => (
+        <span className="font-mono text-xs">
+          <span className="text-emerald-600 dark:text-emerald-400">
+            {p.long_leg ?? "—"}
+          </span>
+          <span className="mx-1 text-muted-foreground">/</span>
+          <span className="text-red-600 dark:text-red-400">
+            {p.short_leg ?? "—"}
+          </span>
+        </span>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-3" data-testid="pairs-table" data-row-count={sorted.length}>
       <div className="flex items-center justify-between gap-2">
@@ -210,71 +302,25 @@ export function PairsTable({ symbolFilter }: { symbolFilter: string; accountId?:
           Download CSV
         </Button>
       </div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <SortHead k="pair" label="Pair" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-            <SortHead k="z" label="z-score" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Spread z-score vs entry/exit thresholds" />
-            <SortHead k="stretch" label="Stretch" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="|z| / entry threshold (≥1 = past entry)" />
-            <SortHead k="hedge" label="Hedge" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Hedge ratio (β)" />
-            <SortHead k="halflife" label="Half-life" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Mean-reversion half-life (days)" />
-            <TableHead>State</TableHead>
-            <TableHead>Long / Short</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {sorted.map((p) => {
-            const stretch = stretchOf(p);
-            const stretched = stretch != null && stretch >= 1;
-            return (
-              <TableRow
-                key={p.pair_id}
-                data-testid="live-watchlist-row"
-                data-symbol={p.pair_id}
-                data-pair-id={p.pair_id}
-                data-stretched={stretched ? "true" : "false"}
-                className={cn(stretched && "bg-amber-500/10")}
-              >
-                <TableCell className="font-mono font-medium">{p.pair_id}</TableCell>
-                <TableCell className="text-right font-mono">
-                  {p.z_score != null ? formatNum(p.z_score, 2) : "—"}
-                  {p.z_entry != null ? (
-                    <span className="ml-1 text-[10px] text-muted-foreground">
-                      /±{formatNum(p.z_entry, 1)}
-                    </span>
-                  ) : null}
-                </TableCell>
-                <TableCell
-                  className={cn(
-                    "text-right font-mono",
-                    stretched && "font-semibold text-amber-700 dark:text-amber-300",
-                  )}
-                >
-                  {stretch != null ? `${formatNum(stretch * 100, 0)}%` : "—"}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {p.hedge_ratio != null ? formatNum(p.hedge_ratio, 3) : "—"}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {p.half_life_days != null ? `${formatNum(p.half_life_days, 1)}d` : "—"}
-                </TableCell>
-                <TableCell>
-                  <IntentStateBadge state={p.state} />
-                </TableCell>
-                <TableCell className="font-mono text-xs">
-                  <span className="text-emerald-600 dark:text-emerald-400">
-                    {p.long_leg ?? "—"}
-                  </span>
-                  <span className="mx-1 text-muted-foreground">/</span>
-                  <span className="text-red-600 dark:text-red-400">
-                    {p.short_leg ?? "—"}
-                  </span>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+      <ResponsiveTable
+        columns={columns}
+        rows={sorted}
+        rowKey={(p) => p.pair_id}
+        rowTestId={() => "live-watchlist-row"}
+        rowAttrs={(p) => {
+          const stretch = stretchOf(p);
+          const stretched = stretch != null && stretch >= 1;
+          return {
+            "data-symbol": p.pair_id,
+            "data-pair-id": p.pair_id,
+            "data-stretched": stretched ? "true" : "false",
+          };
+        }}
+        rowClassName={(p) => {
+          const stretch = stretchOf(p);
+          return stretch != null && stretch >= 1 ? "bg-amber-500/10" : undefined;
+        }}
+      />
     </div>
   );
 }

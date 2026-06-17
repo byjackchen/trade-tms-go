@@ -1,6 +1,6 @@
 "use client";
 
-import { Dialog } from "@/components/ui/dialog";
+import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -70,7 +70,7 @@ export function ConfirmActionDialog({
   const canConfirm = phraseOk && reasonOk && !pending;
 
   return (
-    <Dialog
+    <Sheet
       open={open}
       onClose={onClose}
       title={title}
@@ -143,6 +143,6 @@ export function ConfirmActionDialog({
           </Alert>
         ) : null}
       </div>
-    </Dialog>
+    </Sheet>
   );
 }

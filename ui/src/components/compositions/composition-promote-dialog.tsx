@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
-import { Dialog } from "@/components/ui/dialog";
+import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -91,7 +91,7 @@ export function CompositionPromoteDialog({
   if (!open || !trial) return null;
 
   return (
-    <Dialog
+    <Sheet
       open={open}
       onClose={close}
       title="Promote weights & risk"
@@ -259,6 +259,6 @@ export function CompositionPromoteDialog({
           ) : null}
         </div>
       )}
-    </Dialog>
+    </Sheet>
   );
 }

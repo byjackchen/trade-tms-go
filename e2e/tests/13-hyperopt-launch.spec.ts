@@ -3,15 +3,16 @@
  *
  * Drives a real (non-scripted) NSGA-II walk-forward study purely through the
  * browser:
- *   1. open the launch affordance on /hyperopt (the workspace `hyperopt-launch`
- *      / `open-hyperopt-dialog` button -> `hyperopt-dialog`);
+ *   1. open the launch affordance on the Strategies Tune surface (/strategies,
+ *      `strategy-section-tune`): the `hyperopt-launch` / `open-hyperopt-dialog`
+ *      button -> `hyperopt-dialog`;
  *   2. configure a TINY study — small population/generations, 1-2 folds, a few
  *      tickers over a covered window — and submit;
  *   3. watch the shared `job-progress` panel transition running -> succeeded via
  *      the UI (the worker drives the `hyperopt.run` job; the tracker reconciles
  *      over the WS job stream + REST poll — the requirement's "WS progress ->
  *      succeeded");
- *   4. follow the detail link to /hyperopt/{study_ts} and confirm the trials
+ *   4. follow the detail deep-link (/strategies?study={study_ts}) and confirm the trials
  *      table populates and the Pareto scatter renders, with numbers matching the
  *      DB/API ground truth exactly.
  *
@@ -80,10 +81,10 @@ test.describe("hyperopt study launch", () => {
     }
 
     if (!(await hyperoptUiReady(page))) {
-      test.skip(true, "Hyperopt workspace not yet implemented (coming-soon).");
+      test.skip(true, "Strategies Tune (hyperopt) surface not yet implemented.");
       return;
     }
-    await expect(page.getByTestId("hyperopt-page")).toBeVisible();
+    await expect(page.getByTestId("strategy-section-tune")).toBeVisible();
 
     // Open the launch dialog (button id varies; accept either convention).
     let opener = page.getByTestId("hyperopt-launch");
@@ -148,18 +149,21 @@ test.describe("hyperopt study launch", () => {
       "the study produced at least one COMPLETE trial",
     ).toBeGreaterThan(0);
 
-    // Follow the detail link/redirect to the persisted study_ts.
+    // Follow the detail link/redirect to the persisted study_ts. In the FINAL IA
+    // a study deep-links via /strategies?study={ts} (the inline detail surface).
     const detailLink = page.getByTestId("hyperopt-detail-link");
     if (await detailLink.count()) {
       await detailLink.first().click();
     } else {
-      await page.goto(`/hyperopt/${study!.studyTs}`, {
+      await page.goto(`/strategies?study=${study!.studyTs}`, {
         waitUntil: "domcontentloaded",
       });
     }
     await expect
-      .poll(async () => new URL(page.url()).pathname, { timeout: 30_000 })
-      .toContain(`/hyperopt/${study!.studyTs}`);
+      .poll(() => new URL(page.url()).searchParams.get("study"), {
+        timeout: 30_000,
+      })
+      .toBe(study!.studyTs);
 
     if (!(await hyperoptDetailReady(page, study!.studyTs))) {
       test.skip(true, "Hyperopt detail page not yet implemented.");

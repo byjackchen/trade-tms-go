@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Dialog } from "@/components/ui/dialog";
+import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +9,8 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { JobProgress } from "@/components/systems/job-progress";
+import { useUiMode } from "@/components/shell/ui-mode-provider";
+import { cn } from "@/lib/utils";
 import { useCreateStudy, useCancelJob, useStrategy } from "@/lib/api/hooks";
 import { useJobTracker } from "@/lib/api/use-job-tracker";
 import { ApiError } from "@/lib/api/client";
@@ -72,6 +74,10 @@ export function NewStudyDialog({
   /** Open the freshly-completed study in the inline detail panel. */
   onView?: (ts: string) => void;
 }) {
+  const { mode } = useUiMode();
+  // Mobile (cookie-driven, not CSS): stack the two-up input rows into one column
+  // so each field gets the full sheet width.
+  const grid2 = cn("grid gap-3", mode === "mobile" ? "grid-cols-1" : "grid-cols-2");
   const [strategy, setStrategy] = useState<HyperoptStrategy>(defaultStrategy);
   const [start, setStart] = useState("2023-01-02");
   const [end, setEnd] = useState("2023-12-29");
@@ -234,7 +240,7 @@ export function NewStudyDialog({
   const submitting = create.isPending;
 
   return (
-    <Dialog
+    <Sheet
       open={open}
       onClose={close}
       title="Run Hyperopt"
@@ -382,7 +388,7 @@ export function NewStudyDialog({
           </div>
 
           {/* date range + balance */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className={grid2}>
             <div className="space-y-1.5">
               <Label htmlFor="hp-start">Start (YYYY-MM-DD)</Label>
               <Input
@@ -408,7 +414,7 @@ export function NewStudyDialog({
           </div>
 
           {/* NSGA-II population / generations / seed / parallelism */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className={grid2}>
             <div className="space-y-1.5">
               <Label htmlFor="hp-pop">Population</Label>
               <Input
@@ -433,7 +439,7 @@ export function NewStudyDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className={grid2}>
             <div className="space-y-1.5">
               <Label htmlFor="hp-seed">Seed (deterministic)</Label>
               <Input
@@ -475,7 +481,7 @@ export function NewStudyDialog({
               Walk-forward validation
             </label>
             {walkForward ? (
-              <div className="grid grid-cols-2 gap-3 pt-1">
+              <div className={cn(grid2, "pt-1")}>
                 <div className="space-y-1.5">
                   <Label htmlFor="hp-folds">Folds</Label>
                   <Input
@@ -586,6 +592,6 @@ export function NewStudyDialog({
           ) : null}
         </div>
       )}
-    </Dialog>
+    </Sheet>
   );
 }

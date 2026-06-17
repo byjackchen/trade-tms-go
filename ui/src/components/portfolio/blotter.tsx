@@ -6,13 +6,9 @@ import { useLiveStream } from "@/lib/api/use-live-stream";
 import { ApiError } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ResponsiveTable,
+  type ColumnDef,
+} from "@/components/ui/responsive-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -188,6 +184,117 @@ export function Blotter({
   const rowId = withActions ? "manual-blotter-order-row" : "live-blotter-order-row";
   const countId = withActions ? "manual-orders-count" : "orders-count";
 
+  // Column defs drive desktop table + mobile card list (full parity). Symbol +
+  // Status lead each mobile card; the cancel Action (desk only) stays primary so
+  // it is a tap away without expanding "More".
+  const columns: ColumnDef<Row>[] = [
+    {
+      key: "symbol",
+      header: "Symbol",
+      primary: true,
+      render: (r) => <span className="font-mono font-medium">{r.symbol}</span>,
+    },
+    {
+      key: "book",
+      header: withActions ? "Book" : "Strategy",
+      render: (r) =>
+        withActions && r.strategy_id === MANUAL_STRATEGY_ID ? (
+          <Badge variant="secondary" data-testid="order-manual-badge">
+            MANUAL
+          </Badge>
+        ) : (
+          <span className="font-mono text-xs text-muted-foreground">
+            {r.strategy_id}
+          </span>
+        ),
+    },
+    {
+      key: "side",
+      header: "Side",
+      primary: true,
+      render: (r) => <SideBadge side={r.side} />,
+    },
+    {
+      key: "qty",
+      header: "Qty",
+      align: "right",
+      render: (r) => <span className="font-mono">{formatInt(r.qty)}</span>,
+    },
+    {
+      key: "filled",
+      header: "Filled",
+      align: "right",
+      render: (r) => <span className="font-mono">{formatInt(r.filled_qty)}</span>,
+    },
+    {
+      key: "avg_px",
+      header: "Avg px",
+      align: "right",
+      render: (r) => (
+        <span className="font-mono">
+          {r.avg_fill_px ? formatMoney(r.avg_fill_px) : "—"}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      primary: true,
+      render: (r) => (
+        <span className="flex items-center gap-1.5">
+          <OrderStatusBadge status={r.status} />
+          {r.reason ? (
+            <span
+              className="max-w-[10rem] truncate text-xs text-muted-foreground"
+              title={r.reason}
+            >
+              {r.reason}
+            </span>
+          ) : null}
+        </span>
+      ),
+    },
+    {
+      key: "asof",
+      header: "As of",
+      align: "right",
+      render: (r) => (
+        <span className="text-xs text-muted-foreground" title={r.ts}>
+          {formatRelative(r.ts, now)}
+        </span>
+      ),
+    },
+    ...(withActions
+      ? [
+          {
+            key: "action",
+            header: "Action",
+            align: "right" as const,
+            primary: true,
+            render: (r: Row) => {
+              const manual = r.strategy_id === MANUAL_STRATEGY_ID;
+              const working = isWorking(r.status);
+              const pending = cancelling === r.client_order_id;
+              return manual && working ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => onCancel(r.client_order_id)}
+                  data-testid="manual-order-cancel"
+                  data-client-order-id={r.client_order_id}
+                >
+                  {pending ? "Cancelling…" : "Cancel"}
+                </Button>
+              ) : (
+                <span className="text-xs text-muted-foreground">—</span>
+              );
+            },
+          },
+        ]
+      : []),
+  ];
+
   return (
     <Card
       data-testid={rootId}
@@ -253,105 +360,24 @@ export function Blotter({
             data-testid={withActions ? "manual-orders-empty" : "orders-empty"}
           />
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Symbol</TableHead>
-                <TableHead>{withActions ? "Book" : "Strategy"}</TableHead>
-                <TableHead>Side</TableHead>
-                <TableHead className="text-right">Qty</TableHead>
-                <TableHead className="text-right">Filled</TableHead>
-                <TableHead className="text-right">Avg px</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">As of</TableHead>
-                {withActions ? (
-                  <TableHead className="text-right">Action</TableHead>
-                ) : null}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => {
-                const manual = r.strategy_id === MANUAL_STRATEGY_ID;
-                const working = isWorking(r.status);
-                const pending = cancelling === r.client_order_id;
-                return (
-                  <TableRow
-                    key={r.client_order_id}
-                    data-testid={rowId}
-                    data-client-order-id={r.client_order_id}
-                    data-symbol={r.symbol}
-                    data-status={String(r.status).toUpperCase()}
-                    data-filled-qty={r.filled_qty}
-                    data-manual={withActions ? (manual ? "true" : "false") : undefined}
-                  >
-                    <TableCell className="font-mono font-medium">
-                      {r.symbol}
-                    </TableCell>
-                    <TableCell>
-                      {withActions && manual ? (
-                        <Badge variant="secondary" data-testid="order-manual-badge">
-                          MANUAL
-                        </Badge>
-                      ) : (
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {r.strategy_id}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <SideBadge side={r.side} />
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {formatInt(r.qty)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {formatInt(r.filled_qty)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {r.avg_fill_px ? formatMoney(r.avg_fill_px) : "—"}
-                    </TableCell>
-                    <TableCell>
-                      <span className="flex items-center gap-1.5">
-                        <OrderStatusBadge status={r.status} />
-                        {r.reason ? (
-                          <span
-                            className="max-w-[10rem] truncate text-xs text-muted-foreground"
-                            title={r.reason}
-                          >
-                            {r.reason}
-                          </span>
-                        ) : null}
-                      </span>
-                    </TableCell>
-                    <TableCell
-                      className="text-right text-xs text-muted-foreground"
-                      title={r.ts}
-                    >
-                      {formatRelative(r.ts, now)}
-                    </TableCell>
-                    {withActions ? (
-                      <TableCell className="text-right">
-                        {manual && working ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={pending}
-                            onClick={() => onCancel(r.client_order_id)}
-                            data-testid="manual-order-cancel"
-                            data-client-order-id={r.client_order_id}
-                          >
-                            {pending ? "Cancelling…" : "Cancel"}
-                          </Button>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </TableCell>
-                    ) : null}
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+          <ResponsiveTable<Row>
+            columns={columns}
+            rows={rows}
+            rowKey={(r) => r.client_order_id}
+            rowTestId={() => rowId}
+            rowAttrs={(r) => ({
+              "data-client-order-id": r.client_order_id,
+              "data-symbol": r.symbol,
+              "data-status": String(r.status).toUpperCase(),
+              "data-filled-qty": String(r.filled_qty),
+              "data-manual": withActions
+                ? r.strategy_id === MANUAL_STRATEGY_ID
+                  ? "true"
+                  : "false"
+                : undefined,
+            })}
+            data-testid="blotter-responsive-table"
+          />
         )}
       </CardContent>
     </Card>

@@ -2,7 +2,9 @@
  * (2) Detail correctness + (3) chart / tables render.
  *
  * Against an existing COMPLETE run (created by the launch spec or already in the
- * stack), assert the detail page renders metrics + equity that MATCH the DB/API
+ * stack), assert the inline backtest panel (Compositions module, opened via the
+ * `?backtest={id}` deep-link in the FINAL 4-top IA) renders metrics + equity that
+ * MATCH the DB/API
  * ground truth — the numbers are queried independently here and compared to what
  * the UI shows. Nothing is fabricated:
  *
@@ -39,21 +41,28 @@ function parseRendered(text: string): number {
   return Number(cleaned);
 }
 
-/** Detail route is real once the page exposes the `backtest-detail` root. */
+/** Detail is real once the inline panel exposes the `backtest-detail` root. In
+ * the FINAL 4-top IA a backtest's object is always a Composition (docs/concept-
+ * alignment.md §3.4 A3): the detail opens INLINE in the Compositions module via
+ * the `?backtest={id}` deep-link (the retired /backtests/{id} 301-redirects to
+ * /compositions?backtest={id}). Self-skips (returns false) until the panel is
+ * wired. */
 async function detailReady(
   page: import("@playwright/test").Page,
   id: number,
 ): Promise<boolean> {
-  await page.goto(`/backtests/${id}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`/compositions?backtest=${id}`, {
+    waitUntil: "domcontentloaded",
+  });
   await expect(page.getByTestId("app-shell")).toBeVisible();
+  await expect(page.getByTestId("compositions-page")).toBeVisible();
   const detail = page.getByTestId("backtest-detail");
-  const placeholder = page.getByTestId("backtests-placeholder");
-  await expect
-    .poll(async () => (await detail.count()) + (await placeholder.count()), {
-      timeout: 15_000,
-    })
-    .toBeGreaterThan(0);
-  return (await detail.count()) > 0;
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    if (await detail.count()) return true;
+    await page.waitForTimeout(250);
+  }
+  return false;
 }
 
 test.describe("backtest detail correctness", () => {

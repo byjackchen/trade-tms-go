@@ -1,12 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Dialog } from "@/components/ui/dialog";
+import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useUiMode } from "@/components/shell/ui-mode-provider";
+import { cn } from "@/lib/utils";
 import { JobProgress } from "@/components/systems/job-progress";
 import { useCompositionHyperopt, useCancelJob } from "@/lib/api/hooks";
 import { useJobTracker } from "@/lib/api/use-job-tracker";
@@ -41,24 +43,27 @@ function RangeRow({
   testid,
   value,
   onChange,
+  mobile,
 }: {
   label: string;
   testid: string;
   value: RangeDraft;
   onChange: (next: RangeDraft) => void;
+  mobile?: boolean;
 }) {
+  const inputCls = cn("w-20 font-mono", mobile ? "h-11" : "h-8");
   return (
     <div
       className="flex items-center justify-between gap-3"
       data-testid={`composition-hp-range-${testid}`}
     >
-      <span className="font-mono text-xs">{label}</span>
-      <div className="flex items-center gap-1.5">
+      <span className="min-w-0 font-mono text-xs">{label}</span>
+      <div className="flex shrink-0 items-center gap-1.5">
         <Input
           value={value.low}
           onChange={(e) => onChange({ ...value, low: e.target.value })}
           inputMode="decimal"
-          className="h-8 w-20 font-mono"
+          className={inputCls}
           data-testid={`composition-hp-${testid}-low`}
           aria-label={`${label} low`}
         />
@@ -67,7 +72,7 @@ function RangeRow({
           value={value.high}
           onChange={(e) => onChange({ ...value, high: e.target.value })}
           inputMode="decimal"
-          className="h-8 w-20 font-mono"
+          className={inputCls}
           data-testid={`composition-hp-${testid}-high`}
           aria-label={`${label} high`}
         />
@@ -97,6 +102,10 @@ export function CompositionHyperoptDialog({
   /** Open the freshly-completed study in the inline panel. */
   onView?: (ts: string) => void;
 }) {
+  const { mode } = useUiMode();
+  const mobile = mode === "mobile";
+  const grid2 = cn("grid gap-3", mobile ? "grid-cols-1" : "grid-cols-2");
+
   // Only ACTIVE members get a weight dim (LOCKED DECISION 1a / 4).
   const activeMembers = useMemo(
     () => composition.members.filter((m) => m.active),
@@ -269,13 +278,13 @@ export function CompositionHyperoptDialog({
   const submitting = create.isPending;
 
   return (
-    <Dialog
+    <Sheet
       open={open}
       onClose={close}
       title="Composition Hyperopt — weights & risk"
       description="Search this Composition's member weights + cash + risk caps with NSGA-II walk-forward. Strategy params stay FIXED at each member's active set."
       data-testid="composition-hyperopt-dialog"
-      className="w-[min(48rem,calc(100vw-2rem))]"
+      className={mobile ? undefined : "w-[min(48rem,calc(100vw-2rem))]"}
       footer={
         tracked ? (
           <>
@@ -381,6 +390,7 @@ export function CompositionHyperoptDialog({
                   label="weight (raw, per active member)"
                   testid="weight"
                   value={weight}
+                  mobile={mobile}
                   onChange={(next) => {
                     setWeight(next);
                     setLocalError(null);
@@ -390,6 +400,7 @@ export function CompositionHyperoptDialog({
                   label="cash (raw)"
                   testid="cash"
                   value={cash}
+                  mobile={mobile}
                   onChange={(next) => {
                     setCash(next);
                     setLocalError(null);
@@ -412,6 +423,7 @@ export function CompositionHyperoptDialog({
                 label="single_name_pct"
                 testid="single-name"
                 value={singleName}
+                mobile={mobile}
                 onChange={(next) => {
                   setSingleName(next);
                   setLocalError(null);
@@ -421,6 +433,7 @@ export function CompositionHyperoptDialog({
                 label="concentration_pct"
                 testid="concentration"
                 value={concentration}
+                mobile={mobile}
                 onChange={(next) => {
                   setConcentration(next);
                   setLocalError(null);
@@ -430,6 +443,7 @@ export function CompositionHyperoptDialog({
                 label="daily_loss_halt_pct"
                 testid="daily-loss-halt"
                 value={dailyLossHalt}
+                mobile={mobile}
                 onChange={(next) => {
                   setDailyLossHalt(next);
                   setLocalError(null);
@@ -442,7 +456,7 @@ export function CompositionHyperoptDialog({
           </div>
 
           {/* date range + balance */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className={grid2}>
             <div className="space-y-1.5">
               <Label htmlFor="ch-start">Start (YYYY-MM-DD)</Label>
               <Input
@@ -466,7 +480,7 @@ export function CompositionHyperoptDialog({
           </div>
 
           {/* NSGA-II population / generations / seed / parallelism */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className={grid2}>
             <div className="space-y-1.5">
               <Label htmlFor="ch-pop">Population</Label>
               <Input
@@ -491,7 +505,7 @@ export function CompositionHyperoptDialog({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className={grid2}>
             <div className="space-y-1.5">
               <Label htmlFor="ch-seed">Seed (deterministic)</Label>
               <Input
@@ -530,7 +544,7 @@ export function CompositionHyperoptDialog({
               Walk-forward validation
             </label>
             {walkForward ? (
-              <div className="grid grid-cols-2 gap-3 pt-1">
+              <div className={cn(grid2, "pt-1")}>
                 <div className="space-y-1.5">
                   <Label htmlFor="ch-folds">Folds</Label>
                   <Input
@@ -582,6 +596,6 @@ export function CompositionHyperoptDialog({
           ) : null}
         </div>
       )}
-    </Dialog>
+    </Sheet>
   );
 }

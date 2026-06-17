@@ -99,7 +99,7 @@ test.describe("paper trading — reconciliation panel", () => {
       }
     }
 
-    await expect(page.getByTestId("live-page")).toBeVisible();
+    await expect(page.getByTestId("trade-header")).toBeVisible();
 
     // ----- UI: the reconciliation panel ------------------------------------
     const panel = await firstVisibleTestId(page, ["live-reconciliation"], 12_000);

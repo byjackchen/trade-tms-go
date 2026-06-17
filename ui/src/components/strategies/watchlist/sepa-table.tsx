@@ -3,13 +3,9 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ResponsiveTable,
+  type ColumnDef,
+} from "@/components/ui/responsive-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { EmptyState, ErrorState } from "@/components/shell/states";
@@ -21,7 +17,7 @@ import {
   bool,
   type StrategyIntentRow,
 } from "./use-strategy-intents";
-import { SortHead, csvCell, downloadCsv } from "./shared";
+import { SortButton, csvCell, downloadCsv } from "./shared";
 
 /**
  * SEPA tab — the ACTIONABLE trade-plan table.
@@ -184,6 +180,197 @@ export function SepaTable({
     );
   }
 
+  const columns: ColumnDef<StrategyIntentRow>[] = [
+    {
+      key: "symbol",
+      header: (
+        <SortButton k="symbol" label="Symbol" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+      ),
+      primary: true,
+      render: (r) => {
+        const buyZone = inBuyZone(num(r.intent, "proximity_to_trigger_pct"));
+        return (
+          <span className="flex items-center gap-1.5 font-mono font-medium">
+            {r.symbol}
+            {buyZone ? (
+              <span
+                className="rounded bg-emerald-500/20 px-1 text-[10px] font-semibold uppercase text-emerald-700 dark:text-emerald-300"
+                data-testid="sepa-buy-zone-tag"
+              >
+                buy zone
+              </span>
+            ) : null}
+          </span>
+        );
+      },
+    },
+    {
+      key: "proximity",
+      header: (
+        <SortButton k="proximity" label="%→Pivot" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Signed distance to the pivot (buy zone: 0..2%)" />
+      ),
+      align: "right",
+      primary: true,
+      render: (r) => {
+        const prox = num(r.intent, "proximity_to_trigger_pct");
+        const buyZone = inBuyZone(prox);
+        return (
+          <span
+            className={cn(
+              "font-mono",
+              buyZone && "font-semibold text-emerald-700 dark:text-emerald-300",
+            )}
+          >
+            {prox != null ? `${prox > 0 ? "+" : ""}${formatNum(prox, 1)}%` : "—"}
+          </span>
+        );
+      },
+    },
+    {
+      key: "pivot",
+      header: (
+        <SortButton k="pivot" label="Pivot" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
+      ),
+      align: "right",
+      render: (r) => {
+        const pivot = num(r.intent, "pivot_price");
+        return (
+          <span className="font-mono">{pivot != null ? formatMoney(pivot) : "—"}</span>
+        );
+      },
+    },
+    {
+      key: "stop",
+      header: (
+        <SortButton k="stop" label="Stop" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
+      ),
+      align: "right",
+      render: (r) => {
+        const stop = num(r.intent, "stop_price");
+        return (
+          <span className="font-mono text-muted-foreground">
+            {stop != null ? formatMoney(stop) : "—"}
+          </span>
+        );
+      },
+    },
+    {
+      key: "risk",
+      header: (
+        <SortButton k="risk" label="Risk%" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
+      ),
+      align: "right",
+      render: (r) => {
+        const risk = num(r.intent, "risk_pct");
+        return (
+          <span className="font-mono">{risk != null ? `${formatNum(risk, 1)}%` : "—"}</span>
+        );
+      },
+    },
+    {
+      key: "rs",
+      header: (
+        <SortButton k="rs" label="RS" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Relative-strength rank (1..99)" />
+      ),
+      align: "right",
+      render: (r) => {
+        const rs = num(r.intent, "rs_rank");
+        return <span className="font-mono">{rs != null ? Math.round(rs) : "—"}</span>;
+      },
+    },
+    {
+      key: "off_high",
+      header: (
+        <SortButton k="off_high" label="%off 52wk-hi" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
+      ),
+      align: "right",
+      labelMobile: "%off 52wk-hi",
+      render: (r) => {
+        const offHigh = num(r.intent, "pct_off_52wk_high");
+        return (
+          <span className="font-mono">
+            {offHigh != null ? `${formatNum(offHigh, 1)}%` : "—"}
+          </span>
+        );
+      },
+    },
+    {
+      key: "base",
+      header: <span title="Base depth% / age (days)">Base</span>,
+      labelMobile: "Base (depth · age)",
+      render: (r) => {
+        const depth = num(r.intent, "base_depth_pct");
+        const age = num(r.intent, "base_age_days");
+        const base =
+          depth == null && age == null
+            ? "—"
+            : `${depth != null ? `${formatNum(depth, 1)}%` : "—"} · ${age != null ? `${Math.round(age)}d` : "—"}`;
+        return <span className="font-mono text-xs text-muted-foreground">{base}</span>;
+      },
+    },
+    {
+      key: "vol",
+      header: (
+        <SortButton k="vol" label="Vol" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Volume ratio vs average" />
+      ),
+      align: "right",
+      render: (r) => {
+        const vol = num(r.intent, "vol_ratio");
+        return (
+          <span className="font-mono">{vol != null ? `${formatNum(vol, 2)}×` : "—"}</span>
+        );
+      },
+    },
+    {
+      key: "readiness",
+      header: (
+        <SortButton k="readiness" label="Readiness" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Buy-readiness score (0..100)" />
+      ),
+      align: "right",
+      primary: true,
+      render: (r) => {
+        // Buy-readiness, the default sort. The saturated 8/8 trend-template pass
+        // is shown as a de-emphasized check, NOT 100.0.
+        const readiness = num(r.intent, "buy_readiness");
+        const ttPass = bool(r.intent, "trend_template_pass") === true;
+        return (
+          <span className="flex items-center justify-end gap-1.5">
+            <span className="font-mono font-medium">
+              {readiness != null ? formatNum(readiness, 0) : "—"}
+            </span>
+            {ttPass ? (
+              <span
+                className="rounded bg-muted px-1 text-[10px] text-muted-foreground"
+                title="8/8 trend-template pass"
+                data-testid="sepa-trend-template"
+              >
+                8/8 ✓
+              </span>
+            ) : null}
+          </span>
+        );
+      },
+    },
+    {
+      key: "trade",
+      header: <span className="sr-only">Trade</span>,
+      labelMobile: "Action",
+      align: "right",
+      primary: true,
+      render: (r) => (
+        <Link
+          href={`/trade?view=desk&symbol=${encodeURIComponent(r.symbol)}&side=${suggestedSide(r.state)}${accountId ? `&account=${encodeURIComponent(accountId)}` : ""}`}
+          data-testid="manual-trade-from-signal"
+          data-symbol={r.symbol}
+          data-side={suggestedSide(r.state)}
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+        >
+          Trade
+        </Link>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-3" data-testid="sepa-table" data-row-count={sorted.length}>
       <div className="flex items-center justify-between gap-2">
@@ -200,132 +387,26 @@ export function SepaTable({
           Download CSV
         </Button>
       </div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <SortHead k="symbol" label="Symbol" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-            <SortHead k="proximity" label="%→Pivot" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Signed distance to the pivot (buy zone: 0..2%)" />
-            <SortHead k="pivot" label="Pivot" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
-            <SortHead k="stop" label="Stop" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
-            <SortHead k="risk" label="Risk%" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
-            <SortHead k="rs" label="RS" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Relative-strength rank (1..99)" />
-            <SortHead k="off_high" label="%off 52wk-hi" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
-            <TableHead title="Base depth% / age (days)">Base</TableHead>
-            <SortHead k="vol" label="Vol" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Volume ratio vs average" />
-            <SortHead k="readiness" label="Readiness" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" title="Buy-readiness score (0..100)" />
-            <TableHead className="text-right" />
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {sorted.map((r) => {
-            const i = r.intent;
-            const prox = num(i, "proximity_to_trigger_pct");
-            const pivot = num(i, "pivot_price");
-            const stop = num(i, "stop_price");
-            const risk = num(i, "risk_pct");
-            const rs = num(i, "rs_rank");
-            const offHigh = num(i, "pct_off_52wk_high");
-            const depth = num(i, "base_depth_pct");
-            const age = num(i, "base_age_days");
-            const vol = num(i, "vol_ratio");
-            const readiness = num(i, "buy_readiness");
-            const ttPass = bool(i, "trend_template_pass") === true;
-            const buyZone = inBuyZone(prox);
-
-            // Base column: "depth% · age d" or "—" when neither is computed.
-            const base =
-              depth == null && age == null
-                ? "—"
-                : `${depth != null ? `${formatNum(depth, 1)}%` : "—"} · ${age != null ? `${Math.round(age)}d` : "—"}`;
-
-            return (
-              <TableRow
-                key={r.symbol}
-                data-testid="live-watchlist-row"
-                data-symbol={r.symbol}
-                data-buy-zone={buyZone ? "true" : "false"}
-                data-readiness={readiness ?? ""}
-                className={cn(
-                  buyZone &&
-                    "bg-emerald-500/10 hover:bg-emerald-500/15 dark:bg-emerald-500/10",
-                )}
-              >
-                <TableCell className="font-mono font-medium">
-                  <span className="flex items-center gap-1.5">
-                    {r.symbol}
-                    {buyZone ? (
-                      <span
-                        className="rounded bg-emerald-500/20 px-1 text-[10px] font-semibold uppercase text-emerald-700 dark:text-emerald-300"
-                        data-testid="sepa-buy-zone-tag"
-                      >
-                        buy zone
-                      </span>
-                    ) : null}
-                  </span>
-                </TableCell>
-                <TableCell
-                  className={cn(
-                    "text-right font-mono",
-                    buyZone && "font-semibold text-emerald-700 dark:text-emerald-300",
-                  )}
-                >
-                  {prox != null ? `${prox > 0 ? "+" : ""}${formatNum(prox, 1)}%` : "—"}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {pivot != null ? formatMoney(pivot) : "—"}
-                </TableCell>
-                <TableCell className="text-right font-mono text-muted-foreground">
-                  {stop != null ? formatMoney(stop) : "—"}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {risk != null ? `${formatNum(risk, 1)}%` : "—"}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {rs != null ? Math.round(rs) : "—"}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {offHigh != null ? `${formatNum(offHigh, 1)}%` : "—"}
-                </TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground">
-                  {base}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {vol != null ? `${formatNum(vol, 2)}×` : "—"}
-                </TableCell>
-                <TableCell className="text-right">
-                  {/* Buy-readiness, the default sort. The saturated 8/8 trend-
-                      template pass is shown as a de-emphasized check, NOT 100.0. */}
-                  <span className="flex items-center justify-end gap-1.5">
-                    <span className="font-mono font-medium">
-                      {readiness != null ? formatNum(readiness, 0) : "—"}
-                    </span>
-                    {ttPass ? (
-                      <span
-                        className="rounded bg-muted px-1 text-[10px] text-muted-foreground"
-                        title="8/8 trend-template pass"
-                        data-testid="sepa-trend-template"
-                      >
-                        8/8 ✓
-                      </span>
-                    ) : null}
-                  </span>
-                </TableCell>
-                <TableCell className="text-right">
-                  <Link
-                    href={`/paper?view=desk&symbol=${encodeURIComponent(r.symbol)}&side=${suggestedSide(r.state)}${accountId ? `&account=${encodeURIComponent(accountId)}` : ""}`}
-                    data-testid="manual-trade-from-signal"
-                    data-symbol={r.symbol}
-                    data-side={suggestedSide(r.state)}
-                    className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-                  >
-                    Trade
-                  </Link>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+      <ResponsiveTable
+        columns={columns}
+        rows={sorted}
+        rowKey={(r) => r.symbol}
+        rowTestId={() => "live-watchlist-row"}
+        rowAttrs={(r) => {
+          const readiness = num(r.intent, "buy_readiness");
+          const buyZone = inBuyZone(num(r.intent, "proximity_to_trigger_pct"));
+          return {
+            "data-symbol": r.symbol,
+            "data-buy-zone": buyZone ? "true" : "false",
+            "data-readiness": readiness != null ? String(readiness) : "",
+          };
+        }}
+        rowClassName={(r) =>
+          inBuyZone(num(r.intent, "proximity_to_trigger_pct"))
+            ? "bg-emerald-500/10 hover:bg-emerald-500/15 dark:bg-emerald-500/10"
+            : undefined
+        }
+      />
     </div>
   );
 }

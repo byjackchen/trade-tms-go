@@ -26,7 +26,7 @@ test.describe("data coverage matches DB ground truth", () => {
     });
 
     // 2. Load the Data page and wait for the coverage table to populate.
-    await page.goto("/data");
+    await page.goto("/systems?tab=data");
     const coverage = page.getByTestId("coverage-table");
     await expect(coverage).toBeVisible();
 
@@ -56,7 +56,7 @@ test.describe("data coverage matches DB ground truth", () => {
   test("the bars_daily row exposes gap detection + an inspect action", async ({
     page,
   }) => {
-    await page.goto("/data");
+    await page.goto("/systems?tab=data");
     const bars = page.getByTestId("coverage-row-bars_daily");
     await expect(bars).toBeVisible();
 

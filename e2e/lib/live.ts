@@ -1,8 +1,10 @@
 /**
  * Trade cockpit e2e helpers (P5).
  *
- * Post-restructure the cockpit is the trade module, mounted at /paper (sim book)
- * and /live (real book) — the old /trade route now 301-redirects to /paper. It
+ * Post-restructure the cockpit is the UNIFIED trade module, mounted at the single
+ * /trade route (docs/concept-alignment.md §3.4: ONE <TradeModule> whose bound
+ * account — paper|live — is chosen by the top-right account selector). The former
+ * /paper and /live routes now 301-redirect to /trade. It
  * is the read surface over the trade node: signal intents streaming in over the
  * WS (bridged from Redis, durable truth in tms.signal_intents), portfolio health
  * + session state, the watchlist (tracked universe), and the audited control
@@ -56,24 +58,23 @@ export const INTENT_STATES = [
 /**
  * True once the trade module (the post-restructure cockpit) is rendered.
  *
- * Post-restructure (docs/concept-alignment.md): the old `/trade` cockpit was
- * replaced by the two <TradeModule> mounts at `/paper` (sim book) and `/live`
- * (real book). The default "is the cockpit ready" target is `/paper` — it has a
- * bound paper account, whereas `/live` has no real account registered and is
- * empty. The module's ready signal is the `paper-header` testid (rendered by
- * both the Portfolio and Desk views of the paper module — ui/src/components/
+ * Post-restructure (docs/concept-alignment.md §3.4): the old `/trade` cockpit and
+ * the interim `/paper` + `/live` split collapsed into ONE unified <TradeModule>
+ * at the single `/trade` route, whose bound account (paper|live) is chosen by the
+ * top-right account selector. The module's ready signal is the `trade-header`
+ * testid (rendered by both the Portfolio and Desk views — ui/src/components/
  * portfolio/trade-module.tsx). Returns false when the app-shell or the module
  * header never appears (route not built / not implemented).
  */
 export async function liveUiReady(page: Page): Promise<boolean> {
-  await page.goto("/paper", { waitUntil: "domcontentloaded" });
+  await page.goto("/trade", { waitUntil: "domcontentloaded" });
   const shell = page.getByTestId("app-shell");
   try {
     await shell.waitFor({ state: "visible", timeout: 15_000 });
   } catch {
     return false;
   }
-  const header = page.getByTestId("paper-header");
+  const header = page.getByTestId("trade-header");
   try {
     await header.waitFor({ state: "visible", timeout: 15_000 });
     return true;
@@ -325,15 +326,15 @@ export async function manualSyncAvailable(): Promise<boolean> {
 
 /**
  * True once the MANUAL trading desk is rendered. Post-restructure the desk is
- * the Desk view of the trade module, reached via `/paper?view=desk` (the old
- * `/trade/desk` route now 301-redirects to `/paper`). Its root testid
- * (`manual-desk`) is rendered by <ManualDesk> when the module's `?view=desk`
- * sub-nav is active (ui/src/components/portfolio/trade-module.tsx +
+ * the Desk view of the unified trade module, reached via `/trade?view=desk` (the
+ * old `/trade/desk` and `/paper?view=desk` routes now 301-redirect to `/trade`).
+ * Its root testid (`manual-desk`) is rendered by <ManualDesk> when the module's
+ * `?view=desk` sub-nav is active (ui/src/components/portfolio/trade-module.tsx +
  * desk/manual-desk.tsx). Returns false when the app-shell or the desk root never
  * appears (route not built / not implemented).
  */
 export async function manualDeskUiReady(page: Page): Promise<boolean> {
-  await page.goto("/paper?view=desk", { waitUntil: "domcontentloaded" });
+  await page.goto("/trade?view=desk", { waitUntil: "domcontentloaded" });
   const shell = page.getByTestId("app-shell");
   try {
     await shell.waitFor({ state: "visible", timeout: 15_000 });

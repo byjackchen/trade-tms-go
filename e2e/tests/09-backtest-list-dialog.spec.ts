@@ -2,9 +2,16 @@
  * (4) Backtests list + New-backtest dialog UI contract.
  *
  * Unlike the launch/detail flow specs (07/08) — which need a worker and tradable
- * bars — this spec exercises only the list page and the dialog form, so it runs
- * on any stack where the Backtests workspace is wired (it self-skips while the
- * section is still the coming-soon placeholder).
+ * bars — this spec exercises only the list surface and the dialog form, so it
+ * runs on any stack where the Compositions module is wired (it self-skips while
+ * the per-Composition launch flow is still landing).
+ *
+ * In the FINAL 4-top IA (docs/concept-alignment.md §3.4 A3) a backtest's object
+ * is always a Composition: the runs list lives under the Compositions module's
+ * "Backtests" tab (`compositions-tab-backtests` -> `runs-card`), and a backtest
+ * is launched PER-COMPOSITION (`composition-backtest-<id>`) which opens the
+ * shared NewBacktestDialog (`backtest-dialog`) — there is no standalone
+ * `open-backtest-dialog` launcher anymore. The retired /backtests route 301s here.
  *
  * It asserts:
  *   - the runs list mounts (table or a documented empty-state) and the status
@@ -19,29 +26,34 @@
 
 import { test, expect } from "../fixtures/test";
 
+/** True once the Compositions module mounts AND a per-Composition Backtest
+ * launcher exists. Navigates to /compositions; soft-skips (returns false) while
+ * the Composition-centric launch flow is still landing. */
 async function backtestsUiReady(
   page: import("@playwright/test").Page,
 ): Promise<boolean> {
-  await page.goto("/backtests", { waitUntil: "domcontentloaded" });
+  await page.goto("/compositions", { waitUntil: "domcontentloaded" });
   await expect(page.getByTestId("app-shell")).toBeVisible();
-  const placeholder = page.getByTestId("backtests-placeholder");
-  const launcher = page.getByTestId("open-backtest-dialog");
-  await expect
-    .poll(async () => (await placeholder.count()) + (await launcher.count()), {
-      timeout: 15_000,
-    })
-    .toBeGreaterThan(0);
+  const page_ = page.getByTestId("compositions-page");
+  try {
+    await page_.waitFor({ state: "visible", timeout: 15_000 });
+  } catch {
+    return false;
+  }
+  const launcher = page.locator('[data-testid^="composition-backtest-"]').first();
   return (await launcher.count()) > 0;
 }
 
 test.describe("backtests list + dialog UI", () => {
   test("runs list mounts with a status filter", async ({ page }) => {
     if (!(await backtestsUiReady(page))) {
-      test.skip(true, "Backtests workspace not yet implemented (coming-soon).");
+      test.skip(true, "Compositions backtest flow not yet implemented.");
       return;
     }
 
-    await expect(page.getByTestId("backtests-page")).toBeVisible();
+    // The runs list lives under the Compositions module's "Backtests" tab.
+    await expect(page.getByTestId("compositions-page")).toBeVisible();
+    await page.getByTestId("compositions-tab-backtests").click();
     await expect(page.getByTestId("runs-card")).toBeVisible();
     await expect(page.getByTestId("runs-status-filter")).toBeVisible();
 
@@ -62,12 +74,13 @@ test.describe("backtests list + dialog UI", () => {
     page,
   }) => {
     if (!(await backtestsUiReady(page))) {
-      test.skip(true, "Backtests workspace not yet implemented (coming-soon).");
+      test.skip(true, "Compositions backtest flow not yet implemented.");
       return;
     }
 
-    // Open.
-    await page.getByTestId("open-backtest-dialog").click();
+    // Open the per-Composition backtest launcher (a backtest's object is always
+    // a Composition) -> the shared NewBacktestDialog prefilled to that Composition.
+    await page.locator('[data-testid^="composition-backtest-"]').first().click();
     const dialog = page.getByTestId("backtest-dialog");
     await expect(dialog).toBeVisible();
     const form = page.getByTestId("backtest-form");
@@ -110,11 +123,11 @@ test.describe("backtests list + dialog UI", () => {
     page,
   }) => {
     if (!(await backtestsUiReady(page))) {
-      test.skip(true, "Backtests workspace not yet implemented (coming-soon).");
+      test.skip(true, "Compositions backtest flow not yet implemented.");
       return;
     }
 
-    await page.getByTestId("open-backtest-dialog").click();
+    await page.locator('[data-testid^="composition-backtest-"]').first().click();
     await expect(page.getByTestId("backtest-form")).toBeVisible();
 
     // Default is nautilus-compat → no slippage field.

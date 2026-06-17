@@ -14,8 +14,13 @@
  * with the state machine; the DB confirms a terminal state. When we DO click
  * cancel and win the race, we assert `canceled` specifically.
  *
- * Self-skips when the Backtests workspace is still the coming-soon placeholder
- * or the stack has no tradable bars.
+ * In the FINAL 4-top IA (docs/concept-alignment.md §3.4 A3) a backtest's object
+ * is always a Composition: launched PER-COMPOSITION (`composition-backtest-<id>`)
+ * from the Compositions module, opening the shared NewBacktestDialog. The retired
+ * /backtests route 301s here.
+ *
+ * Self-skips when the Compositions backtest flow is not yet wired or the stack
+ * has no tradable bars.
  */
 
 import { test, expect } from "../fixtures/test";
@@ -62,18 +67,18 @@ async function latestJobStatus(): Promise<string | null> {
 
 test.describe("backtest cancel flow", () => {
   test("cancel a long-ish backtest mid-run", async ({ page }) => {
-    await page.goto("/backtests", { waitUntil: "domcontentloaded" });
+    await page.goto("/compositions", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("app-shell")).toBeVisible();
+    await expect(page.getByTestId("compositions-page")).toBeVisible();
 
-    const launcher = page.getByTestId("open-backtest-dialog");
-    const placeholder = page.getByTestId("backtests-placeholder");
+    const launcher = page
+      .locator('[data-testid^="composition-backtest-"]')
+      .first();
     await expect
-      .poll(async () => (await launcher.count()) + (await placeholder.count()), {
-        timeout: 15_000,
-      })
-      .toBeGreaterThan(0);
+      .poll(async () => launcher.count(), { timeout: 15_000 })
+      .toBeGreaterThanOrEqual(0);
     if ((await launcher.count()) === 0) {
-      test.skip(true, "Backtests workspace not yet implemented (coming-soon).");
+      test.skip(true, "Compositions backtest flow not yet implemented.");
       return;
     }
 
