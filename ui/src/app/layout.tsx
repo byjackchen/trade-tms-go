@@ -31,9 +31,13 @@ export const metadata: Metadata = {
 // Mobile feature set (LOCKED DECISION 2) needs a real responsive viewport so the
 // mobile shell measures device-width, not a zoomed-out desktop canvas.
 // themeColor tints the mobile browser/standalone status bar (PWA).
+// viewportFit:"cover" lets the app draw under the notch/home-indicator AND is
+// what makes the `env(safe-area-inset-*)` values non-zero — the bottom tab bar
+// relies on the bottom inset to clear the iOS home-swipe bar.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  viewportFit: "cover",
   themeColor: "#0f172a",
 };
 

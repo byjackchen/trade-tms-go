@@ -1,30 +1,34 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Monitor, Smartphone, Sparkles } from "lucide-react";
+import { Monitor, Smartphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUiMode } from "@/components/shell/ui-mode-provider";
-import type { UiModePref } from "@/lib/ui-mode";
+import type { UiMode } from "@/lib/ui-mode";
 
+// Only the two explicit surfaces are selectable. There is no "Auto" button:
+// with no stored preference the mode is auto-resolved from the device, and the
+// moment the user picks Desktop/Mobile that choice is remembered (cookie). The
+// active segment tracks the *resolved* mode, so on a phone "Mobile" lights up
+// even before any manual pick.
 const OPTIONS: {
-  pref: UiModePref;
+  pref: UiMode;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
   { pref: "desktop", label: "Desktop", icon: Monitor },
   { pref: "mobile", label: "Mobile", icon: Smartphone },
-  { pref: "auto", label: "Auto", icon: Sparkles },
 ];
 
 /**
- * A compact desktop / mobile / auto segmented control. Selecting an option sets
- * the `ui-mode` preference (persisted to the cookie by the provider) and calls
- * `router.refresh()` so the server re-seeds `<html data-ui-mode>` from the new
- * cookie — keeping SSR and CSR in agreement on the very next render.
+ * A compact desktop / mobile segmented control (top utility bar on desktop, app
+ * bar on mobile). Selecting an option sets the `ui-mode` preference (persisted
+ * to the cookie by the provider) and calls `router.refresh()` so the server
+ * re-seeds `<html data-ui-mode>` from the new cookie — keeping SSR and CSR in
+ * agreement on the very next render.
  *
- * Lives in `components/shell` because both shells will host it (app bar on
- * mobile, sidebar footer on desktop). Wiring into MobileShell/Sidebar lands in
- * a later phase; for now it is exported and self-contained.
+ * There is no explicit "auto" segment: an unset preference auto-resolves from
+ * the device, and a manual pick is what gets remembered (LOCKED DECISION 3/4).
  */
 export function ModeToggle({
   className,
@@ -47,10 +51,10 @@ export function ModeToggle({
    */
   fullWidth?: boolean;
 }) {
-  const { pref, setPref } = useUiMode();
+  const { mode, pref, setPref } = useUiMode();
   const router = useRouter();
 
-  const choose = (next: UiModePref) => {
+  const choose = (next: UiMode) => {
     if (next !== pref) {
       setPref(next);
       // Re-seed the server-rendered <html data-ui-mode>; the cookie was just
@@ -72,7 +76,9 @@ export function ModeToggle({
     >
       {OPTIONS.map((o) => {
         const Icon = o.icon;
-        const active = pref === o.pref;
+        // Highlight the RESOLVED surface (so device-auto shows the right one),
+        // not the stored preference (which may be unset/auto).
+        const active = mode === o.pref;
         return (
           <button
             key={o.pref}
