@@ -29,6 +29,7 @@ const OPTIONS: {
 export function ModeToggle({
   className,
   iconOnly = false,
+  fullWidth = false,
 }: {
   className?: string;
   /**
@@ -38,6 +39,13 @@ export function ModeToggle({
    * reveal all three labels and overflow the bar — LOCKED DECISION 4).
    */
   iconOnly?: boolean;
+  /**
+   * Stretch the control to fill its container with three EQUAL-width segments
+   * (each `flex-1`) instead of the compact inline group. The desktop sidebar
+   * footer passes this so the three options divide the row evenly and line up
+   * with the theme-toggle row below, rather than spreading unevenly.
+   */
+  fullWidth?: boolean;
 }) {
   const { pref, setPref } = useUiMode();
   const router = useRouter();
@@ -57,7 +65,8 @@ export function ModeToggle({
       aria-label="Display mode"
       data-testid="mode-toggle"
       className={cn(
-        "inline-flex items-center gap-0.5 rounded-lg border border-border bg-background p-0.5",
+        "items-center gap-0.5 rounded-lg border border-border bg-background p-0.5",
+        fullWidth ? "flex w-full" : "inline-flex",
         className,
       )}
     >
@@ -77,6 +86,7 @@ export function ModeToggle({
             onClick={() => choose(o.pref)}
             className={cn(
               "inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors",
+              fullWidth && "flex-1",
               active
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",

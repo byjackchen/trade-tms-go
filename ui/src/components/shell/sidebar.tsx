@@ -58,7 +58,7 @@ export function Sidebar() {
         {/* The explicit display-mode toggle (desktop|mobile|auto). Mounted here
             so a desktop user has an in-app path to force the mobile shell —
             LOCKED DECISION 4; the cookie/provider/refresh path already works. */}
-        <ModeToggle className="w-full justify-between" />
+        <ModeToggle fullWidth />
         <ThemeToggle />
       </div>
     </aside>
