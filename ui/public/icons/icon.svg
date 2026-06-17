@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#0f172a"/>
+  <!-- candlestick chart glyph (within maskable safe zone) -->
+  <g stroke-linecap="round">
+    <!-- down candle (red) -->
+    <rect x="174" y="170" width="4" height="180" fill="#f87171"/>
+    <rect x="156" y="200" width="40" height="120" rx="6" fill="#f87171"/>
+    <!-- up candle (emerald) -->
+    <rect x="254" y="130" width="4" height="200" fill="#34d399"/>
+    <rect x="236" y="160" width="40" height="140" rx="6" fill="#34d399"/>
+    <!-- up candle (emerald) -->
+    <rect x="334" y="180" width="4" height="180" fill="#34d399"/>
+    <rect x="316" y="210" width="40" height="120" rx="6" fill="#34d399"/>
+  </g>
+  <text x="256" y="430" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="86" font-weight="700" fill="#e2e8f0" text-anchor="middle" letter-spacing="6">tms</text>
+</svg>
