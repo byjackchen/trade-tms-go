@@ -109,7 +109,7 @@ The live node publishes custom Data types to stream keys with a **literal `*` ch
 | `data.MarketCapUpdate` | FundamentalsActor (multi-ticker, one stream) | MarketCapUpdatePayload |
 | `data.EarningsBlackoutUpdate` | EarningsActor (multi-ticker; publishes on transitions + first observation) | EarningsBlackoutUpdatePayload |
 | `data.StrategyStateUpdate` | BaseSignalRunner per bar (all strategies interleaved) | StrategyStateUpdatePayload |
-| `data.SignalIntentUpdate` | BaseSignalRunner | outer `{strategy_id, symbol, intent_json, ts_event, ts_init}` |
+| `data.SignalUpdate` | BaseSignalRunner | outer `{strategy_id, symbol, signal_json, ts_event, ts_init}` |
 | `data.QuoteUpdate` | QuoteActor | QuoteUpdate wire (§5.10) |
 | `data.PortfolioHealthUpdate` | PortfolioHealthActor (V3-C) | PortfolioHealthUpdate wire (§5.11) |
 | `data.DataIngestionUpdate` | SharadarHealthActor per SPY heartbeat (live only) | DataIngestionPayload |
@@ -191,10 +191,10 @@ Algorithm:
 
 ### 3.9 `GET /api/live/signals[?strategy=<id>]`
 
- Reads up to **2000** newest-first entries of `data.SignalIntentUpdate`.
+ Reads up to **2000** newest-first entries of `data.SignalUpdate`.
 - Skip entries missing/empty `strategy_id` or `symbol` (falsy check). Optional `?strategy=` filters on exact outer `strategy_id`. Dedup key = `(symbol, strategy_id)`, first-seen wins.
-- The kept value is the **unwrapped** `intent_json` (JSON-parse if string, else as-is; default `""` if absent). Unparseable `intent_json` → **immediate** 502 `"intent_json not parseable for {sym}/{sid}: {err}"` (aborts whole response).
-- All unwrapped rows are validated against the discriminated union `SignalIntentUnion` (discriminator field `strategy_id` ∈ `sepa|pairs|sector_rotation|intraday_breakout`, §5.9). Any failure → 502 `"Malformed signal payload: <err>"`. Unknown discriminator value rejects (test).
+- The kept value is the **unwrapped** `signal_json` (JSON-parse if string, else as-is; default `""` if absent). Unparseable `signal_json` → **immediate** 502 `"signal_json not parseable for {sym}/{sid}: {err}"` (aborts whole response).
+- All unwrapped rows are validated against the discriminated union `SignalUnion` (discriminator field `strategy_id` ∈ `sepa|pairs|sector_rotation|intraday_breakout`, §5.9). Any failure → 502 `"Malformed signal payload: <err>"`. Unknown discriminator value rejects (test).
 
 ### 3.10 `GET /api/live/portfolio-health`
 
@@ -357,7 +357,7 @@ All use `stream_to_websocket` over `AsyncRedisStreamSubscriber`:
 | `/api/live/stream/fills/{instrument_id}` | `events.fills.{instrument_id}` |
 | `/api/live/stream/regime` | `data.RegimeUpdate` |
 | `/api/live/stream/quotes` | `data.QuoteUpdate` |
-| `/api/live/stream/signals` | `data.SignalIntentUpdate` |
+| `/api/live/stream/signals` | `data.SignalUpdate` |
 | `/api/live/stream/strategy-state` | `data.StrategyStateUpdate` |
 | `/api/live/stream/portfolio-health` | `data.PortfolioHealthUpdate` |
 | `/api/live/stream/data-ingestion` | `data.DataIngestionUpdate` |
@@ -418,7 +418,7 @@ Protocol:
 
 ### 5.8 StrategyStateUpdatePayload: `strategy_id: str`, `state_json: str` (opaque JSON), `ts_event: int`, `ts_init: int`.
 
-### 5.9 SignalIntent discriminated union
+### 5.9 Signal discriminated union
 
 Shared base fields (all variants): `symbol: str`; `strategy_id` (discriminator); `state` ∈ `no_setup|forming|buy|hold|exit|stop_hit`; `strength: float` constrained **0 ≤ x ≤ 100** (validation error outside range → endpoint 502); `proximity_to_trigger_pct: float|null` (default null); `updated_at: datetime` (ISO 8601 in JSON); `generation: int ≥ 0`.
 

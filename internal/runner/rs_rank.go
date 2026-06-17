@@ -10,7 +10,7 @@ package runner
 //     across the universe into [1,99] (indicators.RSRawScore + RSRankUniverse);
 //  3. stamps rs_rank onto each SEPA intent for that as_of AND recomputes the
 //     buy_readiness composite (which depends on RS) — both written into the
-//     signal_intents.intent JSONB — in one batched UPDATE pass.
+//     signals.signal JSONB — in one batched UPDATE pass.
 //
 // This makes every forming signal rankable on the watchlist.
 
@@ -101,8 +101,8 @@ func applyRSRanks(ctx context.Context, pool *pgxpool.Pool, asOf time.Time, ranks
 		symbols = append(symbols, s)
 	}
 	rows, err := pool.Query(ctx, `
-		SELECT symbol, intent
-		  FROM tms.signal_intents
+		SELECT symbol, signal
+		  FROM tms.signals
 		 WHERE strategy_id = 'sepa' AND as_of = $1 AND symbol = ANY($2)`,
 		asOf.UTC(), symbols)
 	if err != nil {
@@ -143,8 +143,8 @@ func applyRSRanks(ctx context.Context, pool *pgxpool.Pool, asOf time.Time, ranks
 			return 0, fmt.Errorf("eod: rs-rank marshal %s: %w", p.symbol, merr)
 		}
 		batch.Queue(`
-			UPDATE tms.signal_intents
-			   SET intent = $3::jsonb
+			UPDATE tms.signals
+			   SET signal = $3::jsonb
 			 WHERE strategy_id = 'sepa' AND as_of = $1 AND symbol = $2`,
 			asOf.UTC(), p.symbol, string(body))
 	}

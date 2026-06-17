@@ -51,7 +51,7 @@ type tradeTopic struct {
 // tradeTopics is the set of trade stream topics the bridge tails.
 func tradeTopics() []tradeTopic {
 	return []tradeTopic{
-		{publish.TopicSignalIntent, WSTypeSignalIntent},
+		{publish.TopicSignal, WSTypeSignalIntent},
 		{publish.TopicStrategyState, WSTypeStrategyState},
 		{publish.TopicPortfolioHealth, WSTypePortfolioHealth},
 		{publish.TopicWatchlist, WSTypeWatchlist},

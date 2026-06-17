@@ -1,11 +1,11 @@
 package publish
 
-// store.go persists normalized signal intents into tms.signal_intents — the
+// store.go persists normalized signals into tms.signals — the
 // durable system-of-record (decision 5: PG is truth, Redis is transport). Two
 // write modes share one row shape:
 //
 //   - Append (streaming live path): one row per evaluate_intent per bar, as_of
-//     NULL — the append-only SignalIntentUpdate audit trail.
+//     NULL — the append-only SignalUpdate audit trail.
 //   - Upsert (EOD engine-replay, decision 4): as_of = the refresh date; ON
 //     CONFLICT (strategy_id, symbol, as_of) DO UPDATE so a re-run OVERWRITES
 //     rather than duplicates. Idempotency MUST hold: run twice -> same rows.
@@ -51,19 +51,19 @@ type IntentRow struct {
 
 // appendSQL inserts one streaming intent (as_of NULL, append-only).
 const appendSQL = `
-INSERT INTO tms.signal_intents
+INSERT INTO tms.signals
     (session_id, strategy_id, symbol, state, strength, proximity_to_trigger_pct,
-     generation, intent, ts_event_ns, ts, as_of)
+     generation, signal, ts_event_ns, ts, as_of)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, NULL)`
 
 // upsertSQL inserts-or-overwrites one EOD intent keyed on
 // (strategy_id, symbol, as_of). The conflict target is the partial-unique
-// index signal_intents_eod_idem_idx; a re-run UPDATES every mutable column so
+// index signals_eod_idem_idx; a re-run UPDATES every mutable column so
 // the row is byte-identical to a fresh insert (idempotency).
 const upsertSQL = `
-INSERT INTO tms.signal_intents
+INSERT INTO tms.signals
     (session_id, strategy_id, symbol, state, strength, proximity_to_trigger_pct,
-     generation, intent, ts_event_ns, ts, as_of)
+     generation, signal, ts_event_ns, ts, as_of)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
 ON CONFLICT (strategy_id, symbol, as_of) WHERE as_of IS NOT NULL
 DO UPDATE SET
@@ -72,7 +72,7 @@ DO UPDATE SET
     strength                 = EXCLUDED.strength,
     proximity_to_trigger_pct = EXCLUDED.proximity_to_trigger_pct,
     generation               = EXCLUDED.generation,
-    intent                   = EXCLUDED.intent,
+    signal                   = EXCLUDED.signal,
     ts_event_ns              = EXCLUDED.ts_event_ns,
     ts                       = EXCLUDED.ts`
 
@@ -106,7 +106,7 @@ func UpsertTx(ctx context.Context, tx pgx.Tx, row IntentRow) error {
 
 // rowArgs builds the positional args for the append/upsert statements.
 func rowArgs(row IntentRow, upsert bool) ([]any, string, error) {
-	body, err := row.Norm.IntentJSON()
+	body, err := row.Norm.SignalJSON()
 	if err != nil {
 		return nil, "", err
 	}

@@ -9,7 +9,7 @@ package livengine
 // heartbeat (look-ahead-safe, same as backtest), (2) runs every strategy's
 // OnBar through the NoopExecutor (records would-be orders, places none), then —
 // once a timestamp's bars have all been delivered — (3) evaluates each
-// strategy's SignalIntent and emits it to the IntentSink, plus (4) a
+// strategy's SignalIntent and emits it to the SignalSink, plus (4) a
 // PortfolioHealth snapshot. Warmup priming runs once before the loop (decision
 // 3), reusing the WarmupConsumer seam exactly as engine.primeWarmup.
 //
@@ -69,7 +69,7 @@ type Config struct {
 	// daily-loss-halt headroom in signal mode (no real account exists).
 	StartingBalance domain.Money
 	// Sink receives emitted intents + health snapshots. Defaults to DiscardSink.
-	Sink IntentSink
+	Sink SignalSink
 	// EmitGate, when non-nil, gates NEW-intent emission: a timestamp's intents
 	// (and state summaries) are emitted only while EmitGate() returns true. This
 	// is the kill-switch / halt mechanism (P5 decision 6): a halt stops emitting
@@ -111,7 +111,7 @@ type Session struct {
 	// sub is the order submitter the strategies run through: the NoopExecutor under
 	// ExecSignal, or the injected GatedSubmitter under ExecAuto.
 	sub     engine.OrderSubmitter
-	sink    IntentSink
+	sink    SignalSink
 	spySym  string
 	ctxStat *riskgate.SharedContextState
 	ctxCons []engine.ContextConsumer
@@ -130,11 +130,11 @@ type Session struct {
 	haltedFlushes atomic.Int64
 }
 
-// intentEval pairs a strategy with its IntentEvaluator capability (only
+// intentEval pairs a strategy with its SignalEvaluator capability (only
 // strategies that implement it are asked for intents).
 type intentEval struct {
 	id   string
-	eval engine.IntentEvaluator
+	eval engine.SignalEvaluator
 }
 
 // stateEval pairs a strategy with its StateSummarizer capability (only
@@ -201,7 +201,7 @@ func NewSession(cfg Config) (*Session, error) {
 		if cc, ok := st.(engine.ContextConsumer); ok {
 			s.ctxCons = append(s.ctxCons, cc)
 		}
-		if ie, ok := st.(engine.IntentEvaluator); ok {
+		if ie, ok := st.(engine.SignalEvaluator); ok {
 			s.evals = append(s.evals, intentEval{id: st.ID(), eval: ie})
 		}
 		if se, ok := st.(engine.StateSummarizer); ok {
@@ -392,6 +392,12 @@ func (s *Session) flushTimestamp(ctx context.Context) error {
 	// warm — only the emission side pauses.
 	if s.cfg.EmitGate != nil && !s.cfg.EmitGate() {
 		s.haltedFlushes.Add(1)
+		// Drop (do not emit) the would-be order intents captured this timestamp:
+		// a halt suppresses NEW intents the same way it suppresses signals. The
+		// drain still happens so the buffer does not carry stale records forward.
+		if s.exec != nil {
+			s.exec.drainPending()
+		}
 		if err := s.emitHealth(ctx, asOf); err != nil {
 			return err
 		}
@@ -409,15 +415,30 @@ func (s *Session) flushTimestamp(ctx context.Context) error {
 	// Evaluate intents in strategy registration order (deterministic), matching
 	// the order the batch path would evaluate them.
 	for _, ie := range s.evals {
-		payload := ie.eval.EvaluateIntentJSON(asOf)
-		if err := s.sink.EmitIntent(ctx, IntentRecord{
+		payload := ie.eval.EvaluateSignalJSON(asOf)
+		if err := s.sink.EmitSignal(ctx, SignalRecord{
 			StrategyID: ie.id,
 			AsOf:       asOf,
 			Payload:    payload,
 		}); err != nil {
-			return fmt.Errorf("livengine: emit intent %s@%s: %w", ie.id, asOf, err)
+			return fmt.Errorf("livengine: emit signal %s@%s: %w", ie.id, asOf, err)
 		}
 		s.emitted.Add(1)
+	}
+	// Would-be order intents (concept B), PARALLEL to signal emission: drain the
+	// NoopExecutor's captured intents for this timestamp and emit each to the sink
+	// when it opts into the IntentSink capability (MemSink does; DiscardSink's
+	// EmitIntent is a no-op). Only signal mode has a NoopExecutor (s.exec); under
+	// ExecAuto the would-be orders become real orders, so there is nothing to drain.
+	if s.exec != nil {
+		intents := s.exec.drainPending()
+		if is, ok := s.sink.(IntentSink); ok {
+			for _, rec := range intents {
+				if err := is.EmitIntent(ctx, rec); err != nil {
+					return fmt.Errorf("livengine: emit intent %s %s@%s: %w", rec.StrategyID, rec.Symbol, asOf, err)
+				}
+			}
+		}
 	}
 	// State summaries (StrategyStateUpdate, §5.8): emitted only when the sink
 	// opts in via StateEmitter (DB/Redis sink does; MemSink/DiscardSink do not).
@@ -478,8 +499,8 @@ func (s *Session) emitHealth(ctx context.Context, asOf time.Time) error {
 	return nil
 }
 
-// EmittedIntents returns the count of intents emitted so far (telemetry).
-func (s *Session) EmittedIntents() int { return int(s.emitted.Load()) }
+// EmittedSignals returns the count of intents emitted so far (telemetry).
+func (s *Session) EmittedSignals() int { return int(s.emitted.Load()) }
 
 // BarsSeen returns the count of bars processed so far (telemetry).
 func (s *Session) BarsSeen() int { return int(s.barsSeen.Load()) }

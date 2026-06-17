@@ -165,7 +165,7 @@ func TestAdapterCapabilitySeams(t *testing.T) {
 	a := mkAdapter(t)
 	now := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	intents := a.EvaluateIntentJSON(now)
+	intents := a.EvaluateSignalJSON(now)
 	if _, err := json.Marshal(intents); err != nil {
 		t.Errorf("intents not JSON-serializable: %v", err)
 	}

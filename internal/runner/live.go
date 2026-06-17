@@ -3,7 +3,7 @@ package runner
 // live.go is the live trading node orchestration (P5 decision 1/2/3/5/6): it
 // wires the native moomoo OpenD client (or mock, by TMS_MOOMOO_ADDR) -> a
 // streaming MoomooFeed -> a livengine.Session (signal mode, NoopExecutor) ->
-// the publish Sink (PG signal_intents append + Redis streams), under the
+// the publish Sink (PG signals append + Redis streams), under the
 // ops.commands control plane (halt/resume/kill/stop/set_mode) with full audit.
 //
 // The node is a SUPERVISOR over a session: it runs one session, and on a
@@ -787,7 +787,7 @@ func (l *Live) buildRunnable(ctx context.Context, mode string, as *Assembled, wa
 		Halt:          l.halt,
 		Risk:          persist,
 		NAV:           startMoney,
-		IntentSink:    sink,
+		SignalSink:    sink,
 		EmitGate:      l.halt.Emitting,
 		StateStore:    persist,
 		HealthSink:    persist,

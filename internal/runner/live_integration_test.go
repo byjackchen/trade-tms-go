@@ -24,7 +24,7 @@ import (
 
 // buildSectorSession assembles a signal-mode sector_rotation session writing to
 // sink, gated by emitGate (nil = always emit).
-func buildSectorSession(t *testing.T, sink livengine.IntentSink, emitGate func() bool) *livengine.Session {
+func buildSectorSession(t *testing.T, sink livengine.SignalSink, emitGate func() bool) *livengine.Session {
 	t.Helper()
 	sectorComposition, err := composition.Seed("sector-only")
 	require.NoError(t, err)
@@ -73,13 +73,13 @@ func countAppendRows(t *testing.T, pool *pgxpool.Pool) int {
 	defer cancel()
 	var n int
 	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT count(*) FROM tms.signal_intents WHERE as_of IS NULL`).Scan(&n))
+		`SELECT count(*) FROM tms.signals WHERE as_of IS NULL`).Scan(&n))
 	return n
 }
 
 // TestSignalSessionAppendsToDB drives a streaming signal session over a
 // SliceStreamFeed (virtual clock) through the runner.Sink (DB append) and proves
-// intents land in tms.signal_intents (as_of NULL, append-only).
+// intents land in tms.signals (as_of NULL, append-only).
 func TestSignalSessionAppendsToDB(t *testing.T) {
 	pool := requirePG(t)
 	ctx := testCtx(t)
@@ -101,7 +101,7 @@ func TestSignalSessionAppendsToDB(t *testing.T) {
 
 	rows := countAppendRows(t, pool)
 	assert.Positive(t, rows, "streaming session should append intent rows to PG")
-	assert.Equal(t, sink.IntentRows(), rows, "sink row counter matches DB")
+	assert.Equal(t, sink.SignalRows(), rows, "sink row counter matches DB")
 }
 
 // TestHaltStopsNewIntents proves the EmitGate (halt) suppresses NEW-intent

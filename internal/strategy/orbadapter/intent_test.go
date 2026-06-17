@@ -11,7 +11,7 @@ import (
 
 // TestNormalizeIntentWireShape proves the relocated orbadapter.NormalizeIntent
 // converts a pure orb.SignalIntent (no json tags) to the spec-faithful
-// snake_case domain.IntradayBreakoutIntent wire shape — the coverage formerly in
+// snake_case domain.IntradayBreakoutSignal wire shape — the coverage formerly in
 // publish (modularization-review.md §E3).
 func TestNormalizeIntentWireShape(t *testing.T) {
 	in := orb.SignalIntent{
@@ -46,10 +46,10 @@ func TestNormalizeIntentWireShape(t *testing.T) {
 	}
 }
 
-// TestEvaluateIntentJSONReturnsDomainType pins that the adapter hands publish a
-// domain.IntradayBreakoutIntent (§E3 bridge), so publish.NormalizeIntent's
+// TestEvaluateSignalJSONReturnsDomainType pins that the adapter hands publish a
+// domain.IntradayBreakoutSignal (§E3 bridge), so publish.NormalizeIntent's
 // domain-only switch accepts it.
-func TestEvaluateIntentJSONReturnsDomainType(t *testing.T) {
+func TestEvaluateSignalJSONReturnsDomainType(t *testing.T) {
 	gen, err := orb.New(orb.Config{
 		Symbol: "MSFT", EquityProvider: func() float64 { return 100000 },
 		RiskPct: 1.0, RangeMinutes: 30, VolMultiple: 1.5, ProfitTargetR: 2.0,
@@ -62,8 +62,8 @@ func TestEvaluateIntentJSONReturnsDomainType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	v := s.EvaluateIntentJSON(time.Date(2024, 1, 1, 14, 30, 0, 0, time.UTC))
-	if _, ok := v.(domain.IntradayBreakoutIntent); !ok {
-		t.Fatalf("EvaluateIntentJSON must return domain.IntradayBreakoutIntent; got %T", v)
+	v := s.EvaluateSignalJSON(time.Date(2024, 1, 1, 14, 30, 0, 0, time.UTC))
+	if _, ok := v.(domain.IntradayBreakoutSignal); !ok {
+		t.Fatalf("EvaluateSignalJSON must return domain.IntradayBreakoutSignal; got %T", v)
 	}
 }

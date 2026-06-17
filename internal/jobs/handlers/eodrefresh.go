@@ -2,7 +2,7 @@ package handlers
 
 // eodrefresh.go is the "eod.refresh" job handler: it runs the idempotent EOD
 // engine-replay (internal/runner.EOD) for an as_of date, upserting each
-// strategy's evaluate_intent into tms.signal_intents (idempotent on
+// strategy's evaluate_intent into tms.signals (idempotent on
 // (strategy_id, symbol, as_of)) and publishing to Redis. Re-running the job for
 // the same as_of OVERWRITES the rows (no dupes) — the idempotency contract.
 
@@ -112,7 +112,7 @@ func (h *EODRefresh) Run(ctx context.Context, job *jobs.Job, report jobs.Progres
 	}
 
 	if rerr := report(ctx, map[string]any{
-		"phase": "done", "as_of": rep.AsOf, "intent_rows": rep.IntentRows, "bars": rep.BarsReplayed,
+		"phase": "done", "as_of": rep.AsOf, "intent_rows": rep.SignalRows, "bars": rep.BarsReplayed,
 	}); rerr != nil && ctx.Err() == nil {
 		h.log.Warn().Err(rerr).Msg("done progress report failed")
 	}

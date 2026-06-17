@@ -1,6 +1,6 @@
 package domain
 
-// intent.go defines the SignalIntent family: a shared core (the 6 fields +
+// intent.go defines the Signal family: a shared core (the 6 fields +
 // strategy_id common to all four strategies) plus the four strategy-specific
 // payloads (spec §2.6).
 //
@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Logical strategy IDs used INSIDE SignalIntent payloads.
+// Logical strategy IDs used INSIDE Signal payloads.
 // These are distinct from the engine-level strategy ids (e.g.
 // "SEPARunner-000") used for orders, positions and allocator keys (§7.7);
 // the two id spaces must never be conflated.
@@ -22,8 +22,10 @@ const (
 	StrategyIDIntradayBreakout = "intraday_breakout"
 )
 
-// SignalIntent is the shared head of every strategy intent (spec §2.6):
-// the UI-facing "what is the strategy thinking" snapshot.
+// SignalCore is the shared head of every strategy signal (spec §2.6):
+// the UI-facing "what is the strategy thinking" snapshot. It is embedded by
+// each strategy-specific *Signal payload below. (It is NOT the target-position
+// domain.Signal in signal.go — that is a distinct, executable target/qty type.)
 //
 //   - Strength is 0..100.
 //   - ProximityToTriggerPct is nil when not applicable.
@@ -31,7 +33,7 @@ const (
 //   - Generation is a per-generator monotonically increasing counter,
 //     incremented on every evaluate_intent call and intentionally NOT
 //     persisted (restarts reset it to 0).
-type SignalIntent struct {
+type SignalCore struct {
 	Symbol                string      `json:"symbol"`
 	State                 SignalState `json:"state"`
 	Strength              float64     `json:"strength"`
@@ -41,13 +43,13 @@ type SignalIntent struct {
 	StrategyID            string      `json:"strategy_id"`
 }
 
-// SEPASignalIntent is the SEPA strategy intent payload.
+// SEPASignal is the SEPA strategy intent payload.
 // Grade here is the integer trend-template grade 0..100 (not the letter
 // Grade). PivotPrice/StopPrice are included only when > 0, else nil.
 // RSRank is nil at generation time and stamped cross-sectionally by the EOD
 // refresh (runner/rs_rank.go).
-type SEPASignalIntent struct {
-	SignalIntent
+type SEPASignal struct {
+	SignalCore
 	Grade             int      `json:"grade"`
 	TrendTemplatePass bool     `json:"trend_template_pass"`
 	BaseAgeDays       *int     `json:"base_age_days"`
@@ -58,7 +60,7 @@ type SEPASignalIntent struct {
 	RSRank            *int     `json:"rs_rank"`
 
 	// --- Actionable trade-plan fields ----------------------------------------
-	// Persisted in the signal_intents.intent JSONB.
+	// Persisted in the signals.signal JSONB.
 	// For state=forming these are always non-null (see strategy/sepa intent.go).
 	RiskPct        *float64 `json:"risk_pct"`
 	PctOff52wkHigh *float64 `json:"pct_off_52wk_high"`
@@ -66,16 +68,16 @@ type SEPASignalIntent struct {
 	BuyReadiness   *float64 `json:"buy_readiness"`
 }
 
-// NewSEPASignalIntent returns a SEPASignalIntent with the defaults:
+// NewSEPASignal returns a SEPASignal with the defaults:
 // strategy_id "sepa", grade 0, all optionals nil.
-func NewSEPASignalIntent() SEPASignalIntent {
-	return SEPASignalIntent{SignalIntent: SignalIntent{StrategyID: StrategyIDSEPA}}
+func NewSEPASignal() SEPASignal {
+	return SEPASignal{SignalCore: SignalCore{StrategyID: StrategyIDSEPA}}
 }
 
-// PairsSignalIntent is the pairs strategy intent payload.
+// PairsSignal is the pairs strategy intent payload.
 // PairID has the format "{long_leg}/{short_leg}".
-type PairsSignalIntent struct {
-	SignalIntent
+type PairsSignal struct {
+	SignalCore
 	PairID          string  `json:"pair_id"`
 	LegRole         LegRole `json:"leg_role"`
 	ZScore          float64 `json:"z_score"`
@@ -84,11 +86,11 @@ type PairsSignalIntent struct {
 	HedgeRatio      float64 `json:"hedge_ratio"`
 }
 
-// NewPairsSignalIntent returns a PairsSignalIntent with the defaults:
+// NewPairsSignal returns a PairsSignal with the defaults:
 // strategy_id "pairs", leg_role "long", z_entry 2.0, z_exit 0.5, hedge 1.0.
-func NewPairsSignalIntent() PairsSignalIntent {
-	return PairsSignalIntent{
-		SignalIntent:    SignalIntent{StrategyID: StrategyIDPairs},
+func NewPairsSignal() PairsSignal {
+	return PairsSignal{
+		SignalCore:      SignalCore{StrategyID: StrategyIDPairs},
 		LegRole:         LegLong,
 		ZEntryThreshold: 2.0,
 		ZExitThreshold:  0.5,
@@ -102,20 +104,20 @@ func StrengthFromZ(zAbs float64) float64 {
 	return math.Min(100.0, math.Abs(zAbs)/3.0*100.0)
 }
 
-// SectorRotationIntent is the sector-rotation strategy intent payload.
+// SectorRotationSignal is the sector-rotation strategy intent payload.
 // Rank is 1-based (1 = best momentum); 0 = unranked/warming up.
-type SectorRotationIntent struct {
-	SignalIntent
+type SectorRotationSignal struct {
+	SignalCore
 	MomentumScore float64 `json:"momentum_score"`
 	Rank          int     `json:"rank"`
 	TargetWeight  float64 `json:"target_weight"`
 	CurrentWeight float64 `json:"current_weight"`
 }
 
-// NewSectorRotationIntent returns a SectorRotationIntent with the defaults:
+// NewSectorRotationSignal returns a SectorRotationSignal with the defaults:
 // strategy_id "sector_rotation", all numerics 0.
-func NewSectorRotationIntent() SectorRotationIntent {
-	return SectorRotationIntent{SignalIntent: SignalIntent{StrategyID: StrategyIDSectorRotation}}
+func NewSectorRotationSignal() SectorRotationSignal {
+	return SectorRotationSignal{SignalCore: SignalCore{StrategyID: StrategyIDSectorRotation}}
 }
 
 // StrengthFromRank maps a 1-based momentum rank to 0..100 strength (spec §2.6):
@@ -144,17 +146,17 @@ func StrengthFromRank(rank, total int) float64 {
 	return math.Max(0.0, 100.0-float64(float64(rank-1)/float64(total-1)*100.0))
 }
 
-// IntradayBreakoutIntent is the intraday-breakout strategy intent payload.
+// IntradayBreakoutSignal is the intraday-breakout strategy intent payload.
 // EntryWindowEnd is the session's EOD-exit instant converted to UTC.
-type IntradayBreakoutIntent struct {
-	SignalIntent
+type IntradayBreakoutSignal struct {
+	SignalCore
 	ORBHigh        *Price     `json:"orb_high"`
 	ORBLow         *Price     `json:"orb_low"`
 	EntryWindowEnd *time.Time `json:"entry_window_end"`
 }
 
-// NewIntradayBreakoutIntent returns an IntradayBreakoutIntent with the
+// NewIntradayBreakoutSignal returns an IntradayBreakoutSignal with the
 // defaults: strategy_id "intraday_breakout", all optionals nil.
-func NewIntradayBreakoutIntent() IntradayBreakoutIntent {
-	return IntradayBreakoutIntent{SignalIntent: SignalIntent{StrategyID: StrategyIDIntradayBreakout}}
+func NewIntradayBreakoutSignal() IntradayBreakoutSignal {
+	return IntradayBreakoutSignal{SignalCore: SignalCore{StrategyID: StrategyIDIntradayBreakout}}
 }

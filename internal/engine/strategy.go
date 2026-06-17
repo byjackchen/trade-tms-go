@@ -59,13 +59,13 @@ type Strategy interface {
 // simply not asked for it.
 // ---------------------------------------------------------------------------
 
-// IntentEvaluator is a strategy that can emit per-leg/per-name SignalIntents
+// SignalEvaluator is a strategy that can emit per-leg/per-name SignalIntents
 // for observability after a bar (read-side only; never affects trading).
-type IntentEvaluator interface {
-	// EvaluateIntentJSON returns the intents for the as-of timestamp as a
+type SignalEvaluator interface {
+	// EvaluateSignalJSON returns the intents for the as-of timestamp as a
 	// JSON-serializable value (the concrete intent slice). It must be a pure
 	// read of strategy telemetry/state.
-	EvaluateIntentJSON(asOf time.Time) any
+	EvaluateSignalJSON(asOf time.Time) any
 }
 
 // StateSummarizer is a strategy that can publish a JSON-serializable summary

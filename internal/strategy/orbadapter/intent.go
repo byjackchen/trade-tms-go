@@ -5,7 +5,7 @@ package orbadapter
 // package emits a tag-less orb.SignalIntent (kept zero-domain for byte-for-byte
 // golden output); this adapter — the only place that legitimately imports both
 // orb and domain — converts it to the canonical snake_case
-// domain.IntradayBreakoutIntent wire shape. publish therefore switches only on
+// domain.IntradayBreakoutSignal wire shape. publish therefore switches only on
 // domain types and drops its strategy/orb import.
 
 import (
@@ -14,10 +14,10 @@ import (
 )
 
 // NormalizeIntent converts the pure orb.SignalIntent into the canonical
-// domain.IntradayBreakoutIntent — formerly publish.normalizeORB. Decimal price
+// domain.IntradayBreakoutSignal — formerly publish.normalizeORB. Decimal price
 // strings ("" == nil) become *domain.Price.
-func NormalizeIntent(s orb.SignalIntent) domain.IntradayBreakoutIntent {
-	d := domain.NewIntradayBreakoutIntent()
+func NormalizeIntent(s orb.SignalIntent) domain.IntradayBreakoutSignal {
+	d := domain.NewIntradayBreakoutSignal()
 	d.Symbol = s.Symbol
 	d.State = domain.SignalState(s.State)
 	d.Strength = s.Strength

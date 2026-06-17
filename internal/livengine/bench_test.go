@@ -25,7 +25,7 @@ import (
 
 // benchStrategy is a minimal engine.Strategy that submits one market order per
 // bar (so the NoopExecutor records a would-be order) and exposes an intent via
-// the IntentEvaluator seam (so the session's per-timestamp emission path runs).
+// the SignalEvaluator seam (so the session's per-timestamp emission path runs).
 type benchStrategy struct {
 	id  string
 	sym string
@@ -46,9 +46,9 @@ func (s *benchStrategy) OnBar(sub engine.OrderSubmitter, bar domain.Bar) error {
 	return err
 }
 
-// EvaluateIntentJSON satisfies engine.IntentEvaluator so the session emits an
+// EvaluateSignalJSON satisfies engine.SignalEvaluator so the session emits an
 // intent for this strategy each timestamp.
-func (s *benchStrategy) EvaluateIntentJSON(asOf time.Time) any {
+func (s *benchStrategy) EvaluateSignalJSON(asOf time.Time) any {
 	return map[string]any{"ticker": s.sym, "side": "LONG", "as_of": asOf}
 }
 

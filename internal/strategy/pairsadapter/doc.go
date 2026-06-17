@@ -13,7 +13,7 @@
 // This package — NOT the pure pairs package — is the only place that imports
 // engine, preserving the two-layer constraint: the core strategy package never
 // imports broker/engine code. It implements the P3 capability
-// seams (IntentEvaluator, StateSummarizer, StatePersister) the engine probes by
+// seams (SignalEvaluator, StateSummarizer, StatePersister) the engine probes by
 // type assertion. Pairs consumes no per-bar context, so ContextConsumer is
 // intentionally NOT implemented.
 //

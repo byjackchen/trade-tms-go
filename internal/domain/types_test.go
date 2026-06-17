@@ -1,7 +1,7 @@
 package domain
 
 // types_test.go covers Bar, Signal, Grade/SetupInputs/GradeSetup,
-// the SignalIntent family, Order/Fill/Position and Fundamentals.
+// the Signal family, Order/Fill/Position and Fundamentals.
 
 import (
 	"encoding/json"
@@ -183,29 +183,29 @@ func TestGradeSetup(t *testing.T) {
 }
 
 func TestIntentDefaults(t *testing.T) {
-	sepa := NewSEPASignalIntent()
+	sepa := NewSEPASignal()
 	if sepa.StrategyID != "sepa" || sepa.Grade != 0 || sepa.PivotPrice != nil || sepa.RSRank != nil {
 		t.Errorf("SEPA defaults wrong: %+v", sepa)
 	}
-	pairs := NewPairsSignalIntent()
+	pairs := NewPairsSignal()
 	if pairs.StrategyID != "pairs" || pairs.LegRole != LegLong ||
 		pairs.ZEntryThreshold != 2.0 || pairs.ZExitThreshold != 0.5 ||
 		pairs.HedgeRatio != 1.0 || pairs.PairID != "" {
 		t.Errorf("Pairs defaults wrong: %+v", pairs)
 	}
-	rot := NewSectorRotationIntent()
+	rot := NewSectorRotationSignal()
 	if rot.StrategyID != "sector_rotation" || rot.Rank != 0 || rot.TargetWeight != 0 {
 		t.Errorf("Rotation defaults wrong: %+v", rot)
 	}
-	orb := NewIntradayBreakoutIntent()
+	orb := NewIntradayBreakoutSignal()
 	if orb.StrategyID != "intraday_breakout" || orb.ORBHigh != nil || orb.EntryWindowEnd != nil {
 		t.Errorf("ORB defaults wrong: %+v", orb)
 	}
 }
 
-func TestIntentJSONShape(t *testing.T) {
+func TestSignalJSONShape(t *testing.T) {
 	prox := 1.25
-	intent := NewSEPASignalIntent()
+	intent := NewSEPASignal()
 	intent.Symbol = "AAPL"
 	intent.State = StateBuy
 	intent.Strength = 87.5
@@ -237,7 +237,7 @@ func TestIntentJSONShape(t *testing.T) {
 	if strings.Index(s, `"symbol"`) > strings.Index(s, `"grade"`) {
 		t.Error("shared fields must precede strategy-specific fields")
 	}
-	var back SEPASignalIntent
+	var back SEPASignal
 	if err := json.Unmarshal(raw, &back); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}

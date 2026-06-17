@@ -33,7 +33,7 @@ func requirePG(t *testing.T) *pgxpool.Pool {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	_, err := pool.Exec(ctx,
-		`TRUNCATE tms.signal_intents, tms.commands, tms.audit_log, tms.sessions,
+		`TRUNCATE tms.signals, tms.commands, tms.audit_log, tms.sessions,
 		          tms.halts, tms.bars_daily RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
 	return pool

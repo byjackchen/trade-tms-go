@@ -74,7 +74,7 @@ func mustSeed(t *testing.T, id string) composition.Composition {
 
 // buildSectorSession assembles a signal-mode live Session over a fresh
 // SectorRotation assembly writing into sink.
-func buildSectorSession(t *testing.T, sink livengine.IntentSink) *livengine.Session {
+func buildSectorSession(t *testing.T, sink livengine.SignalSink) *livengine.Session {
 	t.Helper()
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
 		Composition:     mustSeed(t, "sector-only"),
@@ -93,17 +93,30 @@ func buildSectorSession(t *testing.T, sink livengine.IntentSink) *livengine.Sess
 	return sess
 }
 
-// canonicalIntents JSON-canonicalizes the recorded intents into comparable
+// canonicalIntents JSON-canonicalizes the recorded signals into comparable
 // (AsOf, StrategyID, payloadJSON) tuples (the payload is the strategy's
-// evaluate_intent result; JSON is the persistence/transport shape so equality
+// evaluate_signal result; JSON is the persistence/transport shape so equality
 // of JSON is the right equality).
-func canonicalIntents(t *testing.T, recs []livengine.IntentRecord) []string {
+func canonicalIntents(t *testing.T, recs []livengine.SignalRecord) []string {
 	t.Helper()
 	out := make([]string, 0, len(recs))
 	for _, r := range recs {
 		b, err := json.Marshal(r.Payload)
 		require.NoError(t, err)
 		out = append(out, r.AsOf.UTC().Format(time.RFC3339Nano)+"|"+r.StrategyID+"|"+string(b))
+	}
+	return out
+}
+
+// canonicalIntentRecords renders the recorded would-be order intents (concept B)
+// into comparable (AsOf|StrategyID|Symbol|Side|Qty) tuples so a streaming run and
+// a batch replay can be asserted to emit IDENTICAL intents — the same
+// stream==replay determinism the signals enjoy.
+func canonicalIntentRecords(recs []livengine.IntentRecord) []string {
+	out := make([]string, 0, len(recs))
+	for _, r := range recs {
+		out = append(out, fmt.Sprintf("%s|%s|%s|%s|%d",
+			r.AsOf.UTC().Format(time.RFC3339Nano), r.StrategyID, r.Symbol, r.Side, int64(r.Qty)))
 	}
 	return out
 }
@@ -131,8 +144,8 @@ func TestLiveStreamEqualsBatchReplay(t *testing.T) {
 	require.NoError(t, batchSess.Replay(context.Background(), flat))
 
 	// Both must have emitted intents (8 ETFs * 4 timestamps).
-	require.NotEmpty(t, streamSink.Intents)
-	require.Equal(t, len(streamSink.Intents), len(batchSink.Intents))
+	require.NotEmpty(t, streamSink.Signals)
+	require.Equal(t, len(streamSink.Signals), len(batchSink.Signals))
 
 	// IDENTICAL intents (canonical order + canonical JSON payload).
 	streamCanon := canonicalIntents(t, streamSink.SortedIntents())
@@ -143,6 +156,19 @@ func TestLiveStreamEqualsBatchReplay(t *testing.T) {
 	// fire (would-be orders > 0 on the rebalance).
 	assert.Positive(t, streamSess.Executor().WouldSubmitCount(), "sector rebalance should have produced would-be orders")
 
+	// IntentRecords (concept B) get the SAME stream==replay determinism as
+	// signals: the captured would-be orders must be non-empty and IDENTICAL across
+	// the two paths (canonical order + canonical side+qty tuple). They are also
+	// counted by WouldSubmitCount, the convenience intent counter.
+	require.NotEmpty(t, streamSink.Intents, "signal mode should record would-be order intents")
+	require.Equal(t, len(streamSink.Intents), len(batchSink.Intents))
+	assert.EqualValues(t, len(streamSink.Intents), streamSess.Executor().WouldSubmitCount(),
+		"every captured intent should be counted by WouldSubmitCount")
+	assert.Equal(t,
+		canonicalIntentRecords(batchSink.SortedIntentRecords()),
+		canonicalIntentRecords(streamSink.SortedIntentRecords()),
+		"live stream intents must equal batch replay intents")
+
 	// Health snapshots emitted per timestamp (one per unique ts).
 	assert.NotEmpty(t, streamSink.Health)
 	for _, h := range streamSink.Health {
@@ -151,20 +177,25 @@ func TestLiveStreamEqualsBatchReplay(t *testing.T) {
 }
 
 // TestLiveStreamDeterministic confirms two identical streaming runs emit
-// identical intents (no wall-clock / map-iteration nondeterminism leaks in).
+// identical signals AND identical would-be order intents (no wall-clock /
+// map-iteration nondeterminism leaks into either stream).
 func TestLiveStreamDeterministic(t *testing.T) {
 	flat := livengine.BatchBars(sectorInstruments())
 
-	run := func() []string {
+	run := func() (signals, intents []string) {
 		sink := livengine.NewMemSink()
 		sess := buildSectorSession(t, sink)
 		require.NoError(t, sess.Prime(context.Background()))
 		vc := core.NewVirtualClock(time.Time{})
 		require.NoError(t, sess.RunStream(context.Background(),
 			livengine.SliceStreamFeed{Bars: flat}, core.StreamVirtual, vc))
-		return canonicalIntents(t, sink.SortedIntents())
+		return canonicalIntents(t, sink.SortedIntents()), canonicalIntentRecords(sink.SortedIntentRecords())
 	}
-	assert.Equal(t, run(), run())
+	sig1, int1 := run()
+	sig2, int2 := run()
+	assert.Equal(t, sig1, sig2)
+	require.NotEmpty(t, int1)
+	assert.Equal(t, int1, int2)
 }
 
 // sepaParams is a minimal valid SEPA param set.
@@ -178,7 +209,7 @@ func sepaParams() params.SEPAParams {
 
 // buildSEPASession assembles a signal-mode live SEPA session over one stock,
 // with the given warmup provider + symbols.
-func buildSEPASession(t *testing.T, sink livengine.IntentSink, warmup livengine.WarmupProvider, warmupSyms []string) *livengine.Session {
+func buildSEPASession(t *testing.T, sink livengine.SignalSink, warmup livengine.WarmupProvider, warmupSyms []string) *livengine.Session {
 	t.Helper()
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
 		Composition:     mustSeed(t, "sepa-only"),
@@ -238,7 +269,7 @@ func TestLiveWarmupConsistency(t *testing.T) {
 	require.NoError(t, batchSess.Prime(context.Background()))
 	require.NoError(t, batchSess.Replay(context.Background(), flat))
 
-	require.NotEmpty(t, streamSink.Intents)
+	require.NotEmpty(t, streamSink.Signals)
 	assert.Equal(t,
 		canonicalIntents(t, batchSink.SortedIntents()),
 		canonicalIntents(t, streamSink.SortedIntents()),
@@ -246,7 +277,7 @@ func TestLiveWarmupConsistency(t *testing.T) {
 
 	// The generation counter must advance identically (one EvaluateIntent per
 	// timestamp): 5 run bars => generation 5 on the last intent.
-	last := streamSink.SortedIntents()[len(streamSink.Intents)-1]
+	last := streamSink.SortedIntents()[len(streamSink.Signals)-1]
 	b, err := json.Marshal(last.Payload)
 	require.NoError(t, err)
 	var got struct {

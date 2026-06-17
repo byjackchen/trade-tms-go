@@ -1,12 +1,12 @@
 package runner
 
 // sink.go adapts the publish layer (PG store + Redis publisher) to the
-// livengine.IntentSink + StateEmitter seam. It is the Build2 sink (intent.go's
+// livengine.SignalSink + StateEmitter seam. It is the Build2 sink (signal.go's
 // "DB-upsert + Redis-publish sink") wiring:
 //
-//   - EmitIntent: normalize the strategy intent -> for each per-name intent,
-//     persist to tms.signal_intents (append for live, UPSERT for EOD) AND
-//     publish a SignalIntentUpdate to Redis.
+//   - EmitSignal: normalize the strategy signal -> for each per-name signal,
+//     persist to tms.signals (append for live, UPSERT for EOD) AND
+//     publish a SignalUpdate to Redis.
 //   - EmitState:  publish each strategy's state_summary as a StrategyStateUpdate.
 //   - EmitHealth: publish a PortfolioHealthUpdate (+ an empty-book position
 //     snapshot, signal mode) to Redis.
@@ -36,7 +36,7 @@ const (
 	SinkUpsert
 )
 
-// Sink implements livengine.IntentSink + livengine.StateEmitter over the
+// Sink implements livengine.SignalSink + livengine.StateEmitter over the
 // publish layer.
 type Sink struct {
 	store     *publish.Store
@@ -83,16 +83,16 @@ func NewSink(opts SinkOptions) *Sink {
 	}
 }
 
-// IntentRows returns how many signal-intent rows were persisted (telemetry).
-func (s *Sink) IntentRows() int { return s.intentRows }
+// SignalRows returns how many signal-intent rows were persisted (telemetry).
+func (s *Sink) SignalRows() int { return s.intentRows }
 
 // PublishErrors returns how many Redis publish calls failed (best-effort
 // transport; never aborts the run).
 func (s *Sink) PublishErrors() int { return s.publishErrs }
 
-// EmitIntent normalizes the strategy intent into per-name NormalizedIntents,
+// EmitSignal normalizes the strategy intent into per-name NormalizedIntents,
 // persists each (PG: the gate) and publishes each (Redis: best-effort).
-func (s *Sink) EmitIntent(ctx context.Context, rec livengine.IntentRecord) error {
+func (s *Sink) EmitSignal(ctx context.Context, rec livengine.SignalRecord) error {
 	norms, err := publish.NormalizeIntent(rec.Payload)
 	if err != nil {
 		return err
@@ -117,7 +117,7 @@ func (s *Sink) EmitIntent(ctx context.Context, rec livengine.IntentRecord) error
 			}
 			s.intentRows++
 		}
-		if err := s.publisher.PublishSignalIntent(ctx, n, tsEventNS); err != nil {
+		if err := s.publisher.PublishSignal(ctx, n, tsEventNS); err != nil {
 			s.publishErrs++
 			s.log.Warn().Err(err).Str("strategy_id", n.StrategyID).Str("symbol", n.Symbol).
 				Msg("redis publish signal intent failed; PG row is durable")
@@ -163,6 +163,6 @@ func (s *Sink) EmitHealth(ctx context.Context, rec livengine.HealthRecord) error
 
 // compile-time checks: Sink satisfies both live seams.
 var (
-	_ livengine.IntentSink   = (*Sink)(nil)
+	_ livengine.SignalSink   = (*Sink)(nil)
 	_ livengine.StateEmitter = (*Sink)(nil)
 )

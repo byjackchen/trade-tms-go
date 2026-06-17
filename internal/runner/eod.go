@@ -8,14 +8,14 @@ package runner
 //  2. replays [as_of-window, as_of] bars through a livengine.Session in Replay
 //     mode (the deterministic batch path, identical to the streaming live path
 //     by the consistency proof);
-//  3. each strategy's evaluate_intent is UPSERTed into tms.signal_intents
+//  3. each strategy's evaluate_intent is UPSERTed into tms.signals
 //     idempotently on (strategy_id, symbol, as_of) — a re-run OVERWRITES rather
-//     than duplicates — and published to Redis (SignalIntentUpdate);
+//     than duplicates — and published to Redis (SignalUpdate);
 //  4. each strategy's state_summary is published (StrategyStateUpdate);
 //  5. a RefreshReport summarizes the run.
 //
 // Idempotency is the contract: RunRefresh twice for the same as_of yields the
-// SAME tms.signal_intents rows (no dupes) — guaranteed by the UPSERT on the
+// SAME tms.signals rows (no dupes) — guaranteed by the UPSERT on the
 // partial-unique (strategy_id, symbol, as_of) index (migration 000010).
 
 import (
@@ -69,10 +69,10 @@ type RefreshReport struct {
 	InstrumentCount int `json:"instrument_count"`
 	// BarsReplayed is how many bars were replayed through the engine.
 	BarsReplayed int `json:"bars_replayed"`
-	// IntentRows is how many signal-intent rows were upserted.
-	IntentRows int `json:"intent_rows"`
-	// IntentsEmitted is how many evaluate_intent calls fired (per strategy per ts).
-	IntentsEmitted int `json:"intents_emitted"`
+	// SignalRows is how many signal-intent rows were upserted.
+	SignalRows int `json:"intent_rows"`
+	// SignalsEmitted is how many evaluate_intent calls fired (per strategy per ts).
+	SignalsEmitted int `json:"intents_emitted"`
 	// WouldSubmitOrders is the count of would-be orders (telemetry; signal mode
 	// places none).
 	WouldSubmitOrders int64 `json:"would_submit_orders"`
@@ -214,16 +214,16 @@ func (e *EOD) RunRefresh(ctx context.Context, cfg EODConfig, publisher *publish.
 		WindowStart:       windowStart.String(),
 		InstrumentCount:   len(as.Tickers),
 		BarsReplayed:      sess.BarsSeen(),
-		IntentRows:        sink.IntentRows(),
-		IntentsEmitted:    sess.EmittedIntents(),
+		SignalRows:        sink.SignalRows(),
+		SignalsEmitted:    sess.EmittedSignals(),
 		WouldSubmitOrders: sess.Executor().WouldSubmitCount(),
 		PublishErrors:     sink.PublishErrors(),
 		RSRankStamped:     rsStamped,
 	}
 	log.Info().
 		Int("bars", report.BarsReplayed).
-		Int("intent_rows", report.IntentRows).
-		Int("intents", report.IntentsEmitted).
+		Int("intent_rows", report.SignalRows).
+		Int("intents", report.SignalsEmitted).
 		Msg("eod refresh complete (idempotent upsert)")
 	return report, nil
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
-// EvaluateIntent returns one SectorRotationIntent per universe ETF, in universe
+// EvaluateIntent returns one SectorRotationSignal per universe ETF, in universe
 // declaration order.
 //
 // Warmup gate: if ANY symbol is still short of lookback+1 closes, ALL intents
@@ -15,7 +15,7 @@ import (
 // so the UI never sees partial rankings that would flicker.
 //
 // Generation increments on EVERY call (even warmup) and is NOT persisted.
-func (sg *SignalGenerator) EvaluateIntent(asOf time.Time) []domain.SectorRotationIntent {
+func (sg *SignalGenerator) EvaluateIntent(asOf time.Time) []domain.SectorRotationSignal {
 	sg.intentGeneration++
 	universe := sg.cfg.Universe
 	topK := sg.cfg.TopK
@@ -23,9 +23,9 @@ func (sg *SignalGenerator) EvaluateIntent(asOf time.Time) []domain.SectorRotatio
 
 	// Warmup gate: all-NO_SETUP, rank 0, strength 0.
 	if !sg.hasFullWarmup() {
-		out := make([]domain.SectorRotationIntent, 0, n)
+		out := make([]domain.SectorRotationSignal, 0, n)
 		for _, sym := range universe {
-			it := domain.NewSectorRotationIntent()
+			it := domain.NewSectorRotationSignal()
 			it.Symbol = sym
 			it.State = domain.StateNoSetup
 			it.Strength = 0.0
@@ -86,7 +86,7 @@ func (sg *SignalGenerator) EvaluateIntent(asOf time.Time) []domain.SectorRotatio
 		}
 	}
 
-	out := make([]domain.SectorRotationIntent, 0, n)
+	out := make([]domain.SectorRotationSignal, 0, n)
 	for _, sym := range universe {
 		rank := rankOf[sym]
 		_, inTop := topSet[sym]
@@ -115,7 +115,7 @@ func (sg *SignalGenerator) EvaluateIntent(asOf time.Time) []domain.SectorRotatio
 		}
 		proximity := float64(topK-rank) / float64(denom) * 100.0
 
-		it := domain.NewSectorRotationIntent()
+		it := domain.NewSectorRotationSignal()
 		it.Symbol = sym
 		it.State = state
 		it.Strength = domain.StrengthFromRank(rank, n)

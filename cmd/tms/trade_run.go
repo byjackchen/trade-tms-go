@@ -55,7 +55,7 @@ func resolveRun(execStr, envStr string) (domain.ExecutionPolicy, domain.BrokerEn
 // trading node. It wires the native moomoo OpenD client (or the protocol-faithful
 // mock, switched by TMS_MOOMOO_ADDR) -> a streaming feed -> the SAME internal/core
 // engine + strategy / portfolio / warmup code as backtest, driven by a wall
-// clock, recording a SignalIntent per strategy per bar (tms.signal_intents +
+// clock, recording a Signal per strategy per bar (tms.signals +
 // Redis streams) and submitting NO orders — all under the ops.commands control
 // plane (halt/resume/kill/stop/set_mode) with full audit and a graceful
 // lifecycle (ctx cancellation, drain, no goroutine leaks, structured logs, no
@@ -89,7 +89,7 @@ func newTradeRunCmd(env *runtimeEnv) *cobra.Command {
 		Long: "Runs the live (real-time) engine: the SAME internal/core event loop and\n" +
 			"strategy / portfolio / warmup code as backtest, driven by a wall clock and a\n" +
 			"streaming moomoo (or mock OpenD) bar feed. In signal mode it records a\n" +
-			"SignalIntent per strategy per bar (tms.signal_intents + Redis streams) and\n" +
+			"Signal per strategy per bar (tms.signals + Redis streams) and\n" +
 			"submits NO orders, under the ops.commands control plane (halt/resume/kill/\n" +
 			"stop/set_mode) with full audit. With --health, probes a running node's\n" +
 			"/healthz and exits 0/1 (container healthcheck mode).",

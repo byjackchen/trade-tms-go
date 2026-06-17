@@ -109,20 +109,20 @@ func TestLiveFeedOverMockOpenD(t *testing.T) {
 	// fan-out happens later in the publish sink). With one strategy, the first 3
 	// timestamps flush on rollover (the 4th flushes on stream close).
 	require.Eventually(t, func() bool {
-		return sess.EmittedIntents() >= 3 && sess.BarsSeen() >= 32
+		return sess.EmittedSignals() >= 3 && sess.BarsSeen() >= 32
 	}, 10*time.Second, 100*time.Millisecond, "live feed should drive intent emission")
 	assert.Equal(t, 32, sess.BarsSeen(), "all 4 timestamps x 8 ETFs delivered over the mock feed")
 
 	cancelRun()
 	<-runErr // RunStream returns (ctx canceled flushes the final timestamp)
 
-	assert.Positive(t, sess.EmittedIntents(), "intents emitted over the live mock feed")
-	require.NotEmpty(t, sink.Intents, "MemSink recorded intents")
+	assert.Positive(t, sess.EmittedSignals(), "intents emitted over the live mock feed")
+	require.NotEmpty(t, sink.Signals, "MemSink recorded intents")
 
-	// Each recorded payload is a per-ETF SectorRotationIntent slice; normalize it
+	// Each recorded payload is a per-ETF SectorRotationSignal slice; normalize it
 	// through the publish layer to prove the full live wire shape resolves.
 	total := 0
-	for _, r := range sink.Intents {
+	for _, r := range sink.Signals {
 		norms, nerr := publish.NormalizeIntent(r.Payload)
 		require.NoError(t, nerr)
 		total += len(norms)

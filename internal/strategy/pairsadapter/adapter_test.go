@@ -66,8 +66,8 @@ func TestAdapterCapabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	var _ engine.Strategy = a
-	if _, ok := any(a).(engine.IntentEvaluator); !ok {
-		t.Error("not IntentEvaluator")
+	if _, ok := any(a).(engine.SignalEvaluator); !ok {
+		t.Error("not SignalEvaluator")
 	}
 	if _, ok := any(a).(engine.StateSummarizer); !ok {
 		t.Error("not StateSummarizer")

@@ -13,7 +13,7 @@
 // This package — NOT the pure orb package — is the only place that imports
 // engine, preserving the two-layer constraint: the core strategy package never
 // imports broker/engine code. It implements the P3 capability seams
-// (IntentEvaluator, StateSummarizer, StatePersister). ORB consumes no per-bar
+// (SignalEvaluator, StateSummarizer, StatePersister). ORB consumes no per-bar
 // portfolio context (no regime/market-cap/earnings), so ContextConsumer is
 // intentionally NOT implemented.
 //

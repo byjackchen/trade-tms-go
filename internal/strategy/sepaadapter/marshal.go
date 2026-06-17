@@ -5,9 +5,9 @@ package sepaadapter
 // dict, null for empty optional strings. It feeds the engine's StateSummarizer
 // publish path.
 //
-// NOTE: the SEPA *intent* wire shape is NOT defined here. EvaluateIntentJSON
+// NOTE: the SEPA *intent* wire shape is NOT defined here. EvaluateSignalJSON
 // returns the raw sepa.SignalIntent and publish.NormalizeIntent converts it to
-// the canonical domain.SEPASignalIntent — the single source of the SEPA intent
+// the canonical domain.SEPASignal — the single source of the SEPA intent
 // wire shape, identical to how the other three adapters work.
 
 import (

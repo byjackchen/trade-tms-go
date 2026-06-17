@@ -18,7 +18,7 @@ import (
 // newEODCmd implements `tms eod --as-of <date>`: the idempotent EOD
 // engine-replay refresh (P5 locked decision 4). It replays
 // [as_of-window, as_of] bars through the SAME engine as backtest, UPSERTs each
-// strategy's evaluate_intent into tms.signal_intents idempotently on
+// strategy's evaluate_intent into tms.signals idempotently on
 // (strategy_id, symbol, as_of) — a re-run OVERWRITES, never duplicates — and
 // publishes to Redis. With --enqueue it submits an eod.refresh job to the
 // durable queue instead of running inline.
@@ -41,7 +41,7 @@ func newEODCmd(env *runtimeEnv) *cobra.Command {
 		Long: "Refreshes the signal intents for an as-of date by replaying the\n" +
 			"[as_of-window, as_of] bars through the SAME deterministic engine as\n" +
 			"backtest, then UPSERTing each strategy's evaluate_intent into\n" +
-			"tms.signal_intents idempotently on (strategy_id, symbol, as_of) and\n" +
+			"tms.signals idempotently on (strategy_id, symbol, as_of) and\n" +
 			"publishing to Redis. Running twice for the same as_of produces the SAME\n" +
 			"rows (no duplicates). With --enqueue, submits an eod.refresh job.",
 		Args: cobra.NoArgs,

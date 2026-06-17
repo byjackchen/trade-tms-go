@@ -20,11 +20,11 @@ import (
 // in warmup (telemetry not yet computed). Note the intent thresholds use
 // >=/<= (unlike the strict trading comparisons) — intentional and pinned by
 // tests (spec §9.1).
-func (g *Generator) EvaluateIntent(asOf time.Time) []domain.PairsSignalIntent {
+func (g *Generator) EvaluateIntent(asOf time.Time) []domain.PairsSignal {
 	g.intentGeneration++
 	entryZ := g.cfg.EntryZ
 	exitZ := g.cfg.ExitZ
-	out := make([]domain.PairsSignalIntent, 0, 2*len(g.cfg.Pairs))
+	out := make([]domain.PairsSignal, 0, 2*len(g.cfg.Pairs))
 	for _, pair := range g.cfg.Pairs {
 		key := pair.Key()
 		z := 0.0
@@ -79,7 +79,7 @@ func (g *Generator) EvaluateIntent(asOf time.Time) []domain.PairsSignalIntent {
 			{pair.LongLeg, domain.LegLong},
 			{pair.ShortLeg, domain.LegShort},
 		} {
-			it := domain.NewPairsSignalIntent()
+			it := domain.NewPairsSignal()
 			it.Symbol = leg.symbol
 			it.State = state
 			it.Strength = strength

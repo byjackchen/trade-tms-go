@@ -35,6 +35,17 @@
 //
 // Build1 (this build) defines the core wiring, the NoopExecutor, the publish /
 // persist seams (in-memory recorder for tests) and the `tms trade run --mode signal`
-// subcommand scaffold. Build2 wires the real DB upsert (live.signal_intents) and
+// subcommand scaffold. Build2 wires the real DB upsert (tms.signals) and
 // the Redis stream publisher behind the same seams.
+//
+// # Two emission streams: signals (A) and intents (B)
+//
+// Signal mode emits TWO parallel streams (design intent-to-signal-rename.md):
+// SignalRecords (concept A — judgment/diagnostic snapshots, the SignalSink) and
+// IntentRecords (concept B — the NoopExecutor's would-be orders with side+qty,
+// the IntentSink, intent.go). DEFERRED (design §8 Q1 default): the IntentRecord
+// stream is wired at the memory/telemetry layer ONLY this round — there is NO
+// tms.intents DB table and NO data.IntentUpdate Redis topic yet (symmetric to
+// tms.signals / data.SignalUpdate); that DB/wire exposure is deferred to a later
+// round, decided by cockpit need.
 package livengine

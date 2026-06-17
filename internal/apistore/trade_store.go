@@ -86,14 +86,14 @@ func (s *TradeStore) RecentIntents(ctx context.Context, strategyID string, limit
 	)
 	if strategyID == "" {
 		rows, err = s.pool.Query(ctx, `
-			SELECT strategy_id, symbol, state, strength, generation, intent::text, ts, ts_event_ns
-			  FROM tms.signal_intents
+			SELECT strategy_id, symbol, state, strength, generation, signal::text, ts, ts_event_ns
+			  FROM tms.signals
 			 ORDER BY ts DESC, id DESC
 			 LIMIT $1`, limit)
 	} else {
 		rows, err = s.pool.Query(ctx, `
-			SELECT strategy_id, symbol, state, strength, generation, intent::text, ts, ts_event_ns
-			  FROM tms.signal_intents
+			SELECT strategy_id, symbol, state, strength, generation, signal::text, ts, ts_event_ns
+			  FROM tms.signals
 			 WHERE strategy_id = $1
 			 ORDER BY ts DESC, id DESC
 			 LIMIT $2`, strategyID, limit)
@@ -151,9 +151,9 @@ func (s *TradeStore) LatestHealth(ctx context.Context) (*api.TradeHealth, error)
 // the sync freshness logic (frontier-driven, not last-operation-time-driven).
 func (s *TradeStore) Watchlist(ctx context.Context) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `
-		WITH frontier AS (SELECT max(ts) AS f FROM tms.signal_intents)
+		WITH frontier AS (SELECT max(ts) AS f FROM tms.signals)
 		SELECT DISTINCT symbol
-		  FROM tms.signal_intents, frontier
+		  FROM tms.signals, frontier
 		 WHERE ts >= frontier.f - interval '2 days'
 		 ORDER BY symbol`)
 	if err != nil {
@@ -187,11 +187,11 @@ func (s *TradeStore) LatestIntentsBySymbol(ctx context.Context, limit int) ([]ap
 		limit = 5000
 	}
 	rows, err := s.pool.Query(ctx, `
-		WITH frontier AS (SELECT max(ts) AS f FROM tms.signal_intents),
+		WITH frontier AS (SELECT max(ts) AS f FROM tms.signals),
 		latest AS (
 			SELECT DISTINCT ON (symbol)
-			       strategy_id, symbol, state, strength, generation, intent::text AS itext, ts, ts_event_ns
-			  FROM tms.signal_intents, frontier
+			       strategy_id, symbol, state, strength, generation, signal::text AS itext, ts, ts_event_ns
+			  FROM tms.signals, frontier
 			 WHERE ts >= frontier.f - interval '2 days'
 			 ORDER BY symbol, ts DESC, id DESC
 		)

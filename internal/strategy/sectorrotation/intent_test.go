@@ -83,8 +83,8 @@ var rankReturns = map[string]float64{
 	"XLV": 0.02, "XLU": 0.01, "XLRE": -0.01, "XLC": -0.05,
 }
 
-func bySymbol(its []domain.SectorRotationIntent) map[string]domain.SectorRotationIntent {
-	m := map[string]domain.SectorRotationIntent{}
+func bySymbol(its []domain.SectorRotationSignal) map[string]domain.SectorRotationSignal {
+	m := map[string]domain.SectorRotationSignal{}
 	for _, it := range its {
 		m[it.Symbol] = it
 	}

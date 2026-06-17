@@ -23,7 +23,7 @@ import (
 // per-bar context, so ContextConsumer is intentionally absent.
 var (
 	_ engine.Strategy        = (*orbadapter.Strategy)(nil)
-	_ engine.IntentEvaluator = (*orbadapter.Strategy)(nil)
+	_ engine.SignalEvaluator = (*orbadapter.Strategy)(nil)
 	_ engine.StateSummarizer = (*orbadapter.Strategy)(nil)
 	_ engine.StatePersister  = (*orbadapter.Strategy)(nil)
 )
@@ -124,10 +124,10 @@ func TestORBAdapterImplementsSeamAndTrades(t *testing.T) {
 
 	// Capability surfaces.
 	sub.net = 0
-	// §E3: the adapter is the domain bridge — EvaluateIntentJSON returns the
-	// canonical domain.IntradayBreakoutIntent (not the pure orb.SignalIntent).
-	if it, ok := a.EvaluateIntentJSON(orbSeamBar(t, 15, 55, "1", "1", "1", "1", 0).TS).(domain.IntradayBreakoutIntent); !ok || it.StrategyID != orb.StrategyID {
-		t.Fatalf("EvaluateIntentJSON returned %T", a.EvaluateIntentJSON(time.Now()))
+	// §E3: the adapter is the domain bridge — EvaluateSignalJSON returns the
+	// canonical domain.IntradayBreakoutSignal (not the pure orb.SignalIntent).
+	if it, ok := a.EvaluateSignalJSON(orbSeamBar(t, 15, 55, "1", "1", "1", "1", 0).TS).(domain.IntradayBreakoutSignal); !ok || it.StrategyID != orb.StrategyID {
+		t.Fatalf("EvaluateSignalJSON returned %T", a.EvaluateSignalJSON(time.Now()))
 	}
 	if sm, ok := a.StateSummaryJSON().(orb.StateSummary); !ok || sm.Symbol != "AAPL" {
 		t.Fatalf("StateSummaryJSON returned %T", a.StateSummaryJSON())

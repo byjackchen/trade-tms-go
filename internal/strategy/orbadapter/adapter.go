@@ -33,7 +33,7 @@ func New(id string, gen *orb.Generator) (*Strategy, error) {
 // Compile-time capability assertions.
 var (
 	_ engine.Strategy        = (*Strategy)(nil)
-	_ engine.IntentEvaluator = (*Strategy)(nil)
+	_ engine.SignalEvaluator = (*Strategy)(nil)
 	_ engine.StateSummarizer = (*Strategy)(nil)
 	_ engine.StatePersister  = (*Strategy)(nil)
 	_ engine.SymbolScoped    = (*Strategy)(nil)
@@ -81,15 +81,15 @@ func (s *Strategy) OnBar(sub engine.OrderSubmitter, bar domain.Bar) error {
 	return nil
 }
 
-// EvaluateIntentJSON returns the single ORB intent for asOf, already bridged to
-// the canonical domain.IntradayBreakoutIntent wire shape (engine.IntentEvaluator).
+// EvaluateSignalJSON returns the single ORB intent for asOf, already bridged to
+// the canonical domain.IntradayBreakoutSignal wire shape (engine.SignalEvaluator).
 // It increments the SG's generation counter, as the publish path does.
 //
 // The adapter is the SANCTIONED domain bridge (modularization-review.md §E3): the
 // local→domain normalization (formerly publish.normalizeORB) lives in
 // NormalizeIntent here, so publish switches only on domain intent types and no
 // longer imports strategy/orb. The pure orb.SignalIntent never escapes the adapter.
-func (s *Strategy) EvaluateIntentJSON(asOf time.Time) any {
+func (s *Strategy) EvaluateSignalJSON(asOf time.Time) any {
 	return NormalizeIntent(s.gen.EvaluateIntent(asOf))
 }
 

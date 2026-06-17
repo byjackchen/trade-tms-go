@@ -67,8 +67,8 @@ func TestAdapterImplementsCapabilities(t *testing.T) {
 	if _, ok := s.(engine.ContextConsumer); !ok {
 		t.Error("not a ContextConsumer")
 	}
-	if _, ok := s.(engine.IntentEvaluator); !ok {
-		t.Error("not an IntentEvaluator")
+	if _, ok := s.(engine.SignalEvaluator); !ok {
+		t.Error("not an SignalEvaluator")
 	}
 	if _, ok := s.(engine.StateSummarizer); !ok {
 		t.Error("not a StateSummarizer")
@@ -131,20 +131,20 @@ func TestStateRoundTripJSON(t *testing.T) {
 	}
 }
 
-// TestEvaluateIntentJSONReturnsDomainType pins the contract that the publish
-// layer relies on AFTER the §E3 domain-bridge relocation: EvaluateIntentJSON
-// returns the canonical domain.SEPASignalIntent (NOT the pure sepa.SignalIntent
+// TestEvaluateSignalJSONReturnsDomainType pins the contract that the publish
+// layer relies on AFTER the §E3 domain-bridge relocation: EvaluateSignalJSON
+// returns the canonical domain.SEPASignal (NOT the pure sepa.SignalIntent
 // and NOT a private adapter struct). publish.NormalizeIntent now switches only on
 // domain types; returning anything else aborts every SEPA/multi intent in the
 // signal/paper/live/EOD modes with "unsupported intent type". This is the
 // in-package half of the regression guard; the wire-shape half is
 // TestNormalizeIntentWireShape below + publish/intent_test.go
 // TestNormalizeSEPAAdapterOutput.
-func TestEvaluateIntentJSONReturnsDomainType(t *testing.T) {
+func TestEvaluateSignalJSONReturnsDomainType(t *testing.T) {
 	s := newAdapter(t, "SEPA-AAPL", newGen(t, "AAPL"))
-	v := s.EvaluateIntentJSON(time.Date(2024, 1, 1, 21, 0, 0, 0, time.UTC))
-	if _, ok := v.(domain.SEPASignalIntent); !ok {
-		t.Fatalf("EvaluateIntentJSON must return domain.SEPASignalIntent for publish.NormalizeIntent; got %T", v)
+	v := s.EvaluateSignalJSON(time.Date(2024, 1, 1, 21, 0, 0, 0, time.UTC))
+	if _, ok := v.(domain.SEPASignal); !ok {
+		t.Fatalf("EvaluateSignalJSON must return domain.SEPASignal for publish.NormalizeIntent; got %T", v)
 	}
 }
 

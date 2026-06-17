@@ -289,7 +289,7 @@ func (s OrderStatus) IsTerminal() bool {
 // SignalState — shared intent state machine (identical in all four strategies)
 // ---------------------------------------------------------------------------
 
-// SignalState is the SignalIntent state machine value.
+// SignalState is the Signal state machine value.
 type SignalState string
 
 const (

@@ -5,7 +5,7 @@ package sepaadapter
 // sepa package emits a tag-less sepa.SignalIntent (kept zero-domain for
 // byte-for-byte golden output, sepa/doc.go §11-14); this adapter — the only place
 // that legitimately imports both sepa and domain — converts it to the canonical
-// snake_case domain.SEPASignalIntent wire shape. publish therefore switches only
+// snake_case domain.SEPASignal wire shape. publish therefore switches only
 // on domain types and drops its strategy/sepa import.
 
 import (
@@ -14,11 +14,11 @@ import (
 )
 
 // NormalizeIntent converts the pure sepa.SignalIntent (no json tags) into the
-// canonical domain.SEPASignalIntent. It is the single source of the SEPA intent
+// canonical domain.SEPASignal. It is the single source of the SEPA intent
 // wire shape — formerly publish.normalizeSEPA.
 // Decimal price strings ("" == nil) become *domain.Price.
-func NormalizeIntent(s sepa.SignalIntent) domain.SEPASignalIntent {
-	d := domain.NewSEPASignalIntent()
+func NormalizeIntent(s sepa.SignalIntent) domain.SEPASignal {
+	d := domain.NewSEPASignal()
 	d.Symbol = s.Symbol
 	d.State = domain.SignalState(s.State)
 	d.Strength = s.Strength

@@ -102,8 +102,8 @@ func sectorPreRun() (pre, run []engine.InstrumentBars) {
 // runWindowIntents filters a sink's sorted intents to those at/after the run-window
 // start (the comparison surface: a warmed live session only emits run-window
 // intents, so the backtest reference is sliced to the same window).
-func runWindowIntents(recs []livengine.IntentRecord, runStart time.Time) []livengine.IntentRecord {
-	out := make([]livengine.IntentRecord, 0, len(recs))
+func runWindowIntents(recs []livengine.SignalRecord, runStart time.Time) []livengine.SignalRecord {
+	out := make([]livengine.SignalRecord, 0, len(recs))
 	for _, r := range recs {
 		if !r.AsOf.Before(runStart) {
 			out = append(out, r)
@@ -112,7 +112,7 @@ func runWindowIntents(recs []livengine.IntentRecord, runStart time.Time) []liven
 	return out
 }
 
-func buildSectorWarmupSession(t *testing.T, sink livengine.IntentSink, batch []domain.Bar) *livengine.Session {
+func buildSectorWarmupSession(t *testing.T, sink livengine.SignalSink, batch []domain.Bar) *livengine.Session {
 	t.Helper()
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
 		Composition:     mustSeed(t, "sector-only"),
@@ -210,7 +210,7 @@ func TestColdSectorIsAllNoSetup_WarmedIsActionable(t *testing.T) {
 	coldSess := buildSectorWarmupSession(t, coldSink, nil)
 	require.NoError(t, coldSess.Prime(context.Background()))
 	require.NoError(t, coldSess.Replay(context.Background(), runBatch))
-	require.NotEmpty(t, coldSink.Intents)
+	require.NotEmpty(t, coldSink.Signals)
 
 	// The FIRST timestamp's intents are all no_setup (cold start).
 	firstCold := intentsAt(coldSink.SortedIntents(), ts(2024, time.February, 1))
@@ -300,7 +300,7 @@ func pairsPreRun() (pre, run []engine.InstrumentBars, runStart time.Time) {
 	return pre, run, runDay
 }
 
-func buildPairsWarmupSession(t *testing.T, sink livengine.IntentSink, batch []domain.Bar) *livengine.Session {
+func buildPairsWarmupSession(t *testing.T, sink livengine.SignalSink, batch []domain.Bar) *livengine.Session {
 	t.Helper()
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
 		Composition:     mustSeed(t, "pairs-only"),
@@ -372,7 +372,7 @@ func TestLivePairsWarmupEqualsBatchReplay(t *testing.T) {
 // explicitly NOT persisted, so it is the ONE field that legitimately differs
 // between an out-of-band-primed run and an in-band full-window replay. Everything
 // else (state, strength, rank, momentum_score, weights) must coincide.
-func stripGeneration(t *testing.T, recs []livengine.IntentRecord) []string {
+func stripGeneration(t *testing.T, recs []livengine.SignalRecord) []string {
 	t.Helper()
 	out := make([]string, 0, len(recs))
 	for _, r := range recs {
@@ -391,8 +391,8 @@ func stripGeneration(t *testing.T, recs []livengine.IntentRecord) []string {
 }
 
 // intentsAt returns the recorded intents at exactly asOf.
-func intentsAt(recs []livengine.IntentRecord, asOf time.Time) []livengine.IntentRecord {
-	out := make([]livengine.IntentRecord, 0)
+func intentsAt(recs []livengine.SignalRecord, asOf time.Time) []livengine.SignalRecord {
+	out := make([]livengine.SignalRecord, 0)
 	for _, r := range recs {
 		if r.AsOf.Equal(asOf) {
 			out = append(out, r)
@@ -402,11 +402,11 @@ func intentsAt(recs []livengine.IntentRecord, asOf time.Time) []livengine.Intent
 }
 
 // sectorStateStrength extracts the dominant state + max strength across the per-ETF
-// SectorRotationIntent slice carried by one IntentRecord. The sector adapter emits
-// ONE record per timestamp whose payload is the []SectorRotationIntent slice; for
+// SectorRotationSignal slice carried by one SignalRecord. The sector adapter emits
+// ONE record per timestamp whose payload is the []SectorRotationSignal slice; for
 // the "all no_setup" assertion we need the per-ETF view, so we return the worst
 // (no_setup if all are no_setup) state and the max strength.
-func sectorStateStrength(t *testing.T, rec livengine.IntentRecord) (state string, maxStrength float64) {
+func sectorStateStrength(t *testing.T, rec livengine.SignalRecord) (state string, maxStrength float64) {
 	t.Helper()
 	b, err := json.Marshal(rec.Payload)
 	require.NoError(t, err)

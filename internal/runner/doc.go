@@ -1,7 +1,7 @@
 // Package runner is the outermost composition layer: it assembles and drives
 // the live trading node and the EOD (end-of-day replay) node, wiring the
 // concrete adapters (moomoo OpenD client or mock), the streaming/replay feed,
-// the livengine.Session, the publish sink (Postgres signal_intents + Redis
+// the livengine.Session, the publish sink (Postgres signals + Redis
 // streams) and the ops.commands control plane into a running supervisor. It
 // holds no strategy or numerical logic of its own — only orchestration,
 // lifecycle (ctx-cancellation, graceful drain, no goroutine leaks) and

@@ -11,7 +11,7 @@ import (
 )
 
 // Strategy adapts a sepa.Generator to engine.Strategy plus the P3 capability
-// interfaces (ContextConsumer, IntentEvaluator, StateSummarizer,
+// interfaces (ContextConsumer, SignalEvaluator, StateSummarizer,
 // StatePersister). One instance drives one symbol.
 type Strategy struct {
 	id  string
@@ -35,7 +35,7 @@ var (
 	_ engine.Strategy        = (*Strategy)(nil)
 	_ engine.ContextConsumer = (*Strategy)(nil)
 	_ engine.WarmupConsumer  = (*Strategy)(nil)
-	_ engine.IntentEvaluator = (*Strategy)(nil)
+	_ engine.SignalEvaluator = (*Strategy)(nil)
 	_ engine.StateSummarizer = (*Strategy)(nil)
 	_ engine.StatePersister  = (*Strategy)(nil)
 	_ engine.SymbolScoped    = (*Strategy)(nil)
@@ -126,9 +126,9 @@ func (s *Strategy) submit(sub engine.OrderSubmitter, sig sepa.Signal, ts time.Ti
 	}
 }
 
-// EvaluateIntentJSON returns the per-symbol SEPA intent for asOf, already
-// bridged to the canonical domain.SEPASignalIntent wire shape
-// (engine.IntentEvaluator). Pure read.
+// EvaluateSignalJSON returns the per-symbol SEPA intent for asOf, already
+// bridged to the canonical domain.SEPASignal wire shape
+// (engine.SignalEvaluator). Pure read.
 //
 // The adapter is the SANCTIONED domain bridge (modularization-review.md §E3): it
 // is the one place that imports both the pure sepa package (which must stay
@@ -136,7 +136,7 @@ func (s *Strategy) submit(sub engine.OrderSubmitter, sig sepa.Signal, ts time.Ti
 // normalization (formerly publish.normalizeSEPA) now lives in NormalizeIntent
 // here, so publish switches only on domain intent types and no longer imports
 // strategy/sepa. The pure sepa.SignalIntent never escapes the adapter.
-func (s *Strategy) EvaluateIntentJSON(asOf time.Time) any {
+func (s *Strategy) EvaluateSignalJSON(asOf time.Time) any {
 	return NormalizeIntent(s.gen.EvaluateIntent(asOf))
 }
 

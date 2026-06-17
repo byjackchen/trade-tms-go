@@ -14,7 +14,7 @@ import (
 )
 
 // TestNormalizeSEPAAdapterOutput is the regression guard for the round-3
-// blocker: the SEPA adapter's EvaluateIntentJSON output must normalize through
+// blocker: the SEPA adapter's EvaluateSignalJSON output must normalize through
 // the REAL production path. The prior test only fed NormalizeIntent a
 // hand-built sepa.SignalIntent — the type the broken adapter NEVER produced (it
 // returned a private sepaadapter.intentJSON, which hit the default error case
@@ -32,7 +32,7 @@ func TestNormalizeSEPAAdapterOutput(t *testing.T) {
 	require.NoError(t, err)
 
 	// The exact value the live signal node / EOD replay feeds the sink.
-	payload := adapter.EvaluateIntentJSON(time.Date(2024, 1, 1, 21, 0, 0, 0, time.UTC))
+	payload := adapter.EvaluateSignalJSON(time.Date(2024, 1, 1, 21, 0, 0, 0, time.UTC))
 
 	norms, err := NormalizeIntent(payload)
 	require.NoError(t, err, "SEPA adapter output must normalize (five-modes-one-engine thesis)")
@@ -41,7 +41,7 @@ func TestNormalizeSEPAAdapterOutput(t *testing.T) {
 	assert.Equal(t, "sepa", n.StrategyID)
 	assert.Equal(t, "AAPL", n.Symbol)
 
-	body, err := n.IntentJSON()
+	body, err := n.SignalJSON()
 	require.NoError(t, err)
 	var m map[string]any
 	require.NoError(t, json.Unmarshal(body, &m))
@@ -63,26 +63,26 @@ func TestNormalizeSEPAAdapterOutput(t *testing.T) {
 // on the canonical domain types, exercised by TestNormalizeSEPAAdapterOutput
 // (real adapter output) + the pairs/sector slice tests below.
 
-// TestNormalizePairsSlice proves a []domain.PairsSignalIntent fans out to one
+// TestNormalizePairsSlice proves a []domain.PairsSignal fans out to one
 // NormalizedIntent per leg, each addressed by its own symbol.
 func TestNormalizePairsSlice(t *testing.T) {
-	a := domain.NewPairsSignalIntent()
+	a := domain.NewPairsSignal()
 	a.Symbol = "KO"
 	a.State = domain.StateHold
 	a.PairID = "KO/PEP"
-	b := domain.NewPairsSignalIntent()
+	b := domain.NewPairsSignal()
 	b.Symbol = "PEP"
 	b.State = domain.StateHold
 	b.PairID = "KO/PEP"
 
-	norms, err := NormalizeIntent([]domain.PairsSignalIntent{a, b})
+	norms, err := NormalizeIntent([]domain.PairsSignal{a, b})
 	require.NoError(t, err)
 	require.Len(t, norms, 2)
 	assert.Equal(t, "KO", norms[0].Symbol)
 	assert.Equal(t, "PEP", norms[1].Symbol)
 	for _, n := range norms {
 		assert.Equal(t, "pairs", n.StrategyID)
-		body, err := n.IntentJSON()
+		body, err := n.SignalJSON()
 		require.NoError(t, err)
 		var m map[string]any
 		require.NoError(t, json.Unmarshal(body, &m))
@@ -93,18 +93,18 @@ func TestNormalizePairsSlice(t *testing.T) {
 
 // TestNormalizeSectorSlice proves the sector slice path.
 func TestNormalizeSectorSlice(t *testing.T) {
-	it := domain.NewSectorRotationIntent()
+	it := domain.NewSectorRotationSignal()
 	it.Symbol = "XLK"
 	it.State = domain.StateBuy
 	it.Rank = 1
 	it.MomentumScore = 0.12
 
-	norms, err := NormalizeIntent([]domain.SectorRotationIntent{it})
+	norms, err := NormalizeIntent([]domain.SectorRotationSignal{it})
 	require.NoError(t, err)
 	require.Len(t, norms, 1)
 	assert.Equal(t, "XLK", norms[0].Symbol)
 	assert.Equal(t, "sector_rotation", norms[0].StrategyID)
-	body, err := norms[0].IntentJSON()
+	body, err := norms[0].SignalJSON()
 	require.NoError(t, err)
 	var m map[string]any
 	require.NoError(t, json.Unmarshal(body, &m))
@@ -121,8 +121,8 @@ func TestNormalizeUnknownTypeErrors(t *testing.T) {
 
 // TestStreamKeyShape pins the reference per-trader stream key shape.
 func TestStreamKeyShape(t *testing.T) {
-	assert.Equal(t, "trader-SIGNAL-001:stream:data.SignalIntentUpdate",
-		StreamKey("SIGNAL-001", TopicSignalIntent))
+	assert.Equal(t, "trader-SIGNAL-001:stream:data.SignalUpdate",
+		StreamKey("SIGNAL-001", TopicSignal))
 	assert.Equal(t, "trader-PAPER-X:stream:data.PortfolioHealthUpdate",
 		StreamKey("PAPER-X", TopicPortfolioHealth))
 }

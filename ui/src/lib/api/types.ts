@@ -877,9 +877,9 @@ export function hasSession(
 }
 
 /**
- * One recent signal intent (tms.signal_intents). `state` is the per-strategy
- * decision token (buy|forming|hold|exit|flat|…, strategy-defined). `intent` is
- * the unwrapped SignalIntentUnion variant (open shape).
+ * One recent signal (tms.signals). `state` is the per-strategy
+ * decision token (buy|forming|hold|exit|flat|…, strategy-defined). `signal` is
+ * the unwrapped SignalUnion variant (open shape).
  */
 export type LiveIntent = {
   strategy_id: string;
@@ -887,16 +887,16 @@ export type LiveIntent = {
   state: string;
   strength: number;
   generation: number;
-  intent: Record<string, unknown>;
+  signal: Record<string, unknown>;
   ts: string;
   ts_event: number;
 };
 
 export type LiveIntentsResponse = { intents: LiveIntent[] };
 
-// ---- Per-strategy intent shapes (the unwrapped `intent` JSONB) ----
+// ---- Per-strategy signal shapes (the unwrapped `signal` JSONB) ----
 //
-// Each `LiveIntent.intent` is the open SignalIntentUnion variant for that
+// Each `LiveIntent.signal` is the open SignalUnion variant for that
 // symbol's `strategy_id`. The watchlist tabs read these per-strategy fields
 // (every field optional — a forming setup may not have computed all of them, and
 // older producers omit the ones added later, so the UI shows "—" for any miss).
@@ -1020,7 +1020,7 @@ export type LiveCommandResponse = {
 export type WsSignalIntent = {
   strategy_id: string;
   symbol: string;
-  intent_json: Record<string, unknown>;
+  signal_json: Record<string, unknown>;
   ts_event: number;
   ts_init: number;
 };

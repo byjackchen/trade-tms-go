@@ -106,7 +106,7 @@ func runWindowBatch(t *testing.T, a *runner.Assembler, syms []string, runStartD,
 	return livengine.BatchBars(insts)
 }
 
-func stripGen(t *testing.T, recs []livengine.IntentRecord) []string {
+func stripGen(t *testing.T, recs []livengine.SignalRecord) []string {
 	t.Helper()
 	out := make([]string, 0, len(recs))
 	for _, r := range recs {
@@ -178,7 +178,7 @@ func TestWarmedLiveSectorProof(t *testing.T) {
 
 	// First streamed timestamp's intents must be ACTIONABLE (not all no_setup).
 	firstTS := recs[0].AsOf
-	var first []livengine.IntentRecord
+	var first []livengine.SignalRecord
 	for _, r := range recs {
 		if r.AsOf.Equal(firstTS) {
 			first = append(first, r)
@@ -205,7 +205,7 @@ func TestWarmedLiveSectorProof(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, fullSess.Replay(ctx, fullBatch))
-	fullRun := make([]livengine.IntentRecord, 0)
+	fullRun := make([]livengine.SignalRecord, 0)
 	for _, r := range fullSink.SortedIntents() {
 		if !r.AsOf.Before(runStart) {
 			fullRun = append(fullRun, r)
@@ -302,7 +302,7 @@ func TestWarmedLivePairsProof(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, fullSess.Replay(ctx, fullBatch))
-	fullRun := make([]livengine.IntentRecord, 0)
+	fullRun := make([]livengine.SignalRecord, 0)
 	for _, r := range fullSink.SortedIntents() {
 		if !r.AsOf.Before(runStart) {
 			fullRun = append(fullRun, r)
@@ -363,7 +363,7 @@ func unionStr(a, b []string) []string {
 	return out
 }
 
-func sectorDistribution(t *testing.T, recs []livengine.IntentRecord) (dist map[string]int, actionable, withStrength int) {
+func sectorDistribution(t *testing.T, recs []livengine.SignalRecord) (dist map[string]int, actionable, withStrength int) {
 	t.Helper()
 	dist = map[string]int{}
 	for _, rec := range recs {
@@ -387,7 +387,7 @@ func sectorDistribution(t *testing.T, recs []livengine.IntentRecord) (dist map[s
 	return dist, actionable, withStrength
 }
 
-func pairsZScores(t *testing.T, rec livengine.IntentRecord) []float64 {
+func pairsZScores(t *testing.T, rec livengine.SignalRecord) []float64 {
 	t.Helper()
 	b, err := json.Marshal(rec.Payload)
 	require.NoError(t, err)

@@ -33,7 +33,7 @@ func New(id string, sg *sectorrotation.SignalGenerator) (*Strategy, error) {
 // Compile-time capability assertions.
 var (
 	_ engine.Strategy            = (*Strategy)(nil)
-	_ engine.IntentEvaluator     = (*Strategy)(nil)
+	_ engine.SignalEvaluator     = (*Strategy)(nil)
 	_ engine.StateSummarizer     = (*Strategy)(nil)
 	_ engine.StatePersister      = (*Strategy)(nil)
 	_ engine.SymbolScoped        = (*Strategy)(nil)
@@ -96,9 +96,9 @@ func (s *Strategy) WarmupBatch(bars []domain.Bar) {
 	}
 }
 
-// EvaluateIntentJSON returns the per-ETF SectorRotationIntent slice for asOf as
-// a JSON-serializable value (engine.IntentEvaluator). Pure read of state.
-func (s *Strategy) EvaluateIntentJSON(asOf time.Time) any {
+// EvaluateSignalJSON returns the per-ETF SectorRotationSignal slice for asOf as
+// a JSON-serializable value (engine.SignalEvaluator). Pure read of state.
+func (s *Strategy) EvaluateSignalJSON(asOf time.Time) any {
 	return s.sg.EvaluateIntent(asOf)
 }
 

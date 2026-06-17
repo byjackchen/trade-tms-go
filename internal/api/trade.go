@@ -7,7 +7,7 @@ package api
 // executes under full audit. Reads come from PG (the durable truth, decision 5):
 //
 //	GET  /api/v1/trade/session   — latest session state (mode, status, halt)
-//	GET  /api/v1/trade/intents   — recent signal intents (from tms.signal_intents)
+//	GET  /api/v1/trade/intents   — recent signals (from tms.signals)
 //	GET  /api/v1/trade/health    — latest PortfolioHealth snapshot
 //	GET  /api/v1/watchlist       — the trade universe (latest session's instruments)
 //	POST /api/v1/trade/commands  — enqueue a control command (audited)
@@ -102,7 +102,7 @@ type TradeIntent struct {
 	State      string          `json:"state"`
 	Strength   float64         `json:"strength"`
 	Generation int64           `json:"generation"`
-	Intent     json.RawMessage `json:"intent"`
+	Intent     json.RawMessage `json:"signal"`
 	TS         time.Time       `json:"ts"`
 	TSEventNS  int64           `json:"ts_event"`
 }

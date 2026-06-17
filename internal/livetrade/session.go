@@ -104,8 +104,8 @@ type TradeSessionConfig struct {
 	Risk RiskRecorder
 	// NAV is the daily-loss-halt NAV baseline (the live account starting balance).
 	NAV domain.Money
-	// IntentSink receives intents + state summaries (may be DiscardSink).
-	IntentSink livengine.IntentSink
+	// SignalSink receives intents + state summaries (may be DiscardSink).
+	SignalSink livengine.SignalSink
 	// EmitGate gates NEW-intent + opening-order emission (the halt). nil => always.
 	EmitGate func() bool
 	// StateStore persists strategy SG state for crash recovery (may be nil).
@@ -159,7 +159,7 @@ func NewTradeSession(cfg TradeSessionConfig) (*TradeSession, error) {
 		}
 	}
 
-	sink := cfg.IntentSink
+	sink := cfg.SignalSink
 	if sink == nil {
 		sink = livengine.DiscardSink{}
 	}

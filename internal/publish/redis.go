@@ -10,7 +10,7 @@ package publish
 // by readers (a JSON document string, §2.2). Redis is TRANSPORT ONLY (decision
 // 5) — the durable truth is Postgres; a cockpit reconstructs from PG and tails
 // these streams for continuity. Publish failures never abort the engine: the
-// IntentSink wrapping this publisher logs and continues (the DB write is the
+// SignalSink wrapping this publisher logs and continues (the DB write is the
 // gate that can stop the node, not Redis).
 
 import (
@@ -27,7 +27,7 @@ import (
 // strings the cockpit subscribes to; the per-trader key is
 // trader-{id}:stream:{topic}.
 const (
-	TopicSignalIntent    = "data.SignalIntentUpdate"
+	TopicSignal          = "data.SignalUpdate"
 	TopicStrategyState   = "data.StrategyStateUpdate"
 	TopicPortfolioHealth = "data.PortfolioHealthUpdate"
 	// TopicWatchlist is an additive topic for the live universe the
@@ -133,14 +133,14 @@ func (p *Publisher) publish(ctx context.Context, topic string, payload any) erro
 // Wire envelopes (api-ws-redis.md §5). ts_event / ts_init are int64 ns UTC.
 // ---------------------------------------------------------------------------
 
-// SignalIntentEnvelope is the SignalIntentUpdate wire shape (§2.4 / §5.9):
-// the outer {strategy_id, symbol, intent_json, ts_event, ts_init}. intent_json
-// is the unwrapped SignalIntentUnion variant payload (an object, NOT a string —
+// SignalEnvelope is the SignalUpdate wire shape (§2.4 / §5.9):
+// the outer {strategy_id, symbol, signal_json, ts_event, ts_init}. signal_json
+// is the unwrapped SignalUnion variant payload (an object, NOT a string —
 // the reader JSON-parses-if-string-else-as-is, §3.18; we emit the object form).
-type SignalIntentEnvelope struct {
+type SignalEnvelope struct {
 	StrategyID string          `json:"strategy_id"`
 	Symbol     string          `json:"symbol"`
-	IntentJSON json.RawMessage `json:"intent_json"`
+	SignalJSON json.RawMessage `json:"signal_json"`
 	TSEvent    int64           `json:"ts_event"`
 	TSInit     int64           `json:"ts_init"`
 }
@@ -188,20 +188,20 @@ type PositionEnvelope struct {
 // Publish methods
 // ---------------------------------------------------------------------------
 
-// PublishSignalIntent publishes one normalized intent as a SignalIntentUpdate.
+// PublishSignal publishes one normalized signal as a SignalUpdate.
 // tsEventNS is the engine ts_event (the bar as-of ns); ts_init is wall-clock.
-func (p *Publisher) PublishSignalIntent(ctx context.Context, n NormalizedIntent, tsEventNS int64) error {
+func (p *Publisher) PublishSignal(ctx context.Context, n NormalizedIntent, tsEventNS int64) error {
 	if p == nil {
 		return nil
 	}
-	body, err := n.IntentJSON()
+	body, err := n.SignalJSON()
 	if err != nil {
 		return err
 	}
-	return p.publish(ctx, TopicSignalIntent, SignalIntentEnvelope{
+	return p.publish(ctx, TopicSignal, SignalEnvelope{
 		StrategyID: n.StrategyID,
 		Symbol:     n.Symbol,
-		IntentJSON: body,
+		SignalJSON: body,
 		TSEvent:    tsEventNS,
 		TSInit:     p.nowNS(),
 	})

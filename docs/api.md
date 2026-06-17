@@ -908,19 +908,19 @@ When no session has ever run: `{ "session": null }`.
 
 ### `GET /api/v1/trade/intents?strategy_id=<id>&limit=<n>`
 
-Recent signal intents from `tms.signal_intents`, newest first. `strategy_id`
+Recent signals from `tms.signals`, newest first. `strategy_id`
 (`sepa` | `pairs` | `sector_rotation` | `intraday_breakout`) is optional;
 `limit` defaults to 100, max 1000.
 
 ```json
 { "intents": [
   { "strategy_id": "sepa", "symbol": "AAPL", "state": "buy", "strength": 75.0,
-    "generation": 7, "intent": { }, "ts": "2026-06-12T20:00:00Z",
+    "generation": 7, "signal": { }, "ts": "2026-06-12T20:00:00Z",
     "ts_event": 1781812800000000000 }
 ] }
 ```
 
-`intent` is the unwrapped `SignalIntentUnion` variant (the full per-strategy
+`signal` is the unwrapped `SignalUnion` variant (the full per-strategy
 payload, snake_case — api-ws-redis.md §5.9).
 
 ### `GET /api/v1/trade/health`
@@ -1252,7 +1252,7 @@ Every frame is one JSON text message with the envelope:
 | `hello` | `{ "channels": [...] }` | Sent once on connect — confirms the subscription. |
 | `job` | a job `Event` object (below) | Redis channel `tms:jobs:events`. |
 | `sync` | a dataset-sync event object | Redis channel `tms:data:sync`. |
-| `signal_intent` | `{strategy_id, symbol, intent_json, ts_event, ts_init}` | Redis stream `trader-{id}:stream:data.SignalIntentUpdate`. |
+| `signal_intent` | `{strategy_id, symbol, signal_json, ts_event, ts_init}` | Redis stream `trader-{id}:stream:data.SignalUpdate`. |
 | `strategy_state` | `{strategy_id, state_json, ts_event, ts_init}` | Redis stream `…:data.StrategyStateUpdate`. |
 | `portfolio_health` | `{day_pnl, day_pnl_pct, daily_loss_halt, halt_headroom_pct, concentration_pct, ts_event, ts_init}` | Redis stream `…:data.PortfolioHealthUpdate`. |
 | `watchlist` | `{symbols, ts_event, ts_init}` | Redis stream `…:data.WatchlistUpdate`. |

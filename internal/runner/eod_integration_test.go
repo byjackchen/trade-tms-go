@@ -53,18 +53,18 @@ func tradingDates(end time.Time, n int) []time.Time {
 	return out
 }
 
-func countIntentRows(t *testing.T, pool *pgxpool.Pool, asOf string) int {
+func countSignalRows(t *testing.T, pool *pgxpool.Pool, asOf string) int {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var n int
 	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT count(*) FROM tms.signal_intents WHERE as_of = $1`, asOf).Scan(&n))
+		`SELECT count(*) FROM tms.signals WHERE as_of = $1`, asOf).Scan(&n))
 	return n
 }
 
 // TestEODIdempotency is the core decision-4 contract: running the EOD refresh
-// TWICE for the same as_of yields the SAME signal_intents rows — no duplicates.
+// TWICE for the same as_of yields the SAME signals rows — no duplicates.
 func TestEODIdempotency(t *testing.T) {
 	pool := requirePG(t)
 	ctx := testCtx(t)
@@ -87,29 +87,29 @@ func TestEODIdempotency(t *testing.T) {
 
 	rep1, err := eod.RunRefresh(ctx, cfg, nil)
 	require.NoError(t, err)
-	require.Positive(t, rep1.IntentRows, "first refresh should upsert intent rows")
+	require.Positive(t, rep1.SignalRows, "first refresh should upsert intent rows")
 	require.Positive(t, rep1.BarsReplayed, "first refresh should replay bars")
 
-	// IntentRows is the count of UPSERT operations (one per ETF per replayed
+	// SignalRows is the count of UPSERT operations (one per ETF per replayed
 	// timestamp); the DB keeps only the LATEST as_of row per (strategy_id,
 	// symbol, as_of), so the distinct row count is one per ETF — the upsert
 	// collapses the whole replay window onto the as_of key.
-	rowsAfter1 := countIntentRows(t, pool, "2024-03-15")
+	rowsAfter1 := countSignalRows(t, pool, "2024-03-15")
 	assert.Equal(t, len(sectorETFs), rowsAfter1, "one collapsed row per ETF after first refresh")
-	assert.Greater(t, rep1.IntentRows, rowsAfter1, "more upsert ops than rows (window collapses onto as_of)")
+	assert.Greater(t, rep1.SignalRows, rowsAfter1, "more upsert ops than rows (window collapses onto as_of)")
 
 	// Re-run: the SECOND run must OVERWRITE, not append.
 	rep2, err := eod.RunRefresh(ctx, cfg, nil)
 	require.NoError(t, err)
 
-	rowsAfter2 := countIntentRows(t, pool, "2024-03-15")
+	rowsAfter2 := countSignalRows(t, pool, "2024-03-15")
 	assert.Equal(t, rowsAfter1, rowsAfter2, "IDEMPOTENT: re-run must NOT add rows (upsert overwrites)")
-	assert.Equal(t, rep1.IntentRows, rep2.IntentRows, "same number of upserts both runs")
+	assert.Equal(t, rep1.SignalRows, rep2.SignalRows, "same number of upserts both runs")
 
 	// Every (strategy_id, symbol, as_of) is unique (the partial-unique index).
 	var distinct int
 	require.NoError(t, pool.QueryRow(ctx,
-		`SELECT count(DISTINCT (strategy_id, symbol, as_of)) FROM tms.signal_intents WHERE as_of='2024-03-15'`).Scan(&distinct))
+		`SELECT count(DISTINCT (strategy_id, symbol, as_of)) FROM tms.signals WHERE as_of='2024-03-15'`).Scan(&distinct))
 	assert.Equal(t, rowsAfter2, distinct, "no duplicate (strategy_id, symbol, as_of) tuples")
 
 	// One row per ETF in the universe (sector emits one intent per ETF per ts;
@@ -147,8 +147,8 @@ func snapshotIntents(t *testing.T, pool *pgxpool.Pool, asOf string) map[string]s
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	rows, err := pool.Query(ctx,
-		`SELECT symbol, state, strength, generation, intent::text
-		   FROM tms.signal_intents WHERE as_of=$1 ORDER BY symbol`, asOf)
+		`SELECT symbol, state, strength, generation, signal::text
+		   FROM tms.signals WHERE as_of=$1 ORDER BY symbol`, asOf)
 	require.NoError(t, err)
 	defer rows.Close()
 	out := make(map[string]string)

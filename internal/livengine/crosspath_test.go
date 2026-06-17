@@ -26,13 +26,13 @@ package livengine_test
 //
 // HOW THE BATCH INTENTS ARE OBSERVED. The batch engine.Engine does not itself
 // emit SignalIntents (it emits orders/fills). But the strategies it runs ARE
-// IntentEvaluators, and an intent is a PURE READ of strategy state that is
+// SignalEvaluators, and an intent is a PURE READ of strategy state that is
 // fill-independent (noop.go: "generators evolve purely from OnBar(bar) inputs and
 // never read fills/positions"). So we wrap each assembled strategy in a thin
 // intentRecordingProxy that delegates OnBar to the real strategy and, on a
 // timestamp rollover (detected from the bars it sees, exactly as
 // livengine.Session.flushTimestamp detects it), records the completed
-// timestamp's EvaluateIntentJSON. The proxy changes NO behaviour: it forwards
+// timestamp's EvaluateSignalJSON. The proxy changes NO behaviour: it forwards
 // OnBar / ID untouched and only observes. Running the SAME wrapped instances as
 // PrebuiltStrategies through engine.New therefore yields the per-timestamp intent
 // stream the batch driver would produce — which must equal the streaming driver's.
@@ -58,25 +58,25 @@ import (
 )
 
 // intentRecordingProxy wraps an engine.Strategy that is also an
-// engine.IntentEvaluator. It is BEHAVIOR-TRANSPARENT for the engine: ID and OnBar
+// engine.SignalEvaluator. It is BEHAVIOR-TRANSPARENT for the engine: ID and OnBar
 // delegate verbatim to the inner strategy, so the batch engine drives the real
 // strategy exactly as it would unwrapped. It additionally OBSERVES the bar stream
 // to detect timestamp rollovers and snapshot the inner strategy's
-// EvaluateIntentJSON for each COMPLETED timestamp — the same trigger
+// EvaluateSignalJSON for each COMPLETED timestamp — the same trigger
 // livengine.Session uses (evaluate after every bar at a timestamp has run OnBar).
 // Flush() captures the final, still-open timestamp at end-of-run.
 type intentRecordingProxy struct {
 	inner  engine.Strategy
-	eval   engine.IntentEvaluator
-	recs   *[]livengine.IntentRecord
+	eval   engine.SignalEvaluator
+	recs   *[]livengine.SignalRecord
 	curTS  time.Time
 	haveTS bool
 }
 
-func newIntentRecordingProxy(inner engine.Strategy, recs *[]livengine.IntentRecord) *intentRecordingProxy {
-	ie, ok := inner.(engine.IntentEvaluator)
+func newSignalRecordingProxy(inner engine.Strategy, recs *[]livengine.SignalRecord) *intentRecordingProxy {
+	ie, ok := inner.(engine.SignalEvaluator)
 	if !ok {
-		panic("crosspath_test: inner strategy must implement engine.IntentEvaluator")
+		panic("crosspath_test: inner strategy must implement engine.SignalEvaluator")
 	}
 	return &intentRecordingProxy{inner: inner, eval: ie, recs: recs}
 }
@@ -104,10 +104,10 @@ func (p *intentRecordingProxy) Flush() {
 }
 
 func (p *intentRecordingProxy) snapshot(asOf time.Time) {
-	*p.recs = append(*p.recs, livengine.IntentRecord{
+	*p.recs = append(*p.recs, livengine.SignalRecord{
 		StrategyID: p.inner.ID(),
 		AsOf:       asOf,
-		Payload:    p.eval.EvaluateIntentJSON(asOf),
+		Payload:    p.eval.EvaluateSignalJSON(asOf),
 	})
 }
 
@@ -116,7 +116,7 @@ func (p *intentRecordingProxy) snapshot(asOf time.Time) {
 // consistency proof uses (the JSON payload is the persistence/transport shape, so
 // JSON equality is the right equality). Defined separately from
 // consistency_test.go's helper so this file is self-contained.
-func canonicalIntentStream(t *testing.T, recs []livengine.IntentRecord) []string {
+func canonicalIntentStream(t *testing.T, recs []livengine.SignalRecord) []string {
 	t.Helper()
 	out := make([]string, 0, len(recs))
 	for _, r := range recs {
@@ -158,11 +158,11 @@ func TestBatchEqualsStreamingIntents(t *testing.T) {
 
 	// ----- (A) BATCH driver: engine.New + Engine.Run -----------------------
 	batchAsm := assembleSector(t)
-	var batchRecs []livengine.IntentRecord
+	var batchRecs []livengine.SignalRecord
 	proxies := make([]engine.Strategy, 0, len(batchAsm.Strategies))
 	rawProxies := make([]*intentRecordingProxy, 0, len(batchAsm.Strategies))
 	for _, st := range batchAsm.Strategies {
-		p := newIntentRecordingProxy(st, &batchRecs)
+		p := newSignalRecordingProxy(st, &batchRecs)
 		proxies = append(proxies, p)
 		rawProxies = append(rawProxies, p)
 	}
@@ -215,8 +215,8 @@ func TestBatchEqualsStreamingIntents(t *testing.T) {
 // sortIntentRecs orders intent records canonically (AsOf, then StrategyID) — the
 // same canonicalization MemSink.SortedIntents applies — so the batch stream
 // compares apples-to-apples with the live sinks regardless of emission order.
-func sortIntentRecs(recs []livengine.IntentRecord) []livengine.IntentRecord {
-	out := make([]livengine.IntentRecord, len(recs))
+func sortIntentRecs(recs []livengine.SignalRecord) []livengine.SignalRecord {
+	out := make([]livengine.SignalRecord, len(recs))
 	copy(out, recs)
 	// stable insertion to mirror sort.SliceStable in MemSink.SortedIntents.
 	for i := 1; i < len(out); i++ {

@@ -16,7 +16,7 @@ export type StrategyIntentRow = {
   strength: number;
   ts: string;
   tsMs: number;
-  /** The unwrapped SignalIntentUnion variant for this strategy (open shape). */
+  /** The unwrapped SignalUnion variant for this strategy (open shape). */
   intent: Record<string, unknown>;
 };
 
@@ -54,7 +54,7 @@ export function useStrategyIntents(
   useLiveStream({
     onSignalIntent: (p) => {
       if (p.strategy_id !== strategyId) return;
-      const intent = p.intent_json ?? {};
+      const intent = p.signal_json ?? {};
       const tsMs = Math.floor(p.ts_event / 1e6);
       const row: StrategyIntentRow = {
         symbol: p.symbol,
@@ -100,10 +100,10 @@ export function useStrategyIntents(
       if (!existing || row.tsMs >= existing.tsMs) m.set(symbol, row);
     };
     for (const i of symbolsQ.data?.intents ?? []) {
-      merge(i.symbol, i.strategy_id, i.state, i.strength, i.ts, i.intent ?? {});
+      merge(i.symbol, i.strategy_id, i.state, i.strength, i.ts, i.signal ?? {});
     }
     for (const i of intentsQ.data?.intents ?? []) {
-      merge(i.symbol, i.strategy_id, i.state, i.strength, i.ts, i.intent ?? {});
+      merge(i.symbol, i.strategy_id, i.state, i.strength, i.ts, i.signal ?? {});
     }
     for (const [sym, row] of wsIntents) {
       const existing = m.get(sym);
