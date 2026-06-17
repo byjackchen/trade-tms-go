@@ -1000,7 +1000,11 @@ export type CommandName =
 /** POST /api/v1/live/commands body. confirm_token is consumed, never persisted. */
 export type LiveCommandRequest = {
   name: CommandName;
-  mode?: LiveMode;
+  // set_mode takes the 2D control input (§1.3, C6): exec_policy (signal|auto) on
+  // the execution axis + the bound account env (sim|simulate|real) for
+  // exec_policy=auto. The legacy 3-valued `mode` is gone server-side.
+  exec_policy?: ExecPolicy;
+  env?: string;
   reason?: string;
   confirm_token?: string;
 };

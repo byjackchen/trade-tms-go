@@ -22,13 +22,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmActionDialog } from "./confirm-action-dialog";
 import { ModeBadge, sessionModeLabel } from "./live-badges";
-import type { CommandName, LiveMode } from "@/lib/api/types";
+import type { CommandName, LiveMode, ExecPolicy } from "@/lib/api/types";
 
 type DialogKind =
   | { kind: "halt" }
   | { kind: "kill" }
   | { kind: "stop" }
-  | { kind: "mode"; mode: "paper" | "live" }
+  | { kind: "arm" }
   | { kind: "flatten" }
   | { kind: "emergency_kill" }
   | null;
@@ -43,7 +43,7 @@ type DialogKind =
  * confirmation dialog. paper/live additionally require a confirm_token, which is
  * the typed phrase (consumed at the API boundary, never persisted).
  */
-export function SessionControls() {
+export function SessionControls({ env }: { env: "paper" | "live" }) {
   const sessionQ = useLiveSession();
   const cmd = useLiveCommand();
   const [dialog, setDialog] = useState<DialogKind>(null);
@@ -73,6 +73,11 @@ export function SessionControls() {
     session?.exec_policy,
     session?.account_env,
   );
+  // The only switchable axis inside a per-env module is the EXECUTION POLICY:
+  // SIGNAL (emit-only) <-> AUTO (auto-submit). The account env is fixed by which
+  // module this is (paper -> simulate, live -> real); you never switch env here.
+  const execPolicy: ExecPolicy = session?.exec_policy === "auto" ? "auto" : "signal";
+  const accountEnv = env === "live" ? "real" : "simulate";
   const halted = session?.halt != null;
   const running = status === "RUNNING";
   const traderId = session?.trader_id ?? null;
@@ -98,7 +103,12 @@ export function SessionControls() {
 
   function send(
     name: CommandName,
-    extra?: { mode?: LiveMode; reason?: string; confirm_token?: string },
+    extra?: {
+      exec_policy?: ExecPolicy;
+      env?: string;
+      reason?: string;
+      confirm_token?: string;
+    },
     label?: string,
   ) {
     cmd.mutate(
@@ -113,12 +123,14 @@ export function SessionControls() {
     );
   }
 
-  function setMode(target: LiveMode) {
+  function setExec(target: ExecPolicy) {
     if (target === "signal") {
-      // signal needs no confirmation.
-      send("set_mode", { mode: "signal" }, "switch to SIGNAL");
+      // SIGNAL (emit-only) needs no confirmation.
+      send("set_mode", { exec_policy: "signal" }, "switch to SIGNAL");
     } else {
-      openDialog({ kind: "mode", mode: target as "paper" | "live" });
+      // AUTO arms auto-submission against the module's bound account env; both
+      // paper and live require a typed confirm token (live is real money).
+      openDialog({ kind: "arm" });
     }
   }
 
@@ -207,41 +219,39 @@ export function SessionControls() {
           </div>
         </div>
 
-        {/* Mode switch */}
+        {/* Execution policy — SIGNAL (emit-only) <-> AUTO (auto-submit). The
+            account env is fixed by the module (paper -> simulate, live -> real);
+            there is no paper/live switch here. */}
         <div className="space-y-2">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            Mode
+            Execution
           </p>
           <div className="flex flex-wrap gap-2">
-            {(["signal", "paper", "live"] as const).map((m) => (
+            {(["signal", "auto"] as const).map((p) => (
               <Button
-                key={m}
-                variant={mode === m ? "secondary" : "outline"}
+                key={p}
+                variant={execPolicy === p ? "secondary" : "outline"}
                 size="sm"
-                disabled={noReader || cmd.isPending || mode === m}
-                onClick={() => setMode(m)}
-                // The e2e suite (spec 22) keys the paper switch off
-                // `live-mode-switch-paper`; the other modes keep `control-mode-*`.
-                data-testid={m === "paper" ? "live-mode-switch-paper" : `control-mode-${m}`}
-                data-control={`control-mode-${m}`}
-                data-active={mode === m ? "true" : "false"}
-                // Live (real money) gets a destructive accent to make it
-                // unmistakable from signal/paper.
+                disabled={noReader || cmd.isPending || execPolicy === p}
+                onClick={() => setExec(p)}
+                data-testid={`control-exec-${p}`}
+                data-control={`control-exec-${p}`}
+                data-active={execPolicy === p ? "true" : "false"}
+                // Arming AUTO on the LIVE module is real money: destructive accent.
                 className={
-                  m === "live" && mode !== "live"
+                  p === "auto" && env === "live" && execPolicy !== "auto"
                     ? "border-destructive/50 text-destructive hover:bg-destructive/10"
                     : undefined
                 }
               >
-                {m.toUpperCase()}
+                {p.toUpperCase()}
               </Button>
             ))}
           </div>
           <p className="text-[11px] text-muted-foreground">
-            paper / live require a typed confirmation phrase + token (consumed at
-            the API boundary, never persisted). LIVE places real orders — it
-            shows the target account and demands an explicit confirmation. In
-            signal mode no orders are ever submitted.
+            {env === "live"
+              ? "AUTO arms auto-submission of REAL orders against the bound real-money account (requires a typed confirmation token; audited). SIGNAL emits intents only — no orders."
+              : "AUTO auto-submits orders against the bound SIMULATE account — no real money (requires a typed confirmation token; audited). SIGNAL emits intents only — no orders."}
           </p>
         </div>
 
@@ -385,22 +395,19 @@ export function SessionControls() {
         data-testid="stop-dialog"
       />
       <ConfirmActionDialog
-        open={dialog?.kind === "mode"}
+        open={dialog?.kind === "arm"}
         onClose={closeDialog}
-        title={
-          dialog?.kind === "mode"
-            ? `Switch to ${dialog.mode.toUpperCase()} mode`
-            : "Switch mode"
-        }
+        title={env === "live" ? "Arm AUTO — LIVE (real money)" : "Arm AUTO — paper"}
         description={
-          dialog?.kind === "mode" && dialog.mode === "live" ? (
+          env === "live" ? (
             <span className="space-y-2">
               <span className="block font-medium text-destructive">
-                LIVE mode places REAL orders against the real-money account.
+                Arming AUTO lets the session place REAL orders against the bound
+                real-money account.
               </span>
               <span
                 className="block rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-2 text-xs"
-                data-testid="live-mode-target-account"
+                data-testid="live-arm-target-account"
               >
                 Target account:{" "}
                 <span className="font-mono font-medium">
@@ -419,33 +426,28 @@ export function SessionControls() {
               </span>
             </span>
           ) : (
-            "PAPER mode simulates fills against the SIMULATE account (no real money). This requires a confirm token; the switch is audited."
+            "AUTO auto-submits orders against the bound SIMULATE account (no real money). This requires a confirm token; the switch is audited."
           )
         }
-        confirmPhrase={
-          dialog?.kind === "mode" ? `SET ${dialog.mode.toUpperCase()}` : "SET"
-        }
-        confirmLabel={
-          dialog?.kind === "mode"
-            ? `Switch to ${dialog.mode.toUpperCase()}`
-            : "Switch"
-        }
+        confirmPhrase={env === "live" ? "ARM LIVE" : "ARM PAPER"}
+        confirmLabel={env === "live" ? "Arm AUTO (LIVE)" : "Arm AUTO (paper)"}
         pending={cmd.isPending}
-        errorMessage={dialog?.kind === "mode" ? errorMessage : null}
+        errorMessage={dialog?.kind === "arm" ? errorMessage : null}
         typed={typed}
         onTypedChange={setTyped}
         reason={reason}
         onReasonChange={setReason}
         onConfirm={() => {
-          if (dialog?.kind !== "mode") return;
-          // The typed phrase is the confirm_token the API requires for paper/live.
+          if (dialog?.kind !== "arm") return;
+          // The typed phrase is the confirm_token the API requires to arm AUTO.
+          // env is fixed by the module (paper -> simulate, live -> real).
           send(
             "set_mode",
-            { mode: dialog.mode, confirm_token: typed.trim() },
-            `switch to ${dialog.mode.toUpperCase()}`,
+            { exec_policy: "auto", env: accountEnv, confirm_token: typed.trim() },
+            env === "live" ? "arm AUTO (LIVE)" : "arm AUTO (paper)",
           );
         }}
-        data-testid="live-mode-confirm"
+        data-testid="live-arm-confirm"
       />
       <ConfirmActionDialog
         open={dialog?.kind === "flatten"}

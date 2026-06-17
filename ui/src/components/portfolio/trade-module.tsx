@@ -188,7 +188,7 @@ function PortfolioView({
           <ReconciliationPanel />
         </div>
         <div className="space-y-4">
-          <SessionControls />
+          <SessionControls env={env} />
         </div>
       </div>
     </main>
