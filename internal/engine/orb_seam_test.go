@@ -125,7 +125,7 @@ func TestORBAdapterImplementsSeamAndTrades(t *testing.T) {
 	// Capability surfaces.
 	sub.net = 0
 	// §E3: the adapter is the domain bridge — EvaluateSignalJSON returns the
-	// canonical domain.IntradayBreakoutSignal (not the pure orb.SignalIntent).
+	// canonical domain.IntradayBreakoutSignal (not the pure orb.SignalSnapshot).
 	if it, ok := a.EvaluateSignalJSON(orbSeamBar(t, 15, 55, "1", "1", "1", "1", 0).TS).(domain.IntradayBreakoutSignal); !ok || it.StrategyID != orb.StrategyID {
 		t.Fatalf("EvaluateSignalJSON returned %T", a.EvaluateSignalJSON(time.Now()))
 	}

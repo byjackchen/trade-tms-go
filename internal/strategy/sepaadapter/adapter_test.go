@@ -133,27 +133,27 @@ func TestStateRoundTripJSON(t *testing.T) {
 
 // TestEvaluateSignalJSONReturnsDomainType pins the contract that the publish
 // layer relies on AFTER the §E3 domain-bridge relocation: EvaluateSignalJSON
-// returns the canonical domain.SEPASignal (NOT the pure sepa.SignalIntent
-// and NOT a private adapter struct). publish.NormalizeIntent now switches only on
+// returns the canonical domain.SEPASignal (NOT the pure sepa.SignalSnapshot
+// and NOT a private adapter struct). publish.NormalizeSignal now switches only on
 // domain types; returning anything else aborts every SEPA/multi intent in the
 // signal/paper/live/EOD modes with "unsupported intent type". This is the
 // in-package half of the regression guard; the wire-shape half is
-// TestNormalizeIntentWireShape below + publish/intent_test.go
+// TestNormalizeSignalWireShape below + publish/intent_test.go
 // TestNormalizeSEPAAdapterOutput.
 func TestEvaluateSignalJSONReturnsDomainType(t *testing.T) {
 	s := newAdapter(t, "SEPA-AAPL", newGen(t, "AAPL"))
 	v := s.EvaluateSignalJSON(time.Date(2024, 1, 1, 21, 0, 0, 0, time.UTC))
 	if _, ok := v.(domain.SEPASignal); !ok {
-		t.Fatalf("EvaluateSignalJSON must return domain.SEPASignal for publish.NormalizeIntent; got %T", v)
+		t.Fatalf("EvaluateSignalJSON must return domain.SEPASignal for publish.NormalizeSignal; got %T", v)
 	}
 }
 
-// TestNormalizeIntentWireShape proves the relocated sepaadapter.NormalizeIntent
-// converts a pure sepa.SignalIntent (no json tags) to the spec-faithful
+// TestNormalizeSignalWireShape proves the relocated sepaadapter.NormalizeSignal
+// converts a pure sepa.SignalSnapshot (no json tags) to the spec-faithful
 // snake_case domain wire shape — the coverage formerly in publish.
-func TestNormalizeIntentWireShape(t *testing.T) {
+func TestNormalizeSignalWireShape(t *testing.T) {
 	prox := 1.5
-	in := sepa.SignalIntent{
+	in := sepa.SignalSnapshot{
 		Symbol:              "AAPL",
 		State:               sepa.StateBuy,
 		Strength:            75,
@@ -166,7 +166,7 @@ func TestNormalizeIntentWireShape(t *testing.T) {
 		PivotPrice:          "123.45",
 		StopPrice:           "118.00",
 	}
-	d := NormalizeIntent(in)
+	d := NormalizeSignal(in)
 	if d.Symbol != "AAPL" || d.State != domain.StateBuy || d.Strength != 75 || d.Generation != 7 {
 		t.Fatalf("discriminators wrong: %+v", d)
 	}
@@ -197,11 +197,11 @@ func TestNormalizeIntentWireShape(t *testing.T) {
 	}
 }
 
-// TestNormalizeIntentCarriesTradePlan proves the TMS-enhancement trade-plan
+// TestNormalizeSignalCarriesTradePlan proves the TMS-enhancement trade-plan
 // fields pass through the adapter into the domain wire shape (snake_case JSONB).
-func TestNormalizeIntentCarriesTradePlan(t *testing.T) {
+func TestNormalizeSignalCarriesTradePlan(t *testing.T) {
 	risk, pctOff, vol, ready := 6.5, -3.2, 2.1, 73.4
-	in := sepa.SignalIntent{
+	in := sepa.SignalSnapshot{
 		Symbol:       "AAPL",
 		State:        sepa.StateForming,
 		StrategyID:   "sepa",
@@ -212,7 +212,7 @@ func TestNormalizeIntentCarriesTradePlan(t *testing.T) {
 		VolRatio:     &vol,
 		BuyReadiness: &ready,
 	}
-	d := NormalizeIntent(in)
+	d := NormalizeSignal(in)
 	if d.RiskPct == nil || *d.RiskPct != risk {
 		t.Fatalf("risk_pct not carried: %+v", d.RiskPct)
 	}

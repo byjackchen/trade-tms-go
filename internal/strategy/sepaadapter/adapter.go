@@ -126,18 +126,18 @@ func (s *Strategy) submit(sub engine.OrderSubmitter, sig sepa.Signal, ts time.Ti
 	}
 }
 
-// EvaluateSignalJSON returns the per-symbol SEPA intent for asOf, already
+// EvaluateSignalJSON returns the per-symbol SEPA signal for asOf, already
 // bridged to the canonical domain.SEPASignal wire shape
 // (engine.SignalEvaluator). Pure read.
 //
 // The adapter is the SANCTIONED domain bridge (modularization-review.md §E3): it
 // is the one place that imports both the pure sepa package (which must stay
 // zero-domain for byte-for-byte golden output) AND domain. The local→domain
-// normalization (formerly publish.normalizeSEPA) now lives in NormalizeIntent
-// here, so publish switches only on domain intent types and no longer imports
-// strategy/sepa. The pure sepa.SignalIntent never escapes the adapter.
+// normalization (formerly publish.normalizeSEPA) now lives in NormalizeSignal
+// here, so publish switches only on domain signal types and no longer imports
+// strategy/sepa. The pure sepa.SignalSnapshot never escapes the adapter.
 func (s *Strategy) EvaluateSignalJSON(asOf time.Time) any {
-	return NormalizeIntent(s.gen.EvaluateIntent(asOf))
+	return NormalizeSignal(s.gen.EvaluateSignal(asOf))
 }
 
 // StateSummaryJSON returns the light per-bar UI summary (engine.StateSummarizer).

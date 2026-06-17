@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { subscribeSse, type BridgeState } from "./sse-bus";
 import type {
   WsEnvelope,
-  WsSignalIntent,
+  WsSignal,
   WsStrategyState,
   WsPortfolioHealth,
   WsWatchlist,
@@ -19,14 +19,14 @@ import type {
  * Typed live event stream for the cockpit.
  *
  * Subscribes to the shared `/api/stream` SSE bus and dispatches the live frame
- * types (signal_intent / strategy_state / portfolio_health / watchlist /
+ * types (signal / strategy_state / portfolio_health / watchlist /
  * position) to the supplied handlers. Handlers are stored in a ref so a
  * re-render of the caller (which is constant on every push) does not churn the
  * subscription. Returns the bridge connection state for disconnected-banner UI.
  */
 export type LiveStreamHandlers = {
   onEnvelope?: (env: WsEnvelope) => void;
-  onSignalIntent?: (p: WsSignalIntent) => void;
+  onSignal?: (p: WsSignal) => void;
   onStrategyState?: (p: WsStrategyState) => void;
   onPortfolioHealth?: (p: WsPortfolioHealth) => void;
   onWatchlist?: (p: WsWatchlist) => void;
@@ -55,8 +55,8 @@ export function useLiveStream(handlers: LiveStreamHandlers): {
         const h = handlersRef.current;
         h.onEnvelope?.(env);
         switch (env.type) {
-          case "signal_intent":
-            h.onSignalIntent?.(env.payload as unknown as WsSignalIntent);
+          case "signal":
+            h.onSignal?.(env.payload as unknown as WsSignal);
             break;
           case "strategy_state":
             h.onStrategyState?.(env.payload as unknown as WsStrategyState);

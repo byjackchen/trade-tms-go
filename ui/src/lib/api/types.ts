@@ -472,7 +472,7 @@ export type WsEventType =
   | "hello"
   | "job"
   | "sync"
-  | "signal_intent"
+  | "signal"
   | "strategy_state"
   | "portfolio_health"
   | "watchlist"
@@ -881,7 +881,7 @@ export function hasSession(
  * decision token (buy|forming|hold|exit|flat|…, strategy-defined). `signal` is
  * the unwrapped SignalUnion variant (open shape).
  */
-export type LiveIntent = {
+export type LiveSignal = {
   strategy_id: string;
   symbol: string;
   state: string;
@@ -892,11 +892,11 @@ export type LiveIntent = {
   ts_event: number;
 };
 
-export type LiveIntentsResponse = { intents: LiveIntent[] };
+export type LiveSignalsResponse = { signals: LiveSignal[] };
 
 // ---- Per-strategy signal shapes (the unwrapped `signal` JSONB) ----
 //
-// Each `LiveIntent.signal` is the open SignalUnion variant for that
+// Each `LiveSignal.signal` is the open SignalUnion variant for that
 // symbol's `strategy_id`. The watchlist tabs read these per-strategy fields
 // (every field optional — a forming setup may not have computed all of them, and
 // older producers omit the ones added later, so the UI shows "—" for any miss).
@@ -978,10 +978,10 @@ export type LiveHealth = {
   ts: string;
 };
 
-// `intents` (additive) carries the latest intent per symbol, frontier-windowed
+// `signals` (additive) carries the latest signal per symbol, frontier-windowed
 // and ranked actionable-first by the API, so every watchlist row shows its state
-// without a separate capped intents poll. Older servers omit it (undefined).
-export type WatchlistResponse = { symbols: string[]; intents?: LiveIntent[] };
+// without a separate capped signals poll. Older servers omit it (undefined).
+export type WatchlistResponse = { symbols: string[]; signals?: LiveSignal[] };
 
 /** Live control command names (commands.Name; docs/api.md §POST live/commands). */
 export type CommandName =
@@ -1016,8 +1016,8 @@ export type LiveCommandResponse = {
 
 // ---- Live WS push payloads (bridged Redis streams; docs/api.md §ws table) ----
 
-/** `signal_intent` frame payload. */
-export type WsSignalIntent = {
+/** `signal` frame payload. */
+export type WsSignal = {
   strategy_id: string;
   symbol: string;
   signal_json: Record<string, unknown>;

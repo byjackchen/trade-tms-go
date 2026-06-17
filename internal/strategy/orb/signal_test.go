@@ -323,8 +323,8 @@ func TestEquityPulledAtSizingTime(t *testing.T) {
 
 func TestIntentGenerationMonotonic(t *testing.T) {
 	g := makeSG(t, nil)
-	g1 := g.EvaluateIntent(time.Date(2025, 1, 6, 14, 0, 0, 0, time.UTC)).Generation
-	g2 := g.EvaluateIntent(time.Date(2025, 1, 6, 14, 1, 0, 0, time.UTC)).Generation
+	g1 := g.EvaluateSignal(time.Date(2025, 1, 6, 14, 0, 0, 0, time.UTC)).Generation
+	g2 := g.EvaluateSignal(time.Date(2025, 1, 6, 14, 1, 0, 0, time.UTC)).Generation
 	if !(g2 > g1) {
 		t.Fatalf("generation not monotonic: %d -> %d", g1, g2)
 	}
@@ -343,7 +343,7 @@ func TestIntentStatesDirect(t *testing.T) {
 	sessDate := civilDate{2025, time.January, 6}
 
 	// NO_SETUP before range locks.
-	if it := newSG().EvaluateIntent(time.Date(2025, 1, 6, 14, 0, 0, 0, time.UTC)); it.State != StateNoSetup || it.ORBHigh != "" {
+	if it := newSG().EvaluateSignal(time.Date(2025, 1, 6, 14, 0, 0, 0, time.UTC)); it.State != StateNoSetup || it.ORBHigh != "" {
 		t.Fatalf("expected NO_SETUP/nil orb_high, got %+v", it)
 	}
 
@@ -353,7 +353,7 @@ func TestIntentStatesDirect(t *testing.T) {
 	rl := mustDec("498")
 	g.rangeHigh, g.rangeLow, g.rangeLocked = &rh, &rl, true
 	g.currentSessionDate = &sessDate
-	if it := g.EvaluateIntent(asOf); it.State != StateForming || it.ORBHigh != "500" || it.ORBLow != "498" {
+	if it := g.EvaluateSignal(asOf); it.State != StateForming || it.ORBHigh != "500" || it.ORBLow != "498" {
 		t.Fatalf("expected FORMING, got %+v", it)
 	}
 
@@ -363,7 +363,7 @@ func TestIntentStatesDirect(t *testing.T) {
 	g.currentSessionDate = &sessDate
 	lc := mustDec("500.50")
 	g.lastSeenClose = &lc
-	if it := g.EvaluateIntent(asOf); it.State != StateBuy || it.ProximityToTriggerPct == nil || *it.ProximityToTriggerPct <= 0 {
+	if it := g.EvaluateSignal(asOf); it.State != StateBuy || it.ProximityToTriggerPct == nil || *it.ProximityToTriggerPct <= 0 {
 		t.Fatalf("expected BUY with positive proximity, got %+v", it)
 	}
 
@@ -372,7 +372,7 @@ func TestIntentStatesDirect(t *testing.T) {
 	g.rangeHigh, g.rangeLow, g.rangeLocked = &rh, &rl, true
 	g.positionQty = 100
 	g.currentSessionDate = &sessDate
-	if it := g.EvaluateIntent(asOf); it.State != StateHold {
+	if it := g.EvaluateSignal(asOf); it.State != StateHold {
 		t.Fatalf("expected HOLD, got %+v", it)
 	}
 
@@ -381,7 +381,7 @@ func TestIntentStatesDirect(t *testing.T) {
 	g.rangeHigh, g.rangeLow, g.rangeLocked = &rh, &rl, true
 	g.currentSessionDate = &sessDate
 	after := time.Date(2025, 1, 6, 21, 0, 0, 0, time.UTC)
-	if it := g.EvaluateIntent(after); it.State != StateNoSetup {
+	if it := g.EvaluateSignal(after); it.State != StateNoSetup {
 		t.Fatalf("expected NO_SETUP post-EOD, got %+v", it)
 	}
 	_ = loc

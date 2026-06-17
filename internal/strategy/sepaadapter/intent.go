@@ -1,8 +1,8 @@
 package sepaadapter
 
 // intent.go is the SANCTIONED SEPA domain bridge (modularization-review.md §E3):
-// the local→domain intent normalization relocated here from publish. The pure
-// sepa package emits a tag-less sepa.SignalIntent (kept zero-domain for
+// the local→domain signal normalization relocated here from publish. The pure
+// sepa package emits a tag-less sepa.SignalSnapshot (kept zero-domain for
 // byte-for-byte golden output, sepa/doc.go §11-14); this adapter — the only place
 // that legitimately imports both sepa and domain — converts it to the canonical
 // snake_case domain.SEPASignal wire shape. publish therefore switches only
@@ -13,11 +13,11 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/strategy/sepa"
 )
 
-// NormalizeIntent converts the pure sepa.SignalIntent (no json tags) into the
-// canonical domain.SEPASignal. It is the single source of the SEPA intent
+// NormalizeSignal converts the pure sepa.SignalSnapshot (no json tags) into the
+// canonical domain.SEPASignal. It is the single source of the SEPA signal
 // wire shape — formerly publish.normalizeSEPA.
 // Decimal price strings ("" == nil) become *domain.Price.
-func NormalizeIntent(s sepa.SignalIntent) domain.SEPASignal {
+func NormalizeSignal(s sepa.SignalSnapshot) domain.SEPASignal {
 	d := domain.NewSEPASignal()
 	d.Symbol = s.Symbol
 	d.State = domain.SignalState(s.State)

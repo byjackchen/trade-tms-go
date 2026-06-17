@@ -38,7 +38,7 @@ func NewStore(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 type IntentRow struct {
 	// Norm is the normalized intent (carries strategy_id, symbol, state,
 	// strength, proximity, generation, payload).
-	Norm NormalizedIntent
+	Norm NormalizedSignal
 	// SessionID is the owning live session (nil for EOD / detached refresh).
 	SessionID *int64
 	// AsOf is the EOD refresh date; nil for the append-only streaming path.

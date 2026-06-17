@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useLiveIntents } from "@/lib/api/hooks";
+import { useLiveSignals } from "@/lib/api/hooks";
 import { useLiveStream } from "@/lib/api/use-live-stream";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,7 +36,7 @@ export function StrategyLiveCard({
   strategyId: string;
   label: string;
 }) {
-  const intentsQ = useLiveIntents(strategyId);
+  const intentsQ = useLiveSignals(strategyId);
   const [stateJson, setStateJson] = useState<string | null>(null);
   const [stateTs, setStateTs] = useState<string | null>(null);
   const [seen, setSeen] = useState(false);
@@ -62,7 +62,7 @@ export function StrategyLiveCard({
   const counts = useMemo(() => {
     const latest = new Map<string, string>();
     const ts = new Map<string, number>();
-    for (const i of intentsQ.data?.intents ?? []) {
+    for (const i of intentsQ.data?.signals ?? []) {
       const t = new Date(i.ts).getTime();
       if (!ts.has(i.symbol) || t >= (ts.get(i.symbol) ?? 0)) {
         ts.set(i.symbol, t);

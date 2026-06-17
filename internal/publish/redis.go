@@ -1,6 +1,6 @@
 package publish
 
-// redis.go is the live transport layer: it publishes SignalIntent /
+// redis.go is the live transport layer: it publishes Signal /
 // StrategyState / PortfolioHealth / position / watchlist updates to Redis
 // streams using the key shape defined in api-ws-redis.md §2.1/§2.2:
 //
@@ -190,7 +190,7 @@ type PositionEnvelope struct {
 
 // PublishSignal publishes one normalized signal as a SignalUpdate.
 // tsEventNS is the engine ts_event (the bar as-of ns); ts_init is wall-clock.
-func (p *Publisher) PublishSignal(ctx context.Context, n NormalizedIntent, tsEventNS int64) error {
+func (p *Publisher) PublishSignal(ctx context.Context, n NormalizedSignal, tsEventNS int64) error {
 	if p == nil {
 		return nil
 	}

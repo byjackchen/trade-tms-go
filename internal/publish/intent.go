@@ -1,10 +1,10 @@
 package publish
 
-// intent.go normalizes the heterogeneous strategy intent values returned by
+// intent.go normalizes the heterogeneous strategy signal values returned by
 // engine.SignalEvaluator.EvaluateSignalJSON into a single, spec-faithful shape
 // the persistence + Redis layers consume.
 //
-// Every strategy adapter now hands publish a canonical DOMAIN intent type (the
+// Every strategy adapter now hands publish a canonical DOMAIN signal type (the
 // SANCTIONED domain bridge lives in each adapter — modularization-review.md §E3):
 //
 //   - SEPA  -> domain.SEPASignal        (one per symbol; sepaadapter bridge)
@@ -12,8 +12,8 @@ package publish
 //   - Pairs -> []domain.PairsSignal      (2N legs)
 //   - Sector-> []domain.SectorRotationSignal   (one per ETF)
 //
-// publish therefore switches ONLY on domain intent types and imports no concrete
-// strategy package — the local sepa.SignalIntent / orb.SignalIntent never reach
+// publish therefore switches ONLY on domain signal types and imports no concrete
+// strategy package — the local sepa.SignalSnapshot / orb.SignalSnapshot never reach
 // here (their local→domain conversion was relocated into sepaadapter/orbadapter,
 // the only packages that legitimately import both the zero-domain pure strategy
 // package and domain).
@@ -31,17 +31,17 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
-// NormalizedIntent is one strategy signal flattened to the persistence + wire
+// NormalizedSignal is one strategy signal flattened to the persistence + wire
 // contract: the discriminator columns of tms.signals plus the full
 // snake_case payload object (signal_json) the cockpit decodes. One
-// EvaluateSignalJSON call fans out to N NormalizedIntents (N = 1 for SEPA/ORB
+// EvaluateSignalJSON call fans out to N NormalizedSignals (N = 1 for SEPA/ORB
 // per symbol, 2 per pair for Pairs, 1 per ETF for Sector).
-type NormalizedIntent struct {
+type NormalizedSignal struct {
 	// StrategyID is the LOGICAL strategy id inside the payload
 	// (sepa|pairs|sector_rotation|intraday_breakout) — the tms.signals
 	// CHECK discriminator, distinct from the engine/allocator id.
 	StrategyID string
-	// Symbol is the per-name instrument the intent is about.
+	// Symbol is the per-name instrument the signal is about.
 	Symbol string
 	// State is the SignalState (no_setup|forming|buy|hold|exit|stop_hit).
 	State domain.SignalState
@@ -51,7 +51,7 @@ type NormalizedIntent struct {
 	ProximityToTriggerPct *float64
 	// Generation is the per-generator monotonic counter.
 	Generation int64
-	// Payload is the spec-faithful snake_case intent object (the unwrapped
+	// Payload is the spec-faithful snake_case signal object (the unwrapped
 	// SignalUnion variant). Marshals to a JSON object.
 	Payload any
 }
@@ -60,48 +60,48 @@ type NormalizedIntent struct {
 // .signal column and the inner signal_json of the Redis SignalUpdate
 // envelope, §5.9). It errors if the payload does not marshal to a JSON object
 // (a programming error — every variant does).
-func (n NormalizedIntent) SignalJSON() (json.RawMessage, error) {
+func (n NormalizedSignal) SignalJSON() (json.RawMessage, error) {
 	b, err := json.Marshal(n.Payload)
 	if err != nil {
-		return nil, fmt.Errorf("publish: marshal intent payload (%s/%s): %w", n.StrategyID, n.Symbol, err)
+		return nil, fmt.Errorf("publish: marshal signal payload (%s/%s): %w", n.StrategyID, n.Symbol, err)
 	}
 	if len(b) == 0 || b[0] != '{' {
-		return nil, fmt.Errorf("publish: intent payload for %s/%s is not a JSON object: %s", n.StrategyID, n.Symbol, b)
+		return nil, fmt.Errorf("publish: signal payload for %s/%s is not a JSON object: %s", n.StrategyID, n.Symbol, b)
 	}
 	return b, nil
 }
 
-// NormalizeIntent flattens one EvaluateSignalJSON result into zero or more
-// NormalizedIntents. An unknown concrete type is an error (a new strategy must
+// NormalizeSignal flattens one EvaluateSignalJSON result into zero or more
+// NormalizedSignals. An unknown concrete type is an error (a new strategy must
 // register its conversion here — fail loudly rather than silently drop signals).
-func NormalizeIntent(v any) ([]NormalizedIntent, error) {
+func NormalizeSignal(v any) ([]NormalizedSignal, error) {
 	switch t := v.(type) {
 	case domain.SEPASignal:
-		return []NormalizedIntent{normalizeSEPA(t)}, nil
+		return []NormalizedSignal{normalizeSEPA(t)}, nil
 	case *domain.SEPASignal:
-		return []NormalizedIntent{normalizeSEPA(*t)}, nil
+		return []NormalizedSignal{normalizeSEPA(*t)}, nil
 	case domain.IntradayBreakoutSignal:
-		return []NormalizedIntent{normalizeORB(t)}, nil
+		return []NormalizedSignal{normalizeORB(t)}, nil
 	case *domain.IntradayBreakoutSignal:
-		return []NormalizedIntent{normalizeORB(*t)}, nil
+		return []NormalizedSignal{normalizeORB(*t)}, nil
 	case domain.PairsSignal:
-		return []NormalizedIntent{normalizePairs(t)}, nil
+		return []NormalizedSignal{normalizePairs(t)}, nil
 	case []domain.PairsSignal:
-		out := make([]NormalizedIntent, 0, len(t))
+		out := make([]NormalizedSignal, 0, len(t))
 		for _, it := range t {
 			out = append(out, normalizePairs(it))
 		}
 		return out, nil
 	case domain.SectorRotationSignal:
-		return []NormalizedIntent{normalizeSector(t)}, nil
+		return []NormalizedSignal{normalizeSector(t)}, nil
 	case []domain.SectorRotationSignal:
-		out := make([]NormalizedIntent, 0, len(t))
+		out := make([]NormalizedSignal, 0, len(t))
 		for _, it := range t {
 			out = append(out, normalizeSector(it))
 		}
 		return out, nil
 	default:
-		return nil, fmt.Errorf("publish: unsupported intent type %T (register its NormalizeIntent conversion)", v)
+		return nil, fmt.Errorf("publish: unsupported signal type %T (register its NormalizeSignal conversion)", v)
 	}
 }
 
@@ -109,8 +109,8 @@ func NormalizeIntent(v any) ([]NormalizedIntent, error) {
 // extracting the tms.signals discriminator columns. The local→domain
 // field mapping was relocated into sepaadapter (the sanctioned bridge, §E3); this
 // only carries the canonical payload + its discriminators.
-func normalizeSEPA(d domain.SEPASignal) NormalizedIntent {
-	return NormalizedIntent{
+func normalizeSEPA(d domain.SEPASignal) NormalizedSignal {
+	return NormalizedSignal{
 		StrategyID:            domain.StrategyIDSEPA,
 		Symbol:                d.Symbol,
 		State:                 d.State,
@@ -123,8 +123,8 @@ func normalizeSEPA(d domain.SEPASignal) NormalizedIntent {
 
 // normalizeORB flattens one already-domain IntradayBreakoutSignal (one per
 // symbol). The local→domain mapping was relocated into orbadapter (§E3).
-func normalizeORB(d domain.IntradayBreakoutSignal) NormalizedIntent {
-	return NormalizedIntent{
+func normalizeORB(d domain.IntradayBreakoutSignal) NormalizedSignal {
+	return NormalizedSignal{
 		StrategyID:            domain.StrategyIDIntradayBreakout,
 		Symbol:                d.Symbol,
 		State:                 d.State,
@@ -138,8 +138,8 @@ func normalizeORB(d domain.IntradayBreakoutSignal) NormalizedIntent {
 // normalizePairs flattens one already-domain PairsSignal leg. The
 // per-name symbol is the leg's own ticker (the long or short leg), so the UI
 // dedup key (symbol, strategy_id) addresses each leg distinctly.
-func normalizePairs(it domain.PairsSignal) NormalizedIntent {
-	return NormalizedIntent{
+func normalizePairs(it domain.PairsSignal) NormalizedSignal {
+	return NormalizedSignal{
 		StrategyID:            domain.StrategyIDPairs,
 		Symbol:                it.Symbol,
 		State:                 it.State,
@@ -151,8 +151,8 @@ func normalizePairs(it domain.PairsSignal) NormalizedIntent {
 }
 
 // normalizeSector flattens one already-domain SectorRotationSignal (per ETF).
-func normalizeSector(it domain.SectorRotationSignal) NormalizedIntent {
-	return NormalizedIntent{
+func normalizeSector(it domain.SectorRotationSignal) NormalizedSignal {
+	return NormalizedSignal{
 		StrategyID:            domain.StrategyIDSectorRotation,
 		Symbol:                it.Symbol,
 		State:                 it.State,

@@ -11,7 +11,7 @@ import { EmptyState, ErrorState } from "@/components/shell/states";
 import { IntentStateBadge } from "@/components/portfolio/live-badges";
 import { cn } from "@/lib/utils";
 import { formatNum } from "@/lib/format";
-import { useStrategyIntents, num, str } from "./use-strategy-intents";
+import { useStrategySignals, num, str } from "./use-strategy-intents";
 import { SortButton, csvCell, downloadCsv } from "./shared";
 
 /**
@@ -44,7 +44,7 @@ type PairRow = {
 export function PairsTable({ symbolFilter }: { symbolFilter: string; accountId?: string }) {
   // Include idle: a pair can sit at no_setup while still being a tracked pair we
   // want to show how close it is to its entry threshold.
-  const { rows, isLoading, error, noReader, refetch } = useStrategyIntents(
+  const { rows, isLoading, error, noReader, refetch } = useStrategySignals(
     "pairs",
     { symbolFilter, includeIdle: true },
   );

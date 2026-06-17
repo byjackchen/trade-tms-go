@@ -7,7 +7,7 @@ package api
 // executes under full audit. Reads come from PG (the durable truth, decision 5):
 //
 //	GET  /api/v1/trade/session   — latest session state (mode, status, halt)
-//	GET  /api/v1/trade/intents   — recent signals (from tms.signals)
+//	GET  /api/v1/trade/signals   — recent signals (from tms.signals)
 //	GET  /api/v1/trade/health    — latest PortfolioHealth snapshot
 //	GET  /api/v1/watchlist       — the trade universe (latest session's instruments)
 //	POST /api/v1/trade/commands  — enqueue a control command (audited)
@@ -30,18 +30,18 @@ type TradeReader interface {
 	// LatestSession returns the most recent session (any status), or nil when
 	// none exists.
 	LatestSession(ctx context.Context) (*TradeSession, error)
-	// RecentIntents returns up to limit newest signal intents, optionally
+	// RecentSignals returns up to limit newest signals, optionally
 	// filtered by strategy_id ("" = any).
-	RecentIntents(ctx context.Context, strategyID string, limit int) ([]TradeIntent, error)
+	RecentSignals(ctx context.Context, strategyID string, limit int) ([]TradeSignal, error)
 	// LatestHealth returns the newest PortfolioHealth snapshot, or nil when none.
 	LatestHealth(ctx context.Context) (*TradeHealth, error)
 	// Watchlist returns the distinct symbols the latest session is tracking.
 	Watchlist(ctx context.Context) ([]string, error)
-	// LatestIntentsBySymbol returns the latest intent per symbol in the data
+	// LatestSignalsBySymbol returns the latest signal per symbol in the data
 	// frontier window, ranked actionable-first (see apistore). It backs the
 	// watchlist's per-symbol state so the whole universe shows its signal in one
 	// read and actionable names rank to the top.
-	LatestIntentsBySymbol(ctx context.Context, limit int) ([]TradeIntent, error)
+	LatestSignalsBySymbol(ctx context.Context, limit int) ([]TradeSignal, error)
 	// ListAccounts returns the registered trading accounts (the tms.accounts
 	// registry) for the UI account selector / per-account filter.
 	ListAccounts(ctx context.Context) ([]TradeAccountInfo, error)
@@ -95,14 +95,14 @@ type TradeHalt struct {
 	TriggeredAt time.Time `json:"triggered_at"`
 }
 
-// TradeIntent is the wire shape of one recent signal intent.
-type TradeIntent struct {
+// TradeSignal is the wire shape of one recent signal.
+type TradeSignal struct {
 	StrategyID string          `json:"strategy_id"`
 	Symbol     string          `json:"symbol"`
 	State      string          `json:"state"`
 	Strength   float64         `json:"strength"`
 	Generation int64           `json:"generation"`
-	Intent     json.RawMessage `json:"signal"`
+	Signal     json.RawMessage `json:"signal"`
 	TS         time.Time       `json:"ts"`
 	TSEventNS  int64           `json:"ts_event"`
 }
@@ -135,8 +135,8 @@ func (s *Server) handleTradeSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sess)
 }
 
-// handleTradeIntents serves GET /api/v1/trade/intents?strategy_id=&limit=.
-func (s *Server) handleTradeIntents(w http.ResponseWriter, r *http.Request) {
+// handleTradeSignals serves GET /api/v1/trade/signals?strategy_id=&limit=.
+func (s *Server) handleTradeSignals(w http.ResponseWriter, r *http.Request) {
 	if s.trade == nil {
 		writeError(w, http.StatusServiceUnavailable, "unavailable", "trade reader not configured")
 		return
@@ -146,15 +146,15 @@ func (s *Server) handleTradeIntents(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	intents, err := s.trade.RecentIntents(r.Context(), strategyID, limit)
+	signals, err := s.trade.RecentSignals(r.Context(), strategyID, limit)
 	if err != nil {
-		internalError(w, s.log, "trade intents", err)
+		internalError(w, s.log, "trade signals", err)
 		return
 	}
-	if intents == nil {
-		intents = []TradeIntent{}
+	if signals == nil {
+		signals = []TradeSignal{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"intents": intents})
+	writeJSON(w, http.StatusOK, map[string]any{"signals": signals})
 }
 
 // handleTradeHealth serves GET /api/v1/trade/health.
@@ -190,19 +190,19 @@ func (s *Server) handleWatchlist(w http.ResponseWriter, r *http.Request) {
 	if syms == nil {
 		syms = []string{}
 	}
-	// Join the latest intent per symbol (frontier-windowed, actionable-first) so
+	// Join the latest signal per symbol (frontier-windowed, actionable-first) so
 	// every rendered row carries its current signal state without a separate
-	// capped intents poll. Additive: `symbols` stays for back-compat (WS frame +
-	// the e2e suite); `intents` enriches the rows the UI shows.
-	intents, err := s.trade.LatestIntentsBySymbol(r.Context(), 5000)
+	// capped signals poll. Additive: `symbols` stays for back-compat (WS frame +
+	// the e2e suite); `signals` enriches the rows the UI shows.
+	signals, err := s.trade.LatestSignalsBySymbol(r.Context(), 5000)
 	if err != nil {
-		internalError(w, s.log, "watchlist intents", err)
+		internalError(w, s.log, "watchlist signals", err)
 		return
 	}
-	if intents == nil {
-		intents = []TradeIntent{}
+	if signals == nil {
+		signals = []TradeSignal{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"symbols": syms, "intents": intents})
+	writeJSON(w, http.StatusOK, map[string]any{"symbols": syms, "signals": signals})
 }
 
 // handleTradeAccounts serves GET /api/v1/trade/accounts: the registered trading

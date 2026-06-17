@@ -87,10 +87,10 @@ func (s *Strategy) OnBar(sub engine.OrderSubmitter, bar domain.Bar) error {
 //
 // The adapter is the SANCTIONED domain bridge (modularization-review.md §E3): the
 // local→domain normalization (formerly publish.normalizeORB) lives in
-// NormalizeIntent here, so publish switches only on domain intent types and no
-// longer imports strategy/orb. The pure orb.SignalIntent never escapes the adapter.
+// NormalizeSignal here, so publish switches only on domain signal types and no
+// longer imports strategy/orb. The pure orb.SignalSnapshot never escapes the adapter.
 func (s *Strategy) EvaluateSignalJSON(asOf time.Time) any {
-	return NormalizeIntent(s.gen.EvaluateIntent(asOf))
+	return NormalizeSignal(s.gen.EvaluateSignal(asOf))
 }
 
 // StateSummaryJSON returns the light per-bar UI summary (engine.StateSummarizer).

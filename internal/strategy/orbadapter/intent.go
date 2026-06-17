@@ -1,8 +1,8 @@
 package orbadapter
 
 // intent.go is the SANCTIONED ORB domain bridge (modularization-review.md §E3):
-// the local→domain intent normalization relocated here from publish. The pure orb
-// package emits a tag-less orb.SignalIntent (kept zero-domain for byte-for-byte
+// the local→domain signal normalization relocated here from publish. The pure orb
+// package emits a tag-less orb.SignalSnapshot (kept zero-domain for byte-for-byte
 // golden output); this adapter — the only place that legitimately imports both
 // orb and domain — converts it to the canonical snake_case
 // domain.IntradayBreakoutSignal wire shape. publish therefore switches only on
@@ -13,10 +13,10 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/strategy/orb"
 )
 
-// NormalizeIntent converts the pure orb.SignalIntent into the canonical
+// NormalizeSignal converts the pure orb.SignalSnapshot into the canonical
 // domain.IntradayBreakoutSignal — formerly publish.normalizeORB. Decimal price
 // strings ("" == nil) become *domain.Price.
-func NormalizeIntent(s orb.SignalIntent) domain.IntradayBreakoutSignal {
+func NormalizeSignal(s orb.SignalSnapshot) domain.IntradayBreakoutSignal {
 	d := domain.NewIntradayBreakoutSignal()
 	d.Symbol = s.Symbol
 	d.State = domain.SignalState(s.State)

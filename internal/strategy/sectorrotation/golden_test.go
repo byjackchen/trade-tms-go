@@ -146,7 +146,7 @@ func TestGolden_SectorRotation(t *testing.T) {
 		}
 
 		gotSignals := sg.OnBar(bar)
-		gotIntents := sg.EvaluateIntent(ts)
+		gotIntents := sg.EvaluateSignal(ts)
 		gotSummary := sg.StateSummary()
 		barsCompared++
 

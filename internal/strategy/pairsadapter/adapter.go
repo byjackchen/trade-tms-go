@@ -112,7 +112,7 @@ func (s *Strategy) WarmupBatch(bars []domain.Bar) {
 // EvaluateSignalJSON returns the 2N per-leg PairsSignal slice for asOf as
 // a JSON-serializable value (engine.SignalEvaluator). Pure read of state.
 func (s *Strategy) EvaluateSignalJSON(asOf time.Time) any {
-	return s.sg.EvaluateIntent(asOf)
+	return s.sg.EvaluateSignal(asOf)
 }
 
 // StateSummaryJSON returns the per-pair UI summary (engine.StateSummarizer).

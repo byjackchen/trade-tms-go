@@ -9,12 +9,12 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/strategy/orb"
 )
 
-// TestNormalizeIntentWireShape proves the relocated orbadapter.NormalizeIntent
-// converts a pure orb.SignalIntent (no json tags) to the spec-faithful
+// TestNormalizeSignalWireShape proves the relocated orbadapter.NormalizeSignal
+// converts a pure orb.SignalSnapshot (no json tags) to the spec-faithful
 // snake_case domain.IntradayBreakoutSignal wire shape — the coverage formerly in
 // publish (modularization-review.md §E3).
-func TestNormalizeIntentWireShape(t *testing.T) {
-	in := orb.SignalIntent{
+func TestNormalizeSignalWireShape(t *testing.T) {
+	in := orb.SignalSnapshot{
 		Symbol:     "MSFT",
 		State:      orb.StateNoSetup,
 		Strength:   0,
@@ -24,7 +24,7 @@ func TestNormalizeIntentWireShape(t *testing.T) {
 		ORBHigh:    "300.10",
 		ORBLow:     "298.50",
 	}
-	d := NormalizeIntent(in)
+	d := NormalizeSignal(in)
 	if d.Symbol != "MSFT" || d.State != domain.StateNoSetup || d.Generation != 3 {
 		t.Fatalf("discriminators wrong: %+v", d)
 	}
@@ -47,7 +47,7 @@ func TestNormalizeIntentWireShape(t *testing.T) {
 }
 
 // TestEvaluateSignalJSONReturnsDomainType pins that the adapter hands publish a
-// domain.IntradayBreakoutSignal (§E3 bridge), so publish.NormalizeIntent's
+// domain.IntradayBreakoutSignal (§E3 bridge), so publish.NormalizeSignal's
 // domain-only switch accepts it.
 func TestEvaluateSignalJSONReturnsDomainType(t *testing.T) {
 	gen, err := orb.New(orb.Config{

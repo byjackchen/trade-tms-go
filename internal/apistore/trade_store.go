@@ -74,9 +74,9 @@ func (s *TradeStore) LatestSession(ctx context.Context) (*api.TradeSession, erro
 	return &sess, nil
 }
 
-// RecentIntents returns up to limit newest signal intents, optionally filtered
+// RecentSignals returns up to limit newest signals, optionally filtered
 // by strategy_id.
-func (s *TradeStore) RecentIntents(ctx context.Context, strategyID string, limit int) ([]api.TradeIntent, error) {
+func (s *TradeStore) RecentSignals(ctx context.Context, strategyID string, limit int) ([]api.TradeSignal, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -103,15 +103,15 @@ func (s *TradeStore) RecentIntents(ctx context.Context, strategyID string, limit
 	}
 	defer rows.Close()
 
-	var out []api.TradeIntent
+	var out []api.TradeSignal
 	for rows.Next() {
-		var it api.TradeIntent
-		var intentText string
+		var it api.TradeSignal
+		var signalText string
 		if err := rows.Scan(&it.StrategyID, &it.Symbol, &it.State, &it.Strength,
-			&it.Generation, &intentText, &it.TS, &it.TSEventNS); err != nil {
+			&it.Generation, &signalText, &it.TS, &it.TSEventNS); err != nil {
 			return nil, err
 		}
-		it.Intent = json.RawMessage(intentText)
+		it.Signal = json.RawMessage(signalText)
 		out = append(out, it)
 	}
 	return out, rows.Err()
@@ -171,7 +171,7 @@ func (s *TradeStore) Watchlist(ctx context.Context) ([]string, error) {
 	return out, rows.Err()
 }
 
-// LatestIntentsBySymbol returns the LATEST intent per symbol within the data
+// LatestSignalsBySymbol returns the LATEST signal per symbol within the data
 // frontier window (the newest signal batch — anchored to max(ts), not wall-clock;
 // see Watchlist), ranked ACTIONABLE-FIRST: states that call for operator attention
 // (forming / hold / buy / sell — anything but no_setup/flat) sort ahead of the
@@ -180,9 +180,9 @@ func (s *TradeStore) Watchlist(ctx context.Context) ([]string, error) {
 // This powers the watchlist's per-symbol state column for the WHOLE tracked
 // universe in ONE query, so every rendered row shows its current signal and the
 // handful of actionable names float to the top of a multi-thousand-symbol
-// universe — instead of a separate newest-N intents poll that, when the batch
-// stamps thousands of same-ts intents, never reliably contains the actionable few.
-func (s *TradeStore) LatestIntentsBySymbol(ctx context.Context, limit int) ([]api.TradeIntent, error) {
+// universe — instead of a separate newest-N signals poll that, when the batch
+// stamps thousands of same-ts signals, never reliably contains the actionable few.
+func (s *TradeStore) LatestSignalsBySymbol(ctx context.Context, limit int) ([]api.TradeSignal, error) {
 	if limit <= 0 {
 		limit = 5000
 	}
@@ -204,15 +204,15 @@ func (s *TradeStore) LatestIntentsBySymbol(ctx context.Context, limit int) ([]ap
 	}
 	defer rows.Close()
 
-	var out []api.TradeIntent
+	var out []api.TradeSignal
 	for rows.Next() {
-		var it api.TradeIntent
-		var intentText string
+		var it api.TradeSignal
+		var signalText string
 		if err := rows.Scan(&it.StrategyID, &it.Symbol, &it.State, &it.Strength,
-			&it.Generation, &intentText, &it.TS, &it.TSEventNS); err != nil {
+			&it.Generation, &signalText, &it.TS, &it.TSEventNS); err != nil {
 			return nil, err
 		}
-		it.Intent = json.RawMessage(intentText)
+		it.Signal = json.RawMessage(signalText)
 		out = append(out, it)
 	}
 	return out, rows.Err()

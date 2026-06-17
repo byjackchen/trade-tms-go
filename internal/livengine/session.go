@@ -9,7 +9,7 @@ package livengine
 // heartbeat (look-ahead-safe, same as backtest), (2) runs every strategy's
 // OnBar through the NoopExecutor (records would-be orders, places none), then —
 // once a timestamp's bars have all been delivered — (3) evaluates each
-// strategy's SignalIntent and emits it to the SignalSink, plus (4) a
+// strategy's signal and emits it to the SignalSink, plus (4) a
 // PortfolioHealth snapshot. Warmup priming runs once before the loop (decision
 // 3), reusing the WarmupConsumer seam exactly as engine.primeWarmup.
 //
@@ -33,7 +33,7 @@ import (
 // engine.Config so a caller (strategyassembly.Assembly) can build a live session
 // from the SAME inputs as a backtest.
 type Config struct {
-	// Exec is the execution policy: ExecSignal records SignalIntents and submits
+	// Exec is the execution policy: ExecSignal records signals and submits
 	// no orders (the internal NoopExecutor); ExecAuto runs the full trading loop
 	// through the injected Submitter (paper/live differ only in the bound Account,
 	// which is the executor's concern, not the engine's).
@@ -376,7 +376,7 @@ func (s *Session) injectContext(asOf time.Time) {
 	engine.InjectContextInto(s.ctxCons, asOf, s.ctxStat)
 }
 
-// flushTimestamp evaluates and emits every strategy's SignalIntent for the
+// flushTimestamp evaluates and emits every strategy's signal for the
 // current timestamp, then emits a PortfolioHealth snapshot, then clears the
 // timestamp marker. It is called on a timestamp rollover and at end-of-run. A
 // flush with no pending timestamp is a no-op.

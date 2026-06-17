@@ -2,9 +2,9 @@ package orb
 
 // types.go defines the ORB-layer value types: the plain Bar at the contract
 // boundary (OHLC carried as pydec to preserve decimal scale propagation), the
-// target-position Signal, the per-symbol SignalIntent (UI snapshot), and the
+// target-position Signal, the per-symbol UI snapshot SignalSnapshot, and the
 // SignalState enum. The pure ORB layer does NOT import internal/domain (the
-// signal/intent types stay free of engine types); the engine adapter translates
+// signal types stay free of engine types); the engine adapter translates
 // between these and domain.Bar / domain.Signal.
 
 import "time"
@@ -101,10 +101,10 @@ const (
 // StrategyID is the ORB strategy id, constant "intraday_breakout".
 const StrategyID = "intraday_breakout"
 
-// SignalIntent is the typed UI snapshot.
+// SignalSnapshot is the typed UI snapshot.
 // Optional Decimal/float fields are pointers/strings so the JSON null/absent
 // distinction is preserved. ORBHigh/ORBLow encode as str(Decimal) ("" == nil).
-type SignalIntent struct {
+type SignalSnapshot struct {
 	Symbol                string
 	State                 SignalState
 	Strength              float64  // 0..100

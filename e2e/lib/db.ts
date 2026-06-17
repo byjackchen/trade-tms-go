@@ -408,7 +408,7 @@ export async function storedStrategyCount(c: Client): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------
-// Live cockpit ground truth (tms.sessions / tms.signal_intents / tms.halts —
+// Live cockpit ground truth (tms.sessions / tms.signals / tms.halts —
 // migrations/000005_live). The live read endpoints (docs/api.md "Live (P5)")
 // project these tables; the cockpit renders the API's proxy of them. The DB is
 // the durable truth (Redis is transport-only), so the cockpit specs compare
@@ -496,7 +496,7 @@ export async function latestSession(
 export async function streamingIntentCount(c: Client): Promise<number> {
   const { rows } = await c.query<{ n: string }>(
     `SELECT COUNT(*)::text AS n
-       FROM tms.signal_intents
+       FROM tms.signals
       WHERE as_of IS NULL`,
   );
   return Number(rows[0].n);
@@ -529,7 +529,7 @@ export async function recentStreamingIntents(
     `SELECT strategy_id, symbol, state,
             strength::text   AS strength,
             generation::text AS generation
-       FROM tms.signal_intents
+       FROM tms.signals
       WHERE as_of IS NULL
       ORDER BY ts DESC, id DESC
       LIMIT $1`,
@@ -548,7 +548,7 @@ export async function recentStreamingIntents(
  * tracked universe behind GET /api/v1/watchlist. */
 export async function watchlistSymbols(c: Client): Promise<string[]> {
   const { rows } = await c.query<{ symbol: string }>(
-    `SELECT DISTINCT symbol FROM tms.signal_intents ORDER BY symbol ASC`,
+    `SELECT DISTINCT symbol FROM tms.signals ORDER BY symbol ASC`,
   );
   return rows.map((r) => r.symbol);
 }

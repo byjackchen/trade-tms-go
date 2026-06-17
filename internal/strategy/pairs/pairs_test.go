@@ -306,11 +306,11 @@ func TestSharedSymbolOneHistory(t *testing.T) {
 func TestIntentGenerationMonotonic(t *testing.T) {
 	g, _ := New(baseCfg())
 	ts := time.Now().UTC()
-	first := g.EvaluateIntent(ts)
+	first := g.EvaluateSignal(ts)
 	if first[0].Generation != 1 {
 		t.Fatalf("first generation %d want 1", first[0].Generation)
 	}
-	second := g.EvaluateIntent(ts)
+	second := g.EvaluateSignal(ts)
 	if second[0].Generation != 2 {
 		t.Fatalf("second generation %d want 2", second[0].Generation)
 	}

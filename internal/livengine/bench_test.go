@@ -9,7 +9,7 @@ package livengine
 //
 // The benchmark drives the deterministic Replay path (identical onBar to the
 // streaming path, but without wall-clock waits), with N symbols per timestamp
-// each carrying a stub strategy that emits a SignalIntent every bar — so the
+// each carrying a stub strategy that emits a signal every bar — so the
 // emission path is exercised on every timestamp. The reported ns/op is the
 // per-(timestamp x symbol) bar latency.
 

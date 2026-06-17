@@ -41,7 +41,7 @@ import type {
   PromoteRequest,
   PromoteResponse,
   LiveSessionResponse,
-  LiveIntentsResponse,
+  LiveSignalsResponse,
   LiveHealth,
   WatchlistResponse,
   LiveCommandRequest,
@@ -610,17 +610,17 @@ export function useLiveSession(): UseQueryResult<LiveSessionResponse, Error> {
   });
 }
 
-export function useLiveIntents(
+export function useLiveSignals(
   strategyId?: string,
-): UseQueryResult<LiveIntentsResponse, Error> {
+): UseQueryResult<LiveSignalsResponse, Error> {
   return useQuery({
-    queryKey: ["live", "intents", strategyId ?? "all"],
+    queryKey: ["live", "signals", strategyId ?? "all"],
     queryFn: () =>
-      apiGet<LiveIntentsResponse>("live/intents", {
+      apiGet<LiveSignalsResponse>("trade/signals", {
         strategy_id: strategyId,
         limit: 200,
       }),
-    // WS pushes new intents live; this poll is the reconnect-reconciliation
+    // WS pushes new signals live; this poll is the reconnect-reconciliation
     // backstop and the initial hydrate.
     refetchInterval: 15000,
     retry: liveRetry,

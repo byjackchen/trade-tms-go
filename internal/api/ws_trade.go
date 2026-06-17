@@ -2,7 +2,7 @@ package api
 
 // ws_trade.go bridges the trade Redis STREAMS (trader-{id}:stream:{topic}, the
 // reference key shape, api-ws-redis.md §2.1/§4.1) to the WebSocket hub so the
-// cockpit sees SignalIntent / StrategyState / PortfolioHealth / Watchlist /
+// cockpit sees Signal / StrategyState / PortfolioHealth / Watchlist /
 // Position updates in real time. It tails each topic with XREAD BLOCK starting
 // at "$" (only new entries; no history replay — the §4.1 default), extracts the
 // entry's `payload` field (the JSON document), and broadcasts it under a WS
@@ -27,7 +27,7 @@ import (
 
 // WS envelope types for the trade streams (additive to the job/sync types).
 const (
-	WSTypeSignalIntent    = "signal_intent"
+	WSTypeSignal          = "signal"
 	WSTypeStrategyState   = "strategy_state"
 	WSTypePortfolioHealth = "portfolio_health"
 	WSTypeWatchlist       = "watchlist"
@@ -51,7 +51,7 @@ type tradeTopic struct {
 // tradeTopics is the set of trade stream topics the bridge tails.
 func tradeTopics() []tradeTopic {
 	return []tradeTopic{
-		{publish.TopicSignal, WSTypeSignalIntent},
+		{publish.TopicSignal, WSTypeSignal},
 		{publish.TopicStrategyState, WSTypeStrategyState},
 		{publish.TopicPortfolioHealth, WSTypePortfolioHealth},
 		{publish.TopicWatchlist, WSTypeWatchlist},

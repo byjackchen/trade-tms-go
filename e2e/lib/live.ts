@@ -5,8 +5,8 @@
  * /trade route (docs/concept-alignment.md §3.4: ONE <TradeModule> whose bound
  * account — paper|live — is chosen by the top-right account selector). The former
  * /paper and /live routes now 301-redirect to /trade. It
- * is the read surface over the trade node: signal intents streaming in over the
- * WS (bridged from Redis, durable truth in tms.signal_intents), portfolio health
+ * is the read surface over the trade node: signals streaming in over the
+ * WS (bridged from Redis, durable truth in tms.signals), portfolio health
  * + session state, the watchlist (tracked universe), and the audited control
  * surface (halt / kill-switch / exec-policy toggle via POST
  * /api/v1/trade/commands). See docs/api.md "Trade (P5)" and
@@ -14,8 +14,8 @@
  *
  * GATE TOPOLOGY (P5 decisions 2/3/7): the gate runs a signal session
  * (exec_policy=signal) against the in-repo MOCK OpenD server, which replays a day
- * of bars out of our Postgres — so a signal session emits intents into
- * tms.signal_intents + the Redis streams the API bridges to WS, with NO real
+ * of bars out of our Postgres — so a signal session emits signals into
+ * tms.signals + the Redis streams the API bridges to WS, with NO real
  * OpenD. The real-OpenD smoke is deferred to market hours
  * (docs/runbooks/trade-smoke.md).
  *
@@ -35,9 +35,9 @@ import type { Page } from "@playwright/test";
 import { getAuthed, getManual } from "./api";
 import { withDb, latestSession, type LiveSessionTruth } from "./db";
 
-/** Canonical strategy-id discriminators that appear on streaming intents
- * (lowercase SignalIntentUnion discriminator — api spec §5.9, migration 000005
- * CHECK on tms.signal_intents.strategy_id). */
+/** Canonical strategy-id discriminators that appear on streaming signals
+ * (lowercase SignalUnion discriminator — api spec §5.9, migration 000005
+ * CHECK on tms.signals.strategy_id). */
 export const INTENT_STRATEGY_IDS = [
   "sepa",
   "pairs",

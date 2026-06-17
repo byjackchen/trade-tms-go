@@ -15,7 +15,7 @@ func TestFormingIntentCarriesTradePlan(t *testing.T) {
 		g.OnBar(b)
 	}
 	last := bars[len(bars)-1]
-	it := g.EvaluateIntent(last.TS)
+	it := g.EvaluateSignal(last.TS)
 
 	if it.State != StateForming {
 		t.Fatalf("expected forming state, got %q", it.State)

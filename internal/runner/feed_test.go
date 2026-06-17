@@ -123,7 +123,7 @@ func TestLiveFeedOverMockOpenD(t *testing.T) {
 	// through the publish layer to prove the full live wire shape resolves.
 	total := 0
 	for _, r := range sink.Signals {
-		norms, nerr := publish.NormalizeIntent(r.Payload)
+		norms, nerr := publish.NormalizeSignal(r.Payload)
 		require.NoError(t, nerr)
 		total += len(norms)
 	}

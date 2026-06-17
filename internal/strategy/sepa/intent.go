@@ -1,10 +1,10 @@
 package sepa
 
-// intent.go computes evaluate_intent and state_summary — the read-only UI
-// projections. evaluate_intent's only state mutation is the monotonic
-// _intent_generation increment (the counter advances on every call).
+// intent.go computes evaluate_signal and state_summary — the read-only UI
+// projections. evaluate_signal's only state mutation is the monotonic
+// generation increment (the counter advances on every call).
 //
-// Deliberate asymmetry (spec §12 #7): evaluate_intent's VCP runs on the FULL
+// Deliberate asymmetry (spec §12 #7): evaluate_signal's VCP runs on the FULL
 // klines (INCLUDING the current bar), unlike the entry path which excludes it.
 // This is a UI-only path, not a trading decision; do not "fix" it.
 
@@ -14,10 +14,10 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/indicators"
 )
 
-// EvaluateIntent returns a typed UI snapshot of the current setup state.
+// EvaluateSignal returns a typed UI snapshot of the current setup state.
 // asOf is the snapshot timestamp (the bar ts in the
 // streaming path). It increments the generation counter on every call.
-func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
+func (g *Generator) EvaluateSignal(asOf time.Time) SignalSnapshot {
 	g.intentGeneration++
 
 	pivotStr := ""
@@ -29,7 +29,7 @@ func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
 		stopStr = g.stopPrice.str
 	}
 
-	base := SignalIntent{
+	base := SignalSnapshot{
 		Symbol:     g.cfg.Symbol,
 		UpdatedAt:  asOf,
 		Generation: g.intentGeneration,
@@ -140,7 +140,7 @@ func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
 
 // attachHeldTradePlan attaches trade-plan metrics for a HELD position using the
 // persisted entry pivot + stop.
-func (g *Generator) attachHeldTradePlan(base *SignalIntent, lastClose float64) {
+func (g *Generator) attachHeldTradePlan(base *SignalSnapshot, lastClose float64) {
 	pivot := g.pivotPrice.val
 	stop := g.stopPrice.val
 	if pivot > 0 {
@@ -159,21 +159,21 @@ func (g *Generator) attachHeldTradePlan(base *SignalIntent, lastClose float64) {
 }
 
 // attachTradePlan computes and attaches the actionable trade-plan fields onto a
-// flat-book (forming/buy) intent.
+// flat-book (forming/buy) signal.
 //
 // pivot/stop = the VCP base pivot/low when a VCP is detected, ELSE the swing-high/
 // low over the last SwingPlanLookback (10) COMPLETED daily bars (the bar before
 // the current/forming bar is treated as the most recent completed bar — we scan
 // the full buffer tail as all stored bars are completed EOD bars). The fallback
 // guarantees a non-null pivot>0 and stop in (0,pivot) for EVERY forming signal.
-func (g *Generator) attachTradePlan(base *SignalIntent, lastClose float64, vcp indicators.VCPSnapshot, haveVCP bool) {
+func (g *Generator) attachTradePlan(base *SignalSnapshot, lastClose float64, vcp indicators.VCPSnapshot, haveVCP bool) {
 	var pivot, stop float64
 	if haveVCP && vcp.PivotPrice > 0 {
 		pivot = vcp.PivotPrice
 		stop = vcp.BaseLowPrice
 	}
 	// Swing fallback (or VCP gave a non-positive low): highest high / lowest low
-	// of the last 10 completed bars. EvaluateIntent's stored bars are all
+	// of the last 10 completed bars. EvaluateSignal's stored bars are all
 	// completed EOD bars, so completedExclusive=false (include the latest).
 	if pivot <= 0 {
 		pivot = indicators.SwingHighPivot(g.high, indicators.SwingPlanLookback, false)

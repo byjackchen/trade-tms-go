@@ -157,7 +157,7 @@ func TestLiveSectorWarmupEqualsBatchReplay(t *testing.T) {
 	// (via batch warmup priming) then REPLAYS the run window. This is the faithful
 	// "a backtest that processed [now-lookback, now] then those bars" reference:
 	// the pre-window bars build the generator state out-of-band (no run-window
-	// EvaluateIntent before the run starts, so the intent generation counter — which
+	// EvaluateSignal before the run starts, so the signal generation counter — which
 	// increments even on warmup and is explicitly NOT persisted — starts from the
 	// SAME point as the live path). Replay vs RunStream is the only difference, and
 	// the consistency proof is that they coincide.
@@ -204,7 +204,7 @@ func TestColdSectorIsAllNoSetup_WarmedIsActionable(t *testing.T) {
 	runBatch := livengine.BatchBars(run)
 
 	// COLD: no warmup, only the 3 run-window bars per ETF. lookback+1 = 3 closes
-	// are reached only at the very last bar, and EvaluateIntent's warmup gate keeps
+	// are reached only at the very last bar, and EvaluateSignal's warmup gate keeps
 	// every prior timestamp all-no_setup; the early window is useless.
 	coldSink := livengine.NewMemSink()
 	coldSess := buildSectorWarmupSession(t, coldSink, nil)
@@ -368,7 +368,7 @@ func TestLivePairsWarmupEqualsBatchReplay(t *testing.T) {
 
 // stripGeneration canonicalizes intents into comparable (AsOf, StrategyID, JSON)
 // tuples with the per-row `generation` field zeroed out. The generation counter
-// increments on EVERY EvaluateIntent call (including out-of-band warmup) and is
+// increments on EVERY EvaluateSignal call (including out-of-band warmup) and is
 // explicitly NOT persisted, so it is the ONE field that legitimately differs
 // between an out-of-band-primed run and an in-band full-window replay. Everything
 // else (state, strength, rank, momentum_score, weights) must coincide.

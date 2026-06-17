@@ -345,7 +345,7 @@ func (g *Generator) appendBar(bar Bar) {
 		// [PERF fix 2] Front-trim by RESLICING (g.x = g.x[cut:]) instead of the
 		// old copy-into-new-slice trimFront. Reslicing is O(1) and allocation-free
 		// — it only advances the slice header past the dropped prefix; the live
-		// window stays contiguous and oldest-first (so DetectVCP / EvaluateIntent
+		// window stays contiguous and oldest-first (so DetectVCP / EvaluateSignal
 		// keep clean slices) and len(g.close) stays exactly max (so
 		// BarsInHistory is stable). The wasted prefix is reclaimed by the next append's grow.
 		// This removes the ~84% per-bar GC/alloc the profile flagged.

@@ -1,6 +1,6 @@
 package orb
 
-// intent.go computes evaluate_intent — the single per-symbol UI snapshot (NOT a
+// intent.go computes evaluate_signal — the single per-symbol UI snapshot (NOT a
 // list, unlike sector_rotation). Each call increments the generation counter.
 
 import (
@@ -8,11 +8,11 @@ import (
 	"time"
 )
 
-// EvaluateIntent returns the typed ORB intent as of asOf. The short-circuit
+// EvaluateSignal returns the typed ORB signal as of asOf. The short-circuit
 // order is: NO_SETUP (range not locked) ->
 // HOLD (in position) -> NO_SETUP (past EOD) -> FORMING (no last close) ->
 // BUY (last > orb_high) -> FORMING (otherwise). generation increments first.
-func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
+func (g *Generator) EvaluateSignal(asOf time.Time) SignalSnapshot {
 	g.intentGeneration++
 
 	asOfLocal := asOf.In(g.loc)
@@ -28,7 +28,7 @@ func (g *Generator) EvaluateIntent(asOf time.Time) SignalIntent {
 		windowEndUTC = &wu
 	}
 
-	base := SignalIntent{
+	base := SignalSnapshot{
 		Symbol:         g.cfg.Symbol,
 		UpdatedAt:      asOf,
 		Generation:     g.intentGeneration,

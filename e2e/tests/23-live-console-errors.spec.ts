@@ -1,7 +1,7 @@
 /**
  * (6) Zero severe console errors on the /trade cockpit pages.
  *
- * The /trade cockpit opens long-lived WS connections (signal_intent /
+ * The /trade cockpit opens long-lived WS connections (signal /
  * portfolio_health / watchlist frames bridged from Redis) and polls the live
  * read endpoints. None of that may produce a severe browser console error or an
  * uncaught page error — only genuine React/JS defects fail here (network-

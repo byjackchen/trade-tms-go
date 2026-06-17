@@ -8,7 +8,7 @@ package livengine_test
 //	(B) the STREAMING driver: livengine.Session.RunStream over a VirtualClock
 //	    AND the EOD batch-replay driver: livengine.Session.Replay
 //
-// — and asserts the emitted per-timestamp SignalIntents are IDENTICAL across all
+// — and asserts the emitted per-timestamp signals are IDENTICAL across all
 // three (canonical compare).
 //
 // WHY THIS EXISTS. The pre-existing consistency_test.go only compares two
@@ -25,7 +25,7 @@ package livengine_test
 // provably behaviour-preserving.
 //
 // HOW THE BATCH INTENTS ARE OBSERVED. The batch engine.Engine does not itself
-// emit SignalIntents (it emits orders/fills). But the strategies it runs ARE
+// emit signals (it emits orders/fills). But the strategies it runs ARE
 // SignalEvaluators, and an intent is a PURE READ of strategy state that is
 // fill-independent (noop.go: "generators evolve purely from OnBar(bar) inputs and
 // never read fills/positions"). So we wrap each assembled strategy in a thin
@@ -142,7 +142,7 @@ func assembleSector(t *testing.T) *strategyassembly.Assembly {
 }
 
 // TestBatchEqualsStreamingIntents is the F3 cross-path equivalence guard: the
-// per-timestamp SignalIntents produced when the SAME assembly is driven by the
+// per-timestamp signals produced when the SAME assembly is driven by the
 // BATCH engine (engine.New + Run) equal those produced when it is driven by the
 // STREAMING live session (Session.RunStream over a VirtualClock) AND by the
 // EOD-replay live session (Session.Replay) over the same bars.

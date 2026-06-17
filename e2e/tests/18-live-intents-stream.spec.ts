@@ -3,14 +3,14 @@
  *
  * The gate runs `tms trade run --mode signal` against the MOCK OpenD server, which
  * replays a day of bars out of our Postgres. Each strategy evaluate_intent per
- * bar records a SignalIntent into tms.signal_intents (append-only, as_of NULL)
+ * bar records a signal into tms.signals (append-only, as_of NULL)
  * AND publishes to the Redis stream the API bridges to the cockpit's WS
- * (docs/api.md "Live (P5)", `signal_intent` frame; P5 decision 3).
+ * (docs/api.md "Live (P5)", `signal` frame; P5 decision 3).
  *
  * This spec proves, through the UI:
  *   - the cockpit's live-intent surface mounts and shows streaming intents;
  *   - the rows the UI shows are not fabricated — every (strategy_id, symbol)
- *     pair the cockpit renders is present in tms.signal_intents, and the
+ *     pair the cockpit renders is present in tms.signals, and the
  *     cockpit's reported intent count agrees with the DB streaming-intent count.
  *
  * Robustness: self-skips when the /trade cockpit is still the coming-soon
@@ -35,7 +35,7 @@ import {
 } from "../lib/live";
 
 test.describe("live cockpit — signal intents stream", () => {
-  test("cockpit shows streaming intents that match tms.signal_intents", async ({
+  test("cockpit shows streaming intents that match tms.signals", async ({
     page,
   }) => {
     if (!(await liveUiReady(page))) {
@@ -104,7 +104,7 @@ test.describe("live cockpit — signal intents stream", () => {
       // Membership: the (strategy_id, symbol) pair the UI shows was emitted.
       expect(
         truthKeys.has(`${sid}:${sym}`),
-        `cockpit intent ${sid}/${sym} exists in tms.signal_intents`,
+        `cockpit intent ${sid}/${sym} exists in tms.signals`,
       ).toBeTruthy();
     }
 

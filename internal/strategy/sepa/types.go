@@ -1,9 +1,9 @@
 package sepa
 
 // types.go defines the SEPA-layer value types: the plain Bar at the contract
-// boundary, the target-position Signal, the per-symbol SignalIntent (UI
-// snapshot), and the SignalState / Grade enums. The pure SEPA layer does NOT
-// import internal/domain (the signal/intent types stay free of engine types);
+// boundary, the target-position Signal, the per-symbol UI snapshot SignalSnapshot,
+// and the SignalState / Grade enums. The pure SEPA layer does NOT
+// import internal/domain (the signal types stay free of engine types);
 // the engine adapter translates between these and domain.Bar / domain.Signal.
 
 import (
@@ -86,10 +86,10 @@ const (
 // StrategyID is the SEPA strategy id, constant "sepa".
 const StrategyID = "sepa"
 
-// SignalIntent is the typed UI snapshot. Optional numeric/Decimal fields are
+// SignalSnapshot is the typed UI snapshot. Optional numeric/Decimal fields are
 // pointers so the JSON null/absent distinction is preserved (Decimal fields
 // encode as str(Decimal)).
-type SignalIntent struct {
+type SignalSnapshot struct {
 	Symbol              string
 	State               SignalState
 	Strength            float64 // 0..100

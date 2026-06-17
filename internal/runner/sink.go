@@ -90,10 +90,10 @@ func (s *Sink) SignalRows() int { return s.intentRows }
 // transport; never aborts the run).
 func (s *Sink) PublishErrors() int { return s.publishErrs }
 
-// EmitSignal normalizes the strategy intent into per-name NormalizedIntents,
+// EmitSignal normalizes the strategy signal into per-name NormalizedSignals,
 // persists each (PG: the gate) and publishes each (Redis: best-effort).
 func (s *Sink) EmitSignal(ctx context.Context, rec livengine.SignalRecord) error {
-	norms, err := publish.NormalizeIntent(rec.Payload)
+	norms, err := publish.NormalizeSignal(rec.Payload)
 	if err != nil {
 		return err
 	}

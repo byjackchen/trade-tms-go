@@ -19,7 +19,7 @@ import (
 // stubTradeReader is an in-memory TradeReader.
 type stubTradeReader struct {
 	session  *TradeSession
-	intents  []TradeIntent
+	intents  []TradeSignal
 	health   *TradeHealth
 	watch    []string
 	accounts []TradeAccountInfo
@@ -28,8 +28,8 @@ type stubTradeReader struct {
 func (s *stubTradeReader) LatestSession(context.Context) (*TradeSession, error) {
 	return s.session, nil
 }
-func (s *stubTradeReader) RecentIntents(_ context.Context, strategyID string, limit int) ([]TradeIntent, error) {
-	var out []TradeIntent
+func (s *stubTradeReader) RecentSignals(_ context.Context, strategyID string, limit int) ([]TradeSignal, error) {
+	var out []TradeSignal
 	for _, it := range s.intents {
 		if strategyID == "" || it.StrategyID == strategyID {
 			out = append(out, it)
@@ -42,7 +42,7 @@ func (s *stubTradeReader) RecentIntents(_ context.Context, strategyID string, li
 }
 func (s *stubTradeReader) LatestHealth(context.Context) (*TradeHealth, error) { return s.health, nil }
 func (s *stubTradeReader) Watchlist(context.Context) ([]string, error)        { return s.watch, nil }
-func (s *stubTradeReader) LatestIntentsBySymbol(_ context.Context, _ int) ([]TradeIntent, error) {
+func (s *stubTradeReader) LatestSignalsBySymbol(_ context.Context, _ int) ([]TradeSignal, error) {
 	return s.intents, nil
 }
 func (s *stubTradeReader) ListAccounts(context.Context) ([]TradeAccountInfo, error) {
@@ -148,22 +148,22 @@ func TestTradeSessionEndpoint(t *testing.T) {
 	assert.Equal(t, "manual", got.Halt.Kind)
 }
 
-func TestTradeIntentsEndpoint(t *testing.T) {
-	trade := &stubTradeReader{intents: []TradeIntent{
+func TestTradeSignalsEndpoint(t *testing.T) {
+	trade := &stubTradeReader{intents: []TradeSignal{
 		{StrategyID: "sepa", Symbol: "AAPL", State: "buy", Strength: 75, Generation: 1,
-			Intent: json.RawMessage(`{"symbol":"AAPL"}`), TS: fixedNow},
-		{StrategyID: "pairs", Symbol: "KO", State: "hold", Intent: json.RawMessage(`{}`), TS: fixedNow},
+			Signal: json.RawMessage(`{"symbol":"AAPL"}`), TS: fixedNow},
+		{StrategyID: "pairs", Symbol: "KO", State: "hold", Signal: json.RawMessage(`{}`), TS: fixedNow},
 	}}
 	ts := newTradeTestServer(t, trade, &stubEnqueuer{})
 
-	rec := ts.do(t, http.MethodGet, "/api/v1/trade/intents?strategy_id=sepa", nil, true)
+	rec := ts.do(t, http.MethodGet, "/api/v1/trade/signals?strategy_id=sepa", nil, true)
 	require.Equal(t, http.StatusOK, rec.Code)
 	var body struct {
-		Intents []TradeIntent `json:"intents"`
+		Signals []TradeSignal `json:"signals"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	require.Len(t, body.Intents, 1)
-	assert.Equal(t, "AAPL", body.Intents[0].Symbol)
+	require.Len(t, body.Signals, 1)
+	assert.Equal(t, "AAPL", body.Signals[0].Symbol)
 }
 
 func TestTradeHealthEndpoint(t *testing.T) {
@@ -265,7 +265,7 @@ func TestTradeCommandEnqueue(t *testing.T) {
 func TestTradeEndpointsUnconfigured(t *testing.T) {
 	// nil trade reader + nil enqueuer -> 503 on every trade route.
 	ts := newTradeTestServer(t, nil, nil)
-	for _, path := range []string{"/api/v1/trade/session", "/api/v1/trade/intents", "/api/v1/trade/health", "/api/v1/watchlist", "/api/v1/trade/accounts"} {
+	for _, path := range []string{"/api/v1/trade/session", "/api/v1/trade/signals", "/api/v1/trade/health", "/api/v1/watchlist", "/api/v1/trade/accounts"} {
 		rec := ts.do(t, http.MethodGet, path, nil, true)
 		assert.Equal(t, http.StatusServiceUnavailable, rec.Code, path)
 	}
@@ -282,7 +282,7 @@ func TestLegacyLiveRedirects(t *testing.T) {
 		method, path, wantLocation string
 	}{
 		{http.MethodGet, "/api/v1/live/session", "/api/v1/trade/session"},
-		{http.MethodGet, "/api/v1/live/intents?strategy_id=sepa", "/api/v1/trade/intents?strategy_id=sepa"},
+		{http.MethodGet, "/api/v1/live/intents?strategy_id=sepa", "/api/v1/trade/signals?strategy_id=sepa"},
 		{http.MethodGet, "/api/v1/live/health", "/api/v1/trade/health"},
 		{http.MethodGet, "/api/v1/live/preflight", "/api/v1/trade/preflight"},
 		{http.MethodGet, "/api/v1/live/orders", "/api/v1/trade/orders"},

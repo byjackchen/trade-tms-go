@@ -210,7 +210,7 @@ func TestORBGolden(t *testing.T) {
 		}
 
 		// --- evaluate_intent ------------------------------------------
-		gotIntent := g.EvaluateIntent(ts)
+		gotIntent := g.EvaluateSignal(ts)
 		compareIntent(t, i, gotIntent, rec.Intent)
 
 		// --- state_summary --------------------------------------------
@@ -224,7 +224,7 @@ func TestORBGolden(t *testing.T) {
 		barsCompared, sigsCompared, len(f.Records))
 }
 
-func compareIntent(t *testing.T, i int, got SignalIntent, want pjIntent) {
+func compareIntent(t *testing.T, i int, got SignalSnapshot, want pjIntent) {
 	t.Helper()
 	if got.Symbol != want.Symbol {
 		t.Errorf("rec %d intent: symbol %q != %q", i, got.Symbol, want.Symbol)

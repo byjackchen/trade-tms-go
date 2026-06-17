@@ -13,7 +13,7 @@ import { IntentStateBadge } from "@/components/portfolio/live-badges";
 import { cn } from "@/lib/utils";
 import { formatNum } from "@/lib/format";
 import {
-  useStrategyIntents,
+  useStrategySignals,
   num,
   type StrategyIntentRow,
 } from "./use-strategy-intents";
@@ -43,7 +43,7 @@ export function SectorTable({
   symbolFilter: string;
   accountId?: string;
 }) {
-  const { rows, isLoading, error, noReader, refetch } = useStrategyIntents(
+  const { rows, isLoading, error, noReader, refetch } = useStrategySignals(
     "sector_rotation",
     { symbolFilter, includeIdle: true },
   );

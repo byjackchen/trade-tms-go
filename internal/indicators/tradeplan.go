@@ -7,7 +7,7 @@ package indicators
 // trade plan on top.
 //
 // All helpers are pure functions over OHLCV tails so they are unit-testable in
-// isolation; the SEPA generator composes them in EvaluateIntent.
+// isolation; the SEPA generator composes them in EvaluateSignal.
 
 import "math"
 

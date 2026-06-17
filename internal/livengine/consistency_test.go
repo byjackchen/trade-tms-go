@@ -3,7 +3,7 @@ package livengine_test
 // consistency_test.go is the ACCURACY ANCHOR for the live engine: internal
 // consistency is the proof. It runs the LIVE engine
 // (streaming, VirtualClock) over a day of bars delivered as a stream and asserts
-// the emitted SignalIntents are IDENTICAL to what a BATCH replay of the same bars
+// the emitted signals are IDENTICAL to what a BATCH replay of the same bars
 // produces (decision 3 + 4). Both paths reuse the SAME strategy / portfolio /
 // context / warmup code, so live path == batch path.
 //
@@ -123,7 +123,7 @@ func canonicalIntentRecords(recs []livengine.IntentRecord) []string {
 
 // TestLiveStreamEqualsBatchReplay is the consistency proof: a streaming
 // (virtual-clock) live run and a batch replay over the SAME bars emit IDENTICAL
-// SignalIntents.
+// signals.
 func TestLiveStreamEqualsBatchReplay(t *testing.T) {
 	instruments := sectorInstruments()
 	flat := livengine.BatchBars(instruments)
@@ -275,7 +275,7 @@ func TestLiveWarmupConsistency(t *testing.T) {
 		canonicalIntents(t, streamSink.SortedIntents()),
 		"warmed SEPA: live stream intents must equal batch replay intents")
 
-	// The generation counter must advance identically (one EvaluateIntent per
+	// The generation counter must advance identically (one EvaluateSignal per
 	// timestamp): 5 run bars => generation 5 on the last intent.
 	last := streamSink.SortedIntents()[len(streamSink.Signals)-1]
 	b, err := json.Marshal(last.Payload)

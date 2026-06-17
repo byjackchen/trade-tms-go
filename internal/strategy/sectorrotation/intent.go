@@ -7,15 +7,15 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
-// EvaluateIntent returns one SectorRotationSignal per universe ETF, in universe
+// EvaluateSignal returns one SectorRotationSignal per universe ETF, in universe
 // declaration order.
 //
-// Warmup gate: if ANY symbol is still short of lookback+1 closes, ALL intents
+// Warmup gate: if ANY symbol is still short of lookback+1 closes, ALL signals
 // are emitted as NO_SETUP with rank=0 — matching OnBar's _has_full_warmup gate,
 // so the UI never sees partial rankings that would flicker.
 //
 // Generation increments on EVERY call (even warmup) and is NOT persisted.
-func (sg *SignalGenerator) EvaluateIntent(asOf time.Time) []domain.SectorRotationSignal {
+func (sg *SignalGenerator) EvaluateSignal(asOf time.Time) []domain.SectorRotationSignal {
 	sg.intentGeneration++
 	universe := sg.cfg.Universe
 	topK := sg.cfg.TopK

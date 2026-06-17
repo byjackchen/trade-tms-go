@@ -131,7 +131,7 @@ func TestGolden(t *testing.T) {
 			}
 			bar := domain.Bar{Symbol: step.Bar.Symbol, TS: ts, Open: price, High: price, Low: price, Close: price, Volume: 1}
 			gotSig := gen.OnBar(bar, step.Bar.Close)
-			gotInt := gen.EvaluateIntent(ts)
+			gotInt := gen.EvaluateSignal(ts)
 			bars++
 
 			// signals

@@ -213,7 +213,7 @@ type tradeRunArgs struct {
 // runTradeRun assembles and runs the live signal-mode trading node (P5): the native
 // moomoo OpenD client (or mock by TMS_MOOMOO_ADDR) -> a streaming feed -> the
 // same internal/core engine + strategy/portfolio/warmup as backtest, driven by
-// a wall clock, recording a SignalIntent per strategy per bar to PG + Redis and
+// a wall clock, recording a signal per strategy per bar to PG + Redis and
 // submitting NO orders, under the ops.commands control plane.
 func runTradeRun(parent context.Context, env *runtimeEnv, a tradeRunArgs) error {
 	execPolicy, acctEnv, mode, err := resolveRun(a.execPolicy, a.env)

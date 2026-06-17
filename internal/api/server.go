@@ -257,7 +257,7 @@ func (s *Server) Routes() *chi.Mux {
 			// enqueue endpoint. The trading mutation surface stays out of the
 			// HTTP API (read-only forever); commands are the audited side channel.
 			r.Get("/trade/session", s.handleTradeSession)
-			r.Get("/trade/intents", s.handleTradeIntents)
+			r.Get("/trade/signals", s.handleTradeSignals)
 			r.Get("/trade/health", s.handleTradeHealth)
 			r.Get("/trade/preflight", s.handleTradePreflight)
 			r.Get("/watchlist", s.handleWatchlist)
@@ -281,10 +281,16 @@ func (s *Server) Routes() *chi.Mux {
 			// Back-compat: the old /live/* read/control paths 301-redirect to
 			// their /trade/* equivalents so a not-yet-updated UI keeps working.
 			// (The /trade/* mutation surface below is unrelated and never had a
-			// /live/* alias.) These are deliberately the SAME path with the
-			// /live prefix swapped for /trade.
+			// /live/* alias.) Most are the SAME path with the /live prefix swapped
+			// for /trade; the legacy /live/intents redirects to the renamed
+			// /trade/signals (concept-A intent->signal rename).
+			for old, target := range map[string]string{
+				"/live/intents": "/api/v1/trade/signals",
+			} {
+				r.Handle(old, redirectTo(target))
+			}
 			for _, suffix := range []string{
-				"session", "intents", "health", "preflight",
+				"session", "health", "preflight",
 				"orders", "fills", "positions", "account", "accounts", "reconciliation",
 				"commands",
 			} {

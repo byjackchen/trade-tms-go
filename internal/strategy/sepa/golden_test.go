@@ -127,7 +127,7 @@ func TestSEPAGolden(t *testing.T) {
 		for i, b := range bars {
 			row := sc.Rows[i]
 			sigs := g.OnBar(b)
-			intent := g.EvaluateIntent(b.TS)
+			intent := g.EvaluateSignal(b.TS)
 			summary := g.StateSummary()
 			totalRows++
 			totalSignals += len(row.Signals)
@@ -192,7 +192,7 @@ func compareSignals(t *testing.T, scn string, i int, want []refSignal, got []Sig
 	return bad
 }
 
-func compareIntent(t *testing.T, scn string, i int, w refIntent, g SignalIntent) int {
+func compareIntent(t *testing.T, scn string, i int, w refIntent, g SignalSnapshot) int {
 	t.Helper()
 	bad := 0
 	if w.State != string(g.State) {

@@ -1,6 +1,6 @@
 package pairs
 
-// observability.go: read-side surfaces — EvaluateIntent and StateSummary
+// observability.go: read-side surfaces — EvaluateSignal and StateSummary
 // (spec §9). These NEVER affect trading.
 
 import (
@@ -11,16 +11,16 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
-// EvaluateIntent returns exactly 2*N intents for N configured pairs, in pair
+// EvaluateSignal returns exactly 2*N signals for N configured pairs, in pair
 // order (long leg then short leg). Pure read of telemetry + state (spec §9.1).
 // It increments the generation counter at the TOP of the call (before building
 // the list), starting at 1 on the first call.
 //
 // Inputs per pair default to z=0.0, beta=1.0, state=FLAT when the pair is still
-// in warmup (telemetry not yet computed). Note the intent thresholds use
+// in warmup (telemetry not yet computed). Note the signal thresholds use
 // >=/<= (unlike the strict trading comparisons) — intentional and pinned by
 // tests (spec §9.1).
-func (g *Generator) EvaluateIntent(asOf time.Time) []domain.PairsSignal {
+func (g *Generator) EvaluateSignal(asOf time.Time) []domain.PairsSignal {
 	g.intentGeneration++
 	entryZ := g.cfg.EntryZ
 	exitZ := g.cfg.ExitZ

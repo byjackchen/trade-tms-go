@@ -15,10 +15,10 @@ import (
 
 // TestNormalizeSEPAAdapterOutput is the regression guard for the round-3
 // blocker: the SEPA adapter's EvaluateSignalJSON output must normalize through
-// the REAL production path. The prior test only fed NormalizeIntent a
-// hand-built sepa.SignalIntent — the type the broken adapter NEVER produced (it
+// the REAL production path. The prior test only fed NormalizeSignal a
+// hand-built sepa.SignalSnapshot — the type the broken adapter NEVER produced (it
 // returned a private sepaadapter.intentJSON, which hit the default error case
-// and aborted every SEPA/multi intent in the signal/paper/live/EOD modes). This
+// and aborted every SEPA/multi signal in the signal/paper/live/EOD modes). This
 // drives the actual adapter so the bug cannot silently reappear.
 func TestNormalizeSEPAAdapterOutput(t *testing.T) {
 	gen, err := sepa.New(sepa.Config{
@@ -34,7 +34,7 @@ func TestNormalizeSEPAAdapterOutput(t *testing.T) {
 	// The exact value the live signal node / EOD replay feeds the sink.
 	payload := adapter.EvaluateSignalJSON(time.Date(2024, 1, 1, 21, 0, 0, 0, time.UTC))
 
-	norms, err := NormalizeIntent(payload)
+	norms, err := NormalizeSignal(payload)
 	require.NoError(t, err, "SEPA adapter output must normalize (five-modes-one-engine thesis)")
 	require.Len(t, norms, 1)
 	n := norms[0]
@@ -51,12 +51,12 @@ func TestNormalizeSEPAAdapterOutput(t *testing.T) {
 		"generation", "strategy_id", "grade", "trend_template_pass", "base_age_days",
 		"base_depth_pct", "volume_dryup", "pivot_price", "stop_price", "rs_rank",
 	} {
-		assert.Contains(t, m, k, "intent wire shape missing key %q", k)
+		assert.Contains(t, m, k, "signal wire shape missing key %q", k)
 	}
 	assert.Equal(t, "sepa", m["strategy_id"])
 }
 
-// NOTE: the local sepa.SignalIntent / orb.SignalIntent → domain wire-shape
+// NOTE: the local sepa.SignalSnapshot / orb.SignalSnapshot → domain wire-shape
 // conversion moved into sepaadapter/orbadapter (the sanctioned domain bridge,
 // modularization-review.md §E3). Its byte-shape coverage now lives there
 // (sepaadapter/intent_test.go, orbadapter/intent_test.go); publish only switches
@@ -64,7 +64,7 @@ func TestNormalizeSEPAAdapterOutput(t *testing.T) {
 // (real adapter output) + the pairs/sector slice tests below.
 
 // TestNormalizePairsSlice proves a []domain.PairsSignal fans out to one
-// NormalizedIntent per leg, each addressed by its own symbol.
+// NormalizedSignal per leg, each addressed by its own symbol.
 func TestNormalizePairsSlice(t *testing.T) {
 	a := domain.NewPairsSignal()
 	a.Symbol = "KO"
@@ -75,7 +75,7 @@ func TestNormalizePairsSlice(t *testing.T) {
 	b.State = domain.StateHold
 	b.PairID = "KO/PEP"
 
-	norms, err := NormalizeIntent([]domain.PairsSignal{a, b})
+	norms, err := NormalizeSignal([]domain.PairsSignal{a, b})
 	require.NoError(t, err)
 	require.Len(t, norms, 2)
 	assert.Equal(t, "KO", norms[0].Symbol)
@@ -99,7 +99,7 @@ func TestNormalizeSectorSlice(t *testing.T) {
 	it.Rank = 1
 	it.MomentumScore = 0.12
 
-	norms, err := NormalizeIntent([]domain.SectorRotationSignal{it})
+	norms, err := NormalizeSignal([]domain.SectorRotationSignal{it})
 	require.NoError(t, err)
 	require.Len(t, norms, 1)
 	assert.Equal(t, "XLK", norms[0].Symbol)
@@ -112,11 +112,11 @@ func TestNormalizeSectorSlice(t *testing.T) {
 	assert.Equal(t, "sector_rotation", m["strategy_id"])
 }
 
-// TestNormalizeUnknownTypeErrors proves an unregistered intent type fails loudly.
+// TestNormalizeUnknownTypeErrors proves an unregistered signal type fails loudly.
 func TestNormalizeUnknownTypeErrors(t *testing.T) {
-	_, err := NormalizeIntent(struct{ X int }{X: 1})
+	_, err := NormalizeSignal(struct{ X int }{X: 1})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported intent type")
+	assert.Contains(t, err.Error(), "unsupported signal type")
 }
 
 // TestStreamKeyShape pins the reference per-trader stream key shape.

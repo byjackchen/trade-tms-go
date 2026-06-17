@@ -99,7 +99,7 @@ func (s *Strategy) WarmupBatch(bars []domain.Bar) {
 // EvaluateSignalJSON returns the per-ETF SectorRotationSignal slice for asOf as
 // a JSON-serializable value (engine.SignalEvaluator). Pure read of state.
 func (s *Strategy) EvaluateSignalJSON(asOf time.Time) any {
-	return s.sg.EvaluateIntent(asOf)
+	return s.sg.EvaluateSignal(asOf)
 }
 
 // StateSummaryJSON returns the light per-bar UI summary (engine.StateSummarizer).

@@ -12,7 +12,7 @@ import { EmptyState, ErrorState } from "@/components/shell/states";
 import { cn } from "@/lib/utils";
 import { formatNum, formatMoney } from "@/lib/format";
 import {
-  useStrategyIntents,
+  useStrategySignals,
   num,
   bool,
   type StrategyIntentRow,
@@ -61,7 +61,7 @@ export function SepaTable({
   symbolFilter: string;
   accountId?: string;
 }) {
-  const { rows, isLoading, error, noReader, refetch } = useStrategyIntents(
+  const { rows, isLoading, error, noReader, refetch } = useStrategySignals(
     "sepa",
     { symbolFilter },
   );

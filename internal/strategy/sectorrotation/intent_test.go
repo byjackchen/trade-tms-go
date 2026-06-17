@@ -55,9 +55,9 @@ func TestStrengthFromRank(t *testing.T) {
 	}
 }
 
-func TestEvaluateIntentOnePerETF(t *testing.T) {
+func TestEvaluateSignalOnePerETF(t *testing.T) {
 	sg := intentSG(t, 3, 5)
-	its := sg.EvaluateIntent(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
+	its := sg.EvaluateSignal(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
 	if len(its) != len(etfs) {
 		t.Fatalf("got %d intents", len(its))
 	}
@@ -68,9 +68,9 @@ func TestEvaluateIntentOnePerETF(t *testing.T) {
 	}
 }
 
-func TestEvaluateIntentWarmingUpAllNoSetup(t *testing.T) {
+func TestEvaluateSignalWarmingUpAllNoSetup(t *testing.T) {
 	sg := intentSG(t, 3, 5)
-	for _, it := range sg.EvaluateIntent(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)) {
+	for _, it := range sg.EvaluateSignal(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)) {
 		if it.State != domain.StateNoSetup || it.Rank != 0 {
 			t.Errorf("%s: state=%s rank=%d", it.Symbol, it.State, it.Rank)
 		}
@@ -91,13 +91,13 @@ func bySymbol(its []domain.SectorRotationSignal) map[string]domain.SectorRotatio
 	return m
 }
 
-func TestEvaluateIntentTopHeldIsHold(t *testing.T) {
+func TestEvaluateSignalTopHeldIsHold(t *testing.T) {
 	sg := intentSG(t, 3, 5)
 	seedHistory(t, sg, rankReturns, 5)
 	for _, s := range []string{"XLK", "XLE", "XLF"} {
 		sg.currentPositions[s] = 100
 	}
-	m := bySymbol(sg.EvaluateIntent(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)))
+	m := bySymbol(sg.EvaluateSignal(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)))
 	for _, s := range []string{"XLK", "XLE", "XLF"} {
 		if m[s].State != domain.StateHold || m[s].Rank < 1 || m[s].Rank > 3 {
 			t.Errorf("%s: state=%s rank=%d", s, m[s].State, m[s].Rank)
@@ -110,13 +110,13 @@ func TestEvaluateIntentTopHeldIsHold(t *testing.T) {
 	}
 }
 
-func TestEvaluateIntentPromotedIsBuy(t *testing.T) {
+func TestEvaluateSignalPromotedIsBuy(t *testing.T) {
 	sg := intentSG(t, 3, 5)
 	seedHistory(t, sg, rankReturns, 5)
 	for _, s := range []string{"XLY", "XLV", "XLU"} {
 		sg.currentPositions[s] = 100
 	}
-	m := bySymbol(sg.EvaluateIntent(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)))
+	m := bySymbol(sg.EvaluateSignal(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)))
 	for _, s := range []string{"XLK", "XLE", "XLF"} {
 		if m[s].State != domain.StateBuy {
 			t.Errorf("%s: state=%s want buy", s, m[s].State)
@@ -124,13 +124,13 @@ func TestEvaluateIntentPromotedIsBuy(t *testing.T) {
 	}
 }
 
-func TestEvaluateIntentDemotedIsExit(t *testing.T) {
+func TestEvaluateSignalDemotedIsExit(t *testing.T) {
 	sg := intentSG(t, 3, 5)
 	seedHistory(t, sg, rankReturns, 5)
 	for _, s := range []string{"XLY", "XLV", "XLU"} {
 		sg.currentPositions[s] = 100
 	}
-	m := bySymbol(sg.EvaluateIntent(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)))
+	m := bySymbol(sg.EvaluateSignal(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)))
 	for _, s := range []string{"XLY", "XLV", "XLU"} {
 		if m[s].State != domain.StateExit {
 			t.Errorf("%s: state=%s want exit", s, m[s].State)
@@ -138,7 +138,7 @@ func TestEvaluateIntentDemotedIsExit(t *testing.T) {
 	}
 }
 
-func TestEvaluateIntentJustOutsideTopIsForming(t *testing.T) {
+func TestEvaluateSignalJustOutsideTopIsForming(t *testing.T) {
 	sg := intentSG(t, 3, 5)
 	vals := []float64{0.50, 0.45, 0.40, 0.39, 0.38, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01}
 	r := map[string]float64{}
@@ -146,7 +146,7 @@ func TestEvaluateIntentJustOutsideTopIsForming(t *testing.T) {
 		r[s] = vals[i]
 	}
 	seedHistory(t, sg, r, 5)
-	m := bySymbol(sg.EvaluateIntent(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)))
+	m := bySymbol(sg.EvaluateSignal(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)))
 	// etfs[3], etfs[4] are ranks 4 and 5 -> FORMING (top_k+2 = 5).
 	if m[etfs[3]].State != domain.StateForming {
 		t.Errorf("%s: state=%s want forming", etfs[3], m[etfs[3]].State)
@@ -156,10 +156,10 @@ func TestEvaluateIntentJustOutsideTopIsForming(t *testing.T) {
 	}
 }
 
-func TestEvaluateIntentGenerationMonotonic(t *testing.T) {
+func TestEvaluateSignalGenerationMonotonic(t *testing.T) {
 	sg := intentSG(t, 3, 5)
-	g1 := sg.EvaluateIntent(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))[0].Generation
-	g2 := sg.EvaluateIntent(time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC))[0].Generation
+	g1 := sg.EvaluateSignal(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))[0].Generation
+	g2 := sg.EvaluateSignal(time.Date(2025, 1, 2, 0, 0, 0, 0, time.UTC))[0].Generation
 	if g2 <= g1 {
 		t.Errorf("generation not monotonic: %d -> %d", g1, g2)
 	}

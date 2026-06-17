@@ -59,7 +59,7 @@ type Strategy interface {
 // simply not asked for it.
 // ---------------------------------------------------------------------------
 
-// SignalEvaluator is a strategy that can emit per-leg/per-name SignalIntents
+// SignalEvaluator is a strategy that can emit per-leg/per-name signals
 // for observability after a bar (read-side only; never affects trading).
 type SignalEvaluator interface {
 	// EvaluateSignalJSON returns the intents for the as-of timestamp as a

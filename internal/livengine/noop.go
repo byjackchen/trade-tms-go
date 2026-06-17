@@ -10,7 +10,7 @@ package livengine
 //
 // Crucially this does NOT change strategy INTERNAL state: the generators evolve
 // purely from OnBar(bar) inputs and never read fills/positions, so the
-// SignalIntents the session evaluates after each bar are identical to the batch
+// signals the session evaluates after each bar are identical to the batch
 // path's (consistency_test.go). Only the (discarded) order side differs.
 
 import (

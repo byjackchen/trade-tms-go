@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useWatchlist, useLiveIntents } from "@/lib/api/hooks";
+import { useWatchlist, useLiveSignals } from "@/lib/api/hooks";
 import { useLiveStream } from "@/lib/api/use-live-stream";
 import { ApiError } from "@/lib/api/client";
 
@@ -24,8 +24,8 @@ const isIdleState = (st?: string) => !st || st === "no_setup" || st === "flat";
 
 /**
  * THE per-strategy watchlist data layer. Joins the tracked universe (the
- * `watchlist` payload's own `intents`, the capped `live/intents` poll, and the WS
- * `signal_intent` pushes) into one row per symbol carrying the full intent JSONB,
+ * `watchlist` payload's own `signals`, the capped `trade/signals` poll, and the WS
+ * `signal` pushes) into one row per symbol carrying the full signal JSONB,
  * latest-ts wins. Returns rows filtered to `strategyId` plus loading/error/query
  * bits the table needs.
  *
@@ -34,13 +34,13 @@ const isIdleState = (st?: string) => !st || st === "no_setup" || st === "flat";
  * pass `includeIdle` to keep the full universe (the Sector tab wants all 11 ETFs
  * even when every one is `hold`/`no_setup`).
  */
-export function useStrategyIntents(
+export function useStrategySignals(
   strategyId: string,
   opts: { symbolFilter?: string; includeIdle?: boolean } = {},
 ) {
   const { symbolFilter = "", includeIdle = false } = opts;
   const symbolsQ = useWatchlist();
-  const intentsQ = useLiveIntents(strategyId);
+  const intentsQ = useLiveSignals(strategyId);
   const [wsIntents, setWsIntents] = useState<Map<string, StrategyIntentRow>>(
     new Map(),
   );
@@ -52,7 +52,7 @@ export function useStrategyIntents(
   }, []);
 
   useLiveStream({
-    onSignalIntent: (p) => {
+    onSignal: (p) => {
       if (p.strategy_id !== strategyId) return;
       const intent = p.signal_json ?? {};
       const tsMs = Math.floor(p.ts_event / 1e6);
@@ -99,10 +99,10 @@ export function useStrategyIntents(
       const existing = m.get(symbol);
       if (!existing || row.tsMs >= existing.tsMs) m.set(symbol, row);
     };
-    for (const i of symbolsQ.data?.intents ?? []) {
+    for (const i of symbolsQ.data?.signals ?? []) {
       merge(i.symbol, i.strategy_id, i.state, i.strength, i.ts, i.signal ?? {});
     }
-    for (const i of intentsQ.data?.intents ?? []) {
+    for (const i of intentsQ.data?.signals ?? []) {
       merge(i.symbol, i.strategy_id, i.state, i.strength, i.ts, i.signal ?? {});
     }
     for (const [sym, row] of wsIntents) {
