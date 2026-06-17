@@ -1,11 +1,14 @@
 /**
- * (3) Live cockpit — watchlist renders the tracked universe and updates.
+ * (3) Watchlist renders the tracked universe and updates.
  *
  * GET /api/v1/watchlist returns the distinct symbols the recent sessions
- * emitted intents for (the tracked universe). The cockpit's watchlist surface
- * renders one row per symbol; this spec proves the rendered symbols MATCH the
- * DB's distinct intent symbols (no fabricated tickers) and that the set is a
- * subset/superset relationship consistent with the durable truth.
+ * emitted intents for (the tracked universe). Post-restructure the watchlist
+ * surface moved out of the trade cockpit into the Strategies module (the old
+ * `/trade/watchlist` route now redirects to `/strategies`), rendered as a
+ * per-strategy tab switcher (default tab SEPA). This spec proves the rendered
+ * symbols MATCH the DB's distinct intent symbols (no fabricated tickers) and
+ * that the set is a subset/superset relationship consistent with the durable
+ * truth.
  *
  * Self-skips: coming-soon placeholder, no live reader (503), or empty universe
  * (no intents emitted yet).
@@ -13,12 +16,13 @@
 
 import { test, expect } from "../fixtures/test";
 import { withDb, watchlistSymbols } from "../lib/db";
-import { liveUiReady, liveReaderAvailable } from "../lib/live";
+import { liveReaderAvailable } from "../lib/live";
+import { strategiesUiReady } from "../lib/strategies";
 
-test.describe("live cockpit — watchlist", () => {
+test.describe("strategies module — watchlist", () => {
   test("watchlist symbols match the DB tracked universe", async ({ page }) => {
-    if (!(await liveUiReady(page))) {
-      test.skip(true, "Live cockpit not yet implemented (coming-soon).");
+    if (!(await strategiesUiReady(page))) {
+      test.skip(true, "Strategies module not yet implemented (coming-soon).");
       return;
     }
     if (!(await liveReaderAvailable())) {
@@ -26,7 +30,7 @@ test.describe("live cockpit — watchlist", () => {
       return;
     }
 
-    await expect(page.getByTestId("live-page")).toBeVisible();
+    await expect(page.getByTestId("strategies-page")).toBeVisible();
 
     const watchlist = page.getByTestId("live-watchlist");
     await expect(watchlist).toBeVisible({ timeout: 15_000 });
@@ -71,8 +75,8 @@ test.describe("live cockpit — watchlist", () => {
   test("the watchlist stays consistent with the DB universe over a poll", async ({
     page,
   }) => {
-    if (!(await liveUiReady(page))) {
-      test.skip(true, "Live cockpit not yet implemented (coming-soon).");
+    if (!(await strategiesUiReady(page))) {
+      test.skip(true, "Strategies module not yet implemented (coming-soon).");
       return;
     }
     if (!(await liveReaderAvailable())) {
@@ -86,7 +90,7 @@ test.describe("live cockpit — watchlist", () => {
       return;
     }
 
-    await expect(page.getByTestId("live-page")).toBeVisible();
+    await expect(page.getByTestId("strategies-page")).toBeVisible();
     const watchlist = page.getByTestId("live-watchlist");
     await expect(watchlist).toBeVisible({ timeout: 15_000 });
 
@@ -104,8 +108,8 @@ test.describe("live cockpit — watchlist", () => {
   });
 
   test("the Download CSV button exports the rendered watchlist", async ({ page }) => {
-    if (!(await liveUiReady(page))) {
-      test.skip(true, "Live cockpit not yet implemented (coming-soon).");
+    if (!(await strategiesUiReady(page))) {
+      test.skip(true, "Strategies module not yet implemented (coming-soon).");
       return;
     }
     if (!(await liveReaderAvailable())) {

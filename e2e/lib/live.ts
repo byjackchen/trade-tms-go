@@ -1,20 +1,23 @@
 /**
  * Trade cockpit e2e helpers (P5).
  *
- * The /trade cockpit is the read surface over the trade node: signal
- * intents streaming in over the WS (bridged from Redis, durable truth in
- * tms.signal_intents), portfolio health + session state, the watchlist
- * (tracked universe), and the audited control surface (halt / kill-switch /
- * mode-switch via POST /api/v1/trade/commands). See docs/api.md "Trade (P5)" and
+ * Post-restructure the cockpit is the trade module, mounted at /paper (sim book)
+ * and /live (real book) — the old /trade route now 301-redirects to /paper. It
+ * is the read surface over the trade node: signal intents streaming in over the
+ * WS (bridged from Redis, durable truth in tms.signal_intents), portfolio health
+ * + session state, the watchlist (tracked universe), and the audited control
+ * surface (halt / kill-switch / exec-policy toggle via POST
+ * /api/v1/trade/commands). See docs/api.md "Trade (P5)" and
  * docs/spec/{ui-runner-modes-eod,portfolio-risk}.md.
  *
- * GATE TOPOLOGY (P5 decisions 2/3/7): the gate runs `tms trade run --mode signal`
- * against the in-repo MOCK OpenD server, which replays a day of bars out of our
- * Postgres — so a signal session emits intents into tms.signal_intents + the
- * Redis streams the API bridges to WS, with NO real OpenD. The real-OpenD smoke
- * is deferred to market hours (docs/runbooks/trade-smoke.md).
+ * GATE TOPOLOGY (P5 decisions 2/3/7): the gate runs a signal session
+ * (exec_policy=signal) against the in-repo MOCK OpenD server, which replays a day
+ * of bars out of our Postgres — so a signal session emits intents into
+ * tms.signal_intents + the Redis streams the API bridges to WS, with NO real
+ * OpenD. The real-OpenD smoke is deferred to market hours
+ * (docs/runbooks/trade-smoke.md).
  *
- * BUILD ORDER: the /trade cockpit + the trade read endpoints land in P5, after
+ * BUILD ORDER: the trade cockpit + the trade read endpoints land in P5, after
  * the P1 Data / P2 Backtests / P3 Strategies+Hyperopt workspaces. These specs
  * are PERMANENT and assert the documented contract; while the section is still
  * the coming-soon placeholder, the trade reader is absent (endpoints 503), or no
@@ -51,30 +54,32 @@ export const INTENT_STATES = [
 ] as const;
 
 /**
- * True once the real /trade cockpit replaced the coming-soon placeholder.
+ * True once the trade module (the post-restructure cockpit) is rendered.
  *
- * Mirrors backtestsUiReady / strategiesUiReady: the cockpit root (`live-page`)
- * only exists in the real workspace; the placeholder (`live-placeholder`, the
- * current ComingSoon testid) marks coming-soon. Returns false when neither has
- * appeared (route not built at all) or the placeholder is still showing.
+ * Post-restructure (docs/concept-alignment.md): the old `/trade` cockpit was
+ * replaced by the two <TradeModule> mounts at `/paper` (sim book) and `/live`
+ * (real book). The default "is the cockpit ready" target is `/paper` — it has a
+ * bound paper account, whereas `/live` has no real account registered and is
+ * empty. The module's ready signal is the `paper-header` testid (rendered by
+ * both the Portfolio and Desk views of the paper module — ui/src/components/
+ * portfolio/trade-module.tsx). Returns false when the app-shell or the module
+ * header never appears (route not built / not implemented).
  */
 export async function liveUiReady(page: Page): Promise<boolean> {
-  await page.goto("/trade", { waitUntil: "domcontentloaded" });
+  await page.goto("/paper", { waitUntil: "domcontentloaded" });
   const shell = page.getByTestId("app-shell");
   try {
     await shell.waitFor({ state: "visible", timeout: 15_000 });
   } catch {
     return false;
   }
-  const real = page.getByTestId("live-page");
-  const placeholder = page.getByTestId("live-placeholder");
-  const deadline = Date.now() + 15_000;
-  while (Date.now() < deadline) {
-    if (await real.count()) return true;
-    if (await placeholder.count()) return false;
-    await page.waitForTimeout(250);
+  const header = page.getByTestId("paper-header");
+  try {
+    await header.waitFor({ state: "visible", timeout: 15_000 });
+    return true;
+  } catch {
+    return false;
   }
-  return false;
 }
 
 /**
@@ -319,14 +324,16 @@ export async function manualSyncAvailable(): Promise<boolean> {
 }
 
 /**
- * True once the real MANUAL trading desk replaced the coming-soon placeholder.
- * The desk is a cockpit surface (its own route/tab); like liveUiReady, the real
- * root (`manual-desk`) only exists in the built workspace and the placeholder
- * (`manual-desk-placeholder`) marks coming-soon. Navigates to the desk route and
- * returns false when neither has appeared or the placeholder is still showing.
+ * True once the MANUAL trading desk is rendered. Post-restructure the desk is
+ * the Desk view of the trade module, reached via `/paper?view=desk` (the old
+ * `/trade/desk` route now 301-redirects to `/paper`). Its root testid
+ * (`manual-desk`) is rendered by <ManualDesk> when the module's `?view=desk`
+ * sub-nav is active (ui/src/components/portfolio/trade-module.tsx +
+ * desk/manual-desk.tsx). Returns false when the app-shell or the desk root never
+ * appears (route not built / not implemented).
  */
 export async function manualDeskUiReady(page: Page): Promise<boolean> {
-  await page.goto("/trade/desk", { waitUntil: "domcontentloaded" });
+  await page.goto("/paper?view=desk", { waitUntil: "domcontentloaded" });
   const shell = page.getByTestId("app-shell");
   try {
     await shell.waitFor({ state: "visible", timeout: 15_000 });
@@ -334,12 +341,10 @@ export async function manualDeskUiReady(page: Page): Promise<boolean> {
     return false;
   }
   const real = page.getByTestId("manual-desk");
-  const placeholder = page.getByTestId("manual-desk-placeholder");
-  const deadline = Date.now() + 15_000;
-  while (Date.now() < deadline) {
-    if (await real.count()) return true;
-    if (await placeholder.count()) return false;
-    await page.waitForTimeout(250);
+  try {
+    await real.waitFor({ state: "visible", timeout: 15_000 });
+    return true;
+  } catch {
+    return false;
   }
-  return false;
 }

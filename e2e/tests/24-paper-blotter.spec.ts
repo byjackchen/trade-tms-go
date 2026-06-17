@@ -75,7 +75,9 @@ test.describe("paper trading — blotter / positions / account", () => {
       return;
     }
 
-    await expect(page.getByTestId("live-page")).toBeVisible();
+    // Post-restructure the paper cockpit is the paper trade module (/paper); its
+    // ready signal is the module header (the old `live-page` root is gone).
+    await expect(page.getByTestId("paper-header")).toBeVisible();
 
     const session = await withDb((c) => latestSession(c));
     expect(session, "a trading session exists").not.toBeNull();

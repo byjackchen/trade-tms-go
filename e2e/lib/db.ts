@@ -420,13 +420,42 @@ export async function storedStrategyCount(c: Client): Promise<number> {
 // ---------------------------------------------------------------------------
 
 /** The most recent trading session (any trader), or null when none has run.
- * Mirrors GET /api/v1/trade/session's "most recent session" selection. */
+ * Mirrors GET /api/v1/trade/session's "most recent session" selection.
+ *
+ * POST-RESTRUCTURE (migration 000016): the `mode` column was DROPPED. A session
+ * now carries `exec_policy` (signal|auto) plus a bound account whose `env`
+ * (sim|simulate|real) lives in tms.accounts (sessions.account_id). The legacy
+ * "mode" label is DERIVED for existing consumers:
+ *   - exec_policy = signal                      => "signal"
+ *   - exec_policy = auto  AND env = real        => "live"
+ *   - exec_policy = auto  AND env = sim|simulate => "paper"
+ * `execPolicy` and `env` are also exposed for consumers reading the new shape. */
 export type LiveSessionTruth = {
   id: number;
   traderId: string;
+  /** Derived legacy label (see deriveSessionMode); kept so existing specs that
+   * read `.mode` keep compiling/working against the new schema. */
   mode: "signal" | "paper" | "live";
+  /** The session's raw execution policy (tms.sessions.exec_policy). */
+  execPolicy: "signal" | "auto";
+  /** The bound account's env (tms.accounts.env), or null when no account bound. */
+  env: "sim" | "simulate" | "real" | null;
   status: "RUNNING" | "STOPPED" | "CRASHED";
 };
+
+/** Derive the legacy "mode" label from the post-restructure (exec_policy, env)
+ * pair: signal => "signal"; auto+real => "live"; auto+(sim|simulate) => "paper".
+ * Falls back to "signal" when exec_policy is signal regardless of env, and to
+ * "paper" for an auto session whose env is unknown (the gate's sim default). */
+function deriveSessionMode(
+  execPolicy: string,
+  env: string | null,
+): LiveSessionTruth["mode"] {
+  if (execPolicy === "signal") return "signal";
+  // exec_policy = auto
+  if (env === "real") return "live";
+  return "paper"; // sim | simulate (or unknown auto) => paper book
+}
 
 export async function latestSession(
   c: Client,
@@ -434,12 +463,18 @@ export async function latestSession(
   const { rows } = await c.query<{
     id: string;
     trader_id: string;
-    mode: string;
+    exec_policy: string;
+    env: string | null;
     status: string;
   }>(
-    `SELECT id::text AS id, trader_id, mode, status
-       FROM tms.sessions
-      ORDER BY started_at DESC, id DESC
+    `SELECT s.id::text   AS id,
+            s.trader_id  AS trader_id,
+            s.exec_policy AS exec_policy,
+            a.env        AS env,
+            s.status     AS status
+       FROM tms.sessions s
+       LEFT JOIN tms.accounts a ON a.id = s.account_id
+      ORDER BY s.started_at DESC, s.id DESC
       LIMIT 1`,
   );
   if (!rows.length) return null;
@@ -447,7 +482,9 @@ export async function latestSession(
   return {
     id: Number(r.id),
     traderId: r.trader_id,
-    mode: r.mode as LiveSessionTruth["mode"],
+    mode: deriveSessionMode(r.exec_policy, r.env),
+    execPolicy: r.exec_policy as LiveSessionTruth["execPolicy"],
+    env: r.env as LiveSessionTruth["env"],
     status: r.status as LiveSessionTruth["status"],
   };
 }

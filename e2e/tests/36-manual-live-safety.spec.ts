@@ -1,6 +1,13 @@
 /**
  * (Manual desk 5) LIVE SAFETY — a real-money manual order is impossible without
- * the full gate; a paper/signal desk can NEVER target a live account.
+ * the full gate; a paper/signal desk can NEVER reach a live account.
+ *
+ * POST-RESTRUCTURE: the manual order body no longer carries mode/live routing
+ * hints — the desk is bound paper/live at CONNECT, and the handler ignores any
+ * such hints (internal/api/handlers_manual_trade.go). The per-order gate is
+ * `confirm_token` (the live confirm phrase on a live desk; the trade password on a
+ * paper desk). This spec's invariants are reframed onto that contract; the safety
+ * status codes (412) are unchanged.
  *
  * This is the TOP acceptance criterion (SAFE): the manual desk can place REAL
  * orders. P6 + docs/api.md "Manual trading desk" require a LIVE manual order to
@@ -14,14 +21,15 @@
  *
  * This spec asserts the GUARDS EXIST without ever placing a real order (there is
  * no real account in the gate — the desk is paper/mock):
- *   (a) API: a manual order claiming `mode:"live"` (or to a live account) WITHOUT
- *       the live confirm phrase is rejected 412 `confirmation_required`. The
- *       SAME-shaped request with a WRONG phrase is ALSO 412 (a near-miss never
- *       arms a real order). No live order is placed (no FILLED MANUAL live order
- *       appears).
- *   (b) API: a paper/signal desk cannot target a live account — a manual order
- *       asking to route to live from a non-live desk is refused (412/422/400/403),
- *       never silently accepted as a real order.
+ *   (a) API: a manual order WITHOUT the per-order confirm_token (the live confirm
+ *       phrase for a live desk, the trade password for a paper desk) is rejected
+ *       412 `confirmation_required`. The SAME-shaped request with a WRONG
+ *       confirm_token is ALSO 412 (a near-miss never arms a real order). No live
+ *       order is placed (no FILLED MANUAL live order appears).
+ *   (b) API: a paper/signal desk cannot reach a live account — handing it the LIVE
+ *       confirm phrase as confirm_token does NOT place an order (the desk's
+ *       CONNECT-time binding is paper, the live phrase is not the paper password),
+ *       refused (412/422/400/403), never silently accepted as a real order.
  *   (c) UI: the desk's switch-to-live (if present) opens the guarded confirm
  *       dialog whose submit is DISABLED until the EXACT phrase is typed; a
  *       wrong/near-miss phrase never arms it; we CANCEL — never completing a live
@@ -66,16 +74,20 @@ test.describe("manual desk — LIVE safety (no real order without the full gate)
     const sessionId = session?.id ?? null;
     const symbol = process.env.TMS_E2E_MANUAL_SYMBOL?.trim() || "AAPL";
 
-    // A manual order explicitly asking to route LIVE, WITHOUT the per-order live
-    // confirm phrase, must be refused 412 confirmation_required — no real order.
+    // POST-RESTRUCTURE: the desk is bound paper/live at CONNECT, so the order body
+    // no longer carries mode/live routing hints (the handler ignores them —
+    // handlers_manual_trade.go: "request-level routing hints are NOT honored").
+    // The per-order gate is `confirm_token`: a live desk requires the live confirm
+    // phrase; a paper desk requires the trade password. EITHER way, an order
+    // WITHOUT a confirm_token is refused 412 confirmation_required — no order
+    // reaches the venue. (The gate desk is paper, so this is the trade-password
+    // gate, also mapped to confirmation_required.)
     const noPhrase = await postManual("trade/order", {
       idempotency_key: `e2e-livesafe-nophrase-${Date.now()}`,
       symbol,
       side: "BUY",
       qty: 1,
       type: "MARKET",
-      mode: "live",
-      live: true,
       override: false,
       reason: "e2e live-safety guard (no confirm phrase) — expect 412",
     });
@@ -88,16 +100,15 @@ test.describe("manual desk — LIVE safety (no real order without the full gate)
       | undefined;
     expect(nb?.error?.code ?? nb?.code).toBe("confirmation_required");
 
-    // The SAME request with a WRONG phrase is ALSO refused 412 — a near-miss never
-    // arms a real order.
+    // The SAME request with a WRONG confirm_token is ALSO refused 412 — a near-miss
+    // never arms an order (the exact phrase/password is required; this lowercased
+    // value matches neither the live phrase nor the paper password).
     const wrongPhrase = await postManual("trade/order", {
       idempotency_key: `e2e-livesafe-wrong-${Date.now()}`,
       symbol,
       side: "BUY",
       qty: 1,
       type: "MARKET",
-      mode: "live",
-      live: true,
       override: false,
       confirm_token: "i confirm this real money manual order", // wrong case/exactness
       reason: "e2e live-safety guard (wrong phrase) — expect 412",
@@ -139,19 +150,20 @@ test.describe("manual desk — LIVE safety (no real order without the full gate)
     }
     const symbol = process.env.TMS_E2E_MANUAL_SYMBOL?.trim() || "AAPL";
 
-    // From a paper/signal desk, asking to route an order to the LIVE account —
-    // EVEN WITH the live confirm phrase — must NOT yield a real order: the desk is
-    // not live-bound (no 4-factor activation), so the boundary refuses it. The one
-    // and only path to live is re-binding the desk live (the guarded UI switch),
-    // never an inline per-order flag from a paper desk.
+    // POST-RESTRUCTURE: there is NO per-order "route to live" flag — the desk's
+    // CONNECT-time binding alone determines the account. So the proof that a
+    // paper/signal desk cannot reach live is that handing it the LIVE confirm
+    // phrase as confirm_token does NOT place an order: on a paper desk the live
+    // phrase is not the paper trade password, so the gate refuses it (412
+    // confirmation_required). The one and only path to live is re-binding the desk
+    // live (the guarded UI switch), never an inline per-order token from a paper
+    // desk.
     const res = await postManual("trade/order", {
       idempotency_key: `e2e-paper-to-live-${Date.now()}`,
       symbol,
       side: "BUY",
       qty: 1,
       type: "MARKET",
-      mode: "live",
-      live: true,
       override: false,
       confirm_token: MANUAL_LIVE_CONFIRM_PHRASE,
       reason: "e2e paper-desk -> live account — must be refused",

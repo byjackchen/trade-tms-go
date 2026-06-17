@@ -1,45 +1,72 @@
 /**
- * (5) LIVE SAFETY — live (real money) cannot be activated without the full gate.
+ * (5) LIVE SAFETY — real money (the LIVE module's real account) cannot be armed
+ * without the full gate.
  *
- * Switching to LIVE mode is the single most dangerous action in the system: it
- * arms the real-money account. P6 decision 8 makes live activation require ALL
- * of: (a) a typed confirmation phrase, (b) a real acc_id explicitly configured,
- * (c) UnlockTrade success, (d) a distinct trader-id namespace (TMS-LIVE-REAL-001)
- * — and there must be NO code path that places a real order without all four.
- * signal/paper can NEVER reach the live account.
+ * Post-restructure the three-valued mode is retired: the account env is fixed by
+ * the page (/paper -> simulate, /live -> real) and the only switchable axis is the
+ * EXECUTION POLICY (signal emit-only <-> auto auto-submit). Arming AUTO on the
+ * LIVE module is the single most dangerous action in the system: it lets the
+ * session place REAL orders against the bound real-money account. P6 decision 8
+ * makes live activation require ALL of: (a) a typed confirmation phrase, (b) a
+ * real acc_id explicitly configured, (c) UnlockTrade success, (d) a distinct
+ * trader-id namespace (TMS-LIVE-REAL-001) — and there must be NO code path that
+ * arms a real order without all four. SIGNAL emits intents only — no orders.
  *
- * This spec asserts the GUARD EXISTS without ever activating live (it must not
- * — there is no real account in this gate). Checks:
- *   (a) API: a set_mode->live WITHOUT a confirm_token is rejected 412
- *       confirmation_required (the boundary guard); the session mode is unchanged
- *       (never silently flipped to live).
- *   (b) UI: the switch-to-live control opens a confirmation-phrase dialog whose
+ * This spec asserts the GUARD EXISTS without ever arming live (it must not — there
+ * is no real account in this gate). Checks:
+ *   (a) API: a set_mode -> auto+real (the "go live" arm) WITHOUT a confirm_token
+ *       is rejected 412 confirmation_required (the boundary guard); the derived
+ *       session mode is unchanged (never silently flipped to live).
+ *   (b) UI: the LIVE module's AUTO control opens a confirmation-phrase dialog whose
  *       submit is DISABLED until the exact phrase is typed; we verify the guard
- *       and CANCEL — we never complete the switch.
- *   (c) UI never lets signal/paper place to a live account: in signal/paper mode
- *       the cockpit exposes no affordance that routes an order to the live
- *       account; the only path to live is the guarded mode switch above. We
+ *       and CANCEL — we never complete the arm.
+ *   (c) UI never lets signal/paper place to a live account: the paper module
+ *       exposes no affordance that routes an order to the real account; the only
+ *       path to real money is the guarded AUTO arm on the LIVE module above. We
  *       assert there is no enabled "go live" / "place live order" control that
  *       bypasses the confirmation dialog.
  *
  * This is the TOP acceptance criterion (SAFE). It runs whenever the live reader
  * is present; the API guard is always safe (a 412 means live did NOT activate).
  *
- * Testid contract:
- *   control-mode-live            — the switch-to-live control (existing)
- *   live-mode-confirm            — the confirmation dialog (shared, existing)
- *   live-mode-confirm-phrase     — the typed-phrase input (existing)
- *   live-mode-confirm-submit     — the arm/submit button (existing)
- *   live-mode-confirm-cancel     — cancel without switching (existing)
+ * Testid contract (matches spec 22's reference style):
+ *   control-exec-auto         — the arm-AUTO control on the LIVE module (existing)
+ *   live-arm-confirm          — the confirmation dialog (shared, existing)
+ *   live-arm-confirm-phrase   — the typed-phrase input (existing)
+ *   live-arm-confirm-submit   — the arm/submit button (existing)
+ *   live-arm-confirm-cancel   — cancel without arming (existing)
  */
 
 import { test, expect } from "../fixtures/test";
 import { postAuthed } from "../lib/api";
 import { withDb, latestSession } from "../lib/db";
-import { liveUiReady, liveReaderAvailable } from "../lib/live";
+import { liveReaderAvailable } from "../lib/live";
 
-test.describe("LIVE safety — real money is never activated without the full gate", () => {
-  test("the API rejects a live-mode switch without a confirm token (412)", async () => {
+/** Navigate to the LIVE (real-money) trade module and report whether it rendered.
+ * The env is fixed by the page (/live -> real); its ready signal is the
+ * `live-header` testid (ui/src/components/portfolio/trade-module.tsx). Returns
+ * false when the app-shell or the live header never appears (not implemented). */
+async function liveModuleReady(
+  page: import("@playwright/test").Page,
+): Promise<boolean> {
+  await page.goto("/live", { waitUntil: "domcontentloaded" });
+  const shell = page.getByTestId("app-shell");
+  try {
+    await shell.waitFor({ state: "visible", timeout: 15_000 });
+  } catch {
+    return false;
+  }
+  const header = page.getByTestId("live-header");
+  try {
+    await header.waitFor({ state: "visible", timeout: 15_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+test.describe("LIVE safety — real money is never armed without the full gate", () => {
+  test("the API rejects arming live (auto+real) without a confirm token (412)", async () => {
     if (!(await liveReaderAvailable())) {
       test.skip(true, "API started without a live reader (live endpoints 503).");
       return;
@@ -47,38 +74,40 @@ test.describe("LIVE safety — real money is never activated without the full ga
 
     const before = await withDb((c) => latestSession(c));
 
-    // set_mode -> live WITHOUT confirm_token must be rejected at the boundary.
-    // A 412 means live did NOT activate — the safety boundary held.
+    // set_mode -> "go live" (exec_policy=auto + env=real) WITHOUT confirm_token
+    // must be rejected at the boundary. A 412 means live did NOT arm — the safety
+    // boundary held.
     const res = await postAuthed("trade/commands", {
       name: "set_mode",
-      mode: "live",
+      exec_policy: "auto",
+      env: "real",
     });
     expect(
       res.status,
-      "set_mode->live without confirm_token is a confirmation-required 412",
+      "arming auto+real without confirm_token is a confirmation-required 412",
     ).toBe(412);
     const body = res.body as { error?: { code?: string } } | undefined;
     expect(body?.error?.code).toBe("confirmation_required");
 
-    // The session mode is UNCHANGED — never silently flipped to live. In
+    // The (derived) session mode is UNCHANGED — never silently flipped to live. In
     // particular a signal/paper session was not turned live by the rejected call.
     const after = await withDb((c) => latestSession(c));
     if (before && after) {
       expect(
         after.mode,
-        "the rejected set_mode left the session mode unchanged",
+        "the rejected arm left the session mode unchanged",
       ).toBe(before.mode);
-      expect(after.mode, "the session is not live after a rejected switch").not.toBe(
+      expect(after.mode, "the session is not live after a rejected arm").not.toBe(
         "live",
       );
     }
   });
 
-  test("the cockpit switch-to-live opens a confirmation-phrase dialog and never auto-activates", async ({
+  test("the LIVE module AUTO control opens a confirmation-phrase dialog and never auto-arms", async ({
     page,
   }) => {
-    if (!(await liveUiReady(page))) {
-      test.skip(true, "Live cockpit not yet implemented (coming-soon).");
+    if (!(await liveModuleReady(page))) {
+      test.skip(true, "Live module not yet implemented (coming-soon).");
       return;
     }
     if (!(await liveReaderAvailable())) {
@@ -86,43 +115,49 @@ test.describe("LIVE safety — real money is never activated without the full ga
       return;
     }
 
-    await expect(page.getByTestId("live-page")).toBeVisible();
+    await expect(page.getByTestId("live-header")).toBeVisible();
 
     const before = await withDb((c) => latestSession(c));
 
-    const liveSwitch = page.getByTestId("control-mode-live");
-    if (!(await liveSwitch.count())) {
+    // On the LIVE module, arming AUTO is the "go live" action (env=real). The
+    // button for the already-active policy is disabled; in the gate the session is
+    // signal/paper so AUTO is actionable. If it is not enabled (already auto / no
+    // reader), there is nothing to arm — skip.
+    const armAuto = page.getByTestId("control-exec-auto").first();
+    if (
+      !(await armAuto.count()) ||
+      !(await armAuto.isEnabled().catch(() => false))
+    ) {
       test.skip(
         true,
-        "switch-to-live control not surfaced (live activation hidden in this build).",
+        "no enabled AUTO control surfaced (already auto / activation hidden in this build).",
       );
       return;
     }
 
-    // The live switch must NOT activate on click — it can only open the guarded
-    // confirmation dialog. (If the current mode is already live the control is
-    // disabled; in the gate the session is signal/paper, so it is actionable.)
-    await liveSwitch.first().click();
+    // The AUTO control must NOT arm on click — it can only open the guarded
+    // confirmation dialog.
+    await armAuto.click();
 
-    const dialog = page.getByTestId("live-mode-confirm");
+    const dialog = page.getByTestId("live-arm-confirm");
     await expect(dialog).toBeVisible();
 
-    const phraseInput = page.getByTestId("live-mode-confirm-phrase");
+    const phraseInput = page.getByTestId("live-arm-confirm-phrase");
     await expect(phraseInput).toBeVisible();
 
-    const submit = page.getByTestId("live-mode-confirm-submit");
+    const submit = page.getByTestId("live-arm-confirm-submit");
     // GUARD: submit is not actionable before the phrase is entered.
     const disabledBefore =
       (await submit.isDisabled().catch(() => false)) ||
       (await submit.getAttribute("aria-disabled")) === "true";
     expect(
       disabledBefore,
-      "switch-to-live submit is disabled until the confirmation phrase is typed",
+      "arm-AUTO submit is disabled until the confirmation phrase is typed",
     ).toBeTruthy();
 
     // Typing the WRONG phrase must keep submit disabled (the exact phrase is
     // required — a near-miss never arms live).
-    await phraseInput.fill("set live");
+    await phraseInput.fill("arm live");
     const stillDisabled =
       (await submit.isDisabled().catch(() => false)) ||
       (await submit.getAttribute("aria-disabled")) === "true";
@@ -131,8 +166,8 @@ test.describe("LIVE safety — real money is never activated without the full ga
       "a wrong/near-miss phrase does not arm the live switch",
     ).toBeTruthy();
 
-    // CANCEL — we NEVER complete a live switch (no real account in this gate).
-    const cancel = page.getByTestId("live-mode-confirm-cancel");
+    // CANCEL — we NEVER complete a live arm (no real account in this gate).
+    const cancel = page.getByTestId("live-arm-confirm-cancel");
     if (await cancel.count()) {
       await cancel.click();
     } else {
@@ -140,8 +175,8 @@ test.describe("LIVE safety — real money is never activated without the full ga
     }
     await expect(dialog).toBeHidden();
 
-    // Durable truth: NO switch occurred — the session mode is unchanged and is
-    // NOT live.
+    // Durable truth: NO arm occurred — the session mode is unchanged and is NOT
+    // live.
     const after = await withDb((c) => latestSession(c));
     if (before && after) {
       expect(
@@ -152,15 +187,15 @@ test.describe("LIVE safety — real money is never activated without the full ga
     const sessionNow = await withDb((c) => latestSession(c));
     expect(
       sessionNow?.mode,
-      "the cockpit never auto-activated live",
+      "the LIVE module never auto-armed live",
     ).not.toBe("live");
   });
 
-  test("signal/paper modes expose no control that places to a live account", async ({
+  test("the paper module exposes no control that places to a live account", async ({
     page,
   }) => {
-    if (!(await liveUiReady(page))) {
-      test.skip(true, "Live cockpit not yet implemented (coming-soon).");
+    if (!(await liveModuleReady(page))) {
+      test.skip(true, "Live module not yet implemented (coming-soon).");
       return;
     }
     if (!(await liveReaderAvailable())) {
@@ -168,21 +203,26 @@ test.describe("LIVE safety — real money is never activated without the full ga
       return;
     }
 
-    await expect(page.getByTestId("live-page")).toBeVisible();
+    // The paper module is the simulate-bound surface — it must never reach a real
+    // account. Load it and assert there is no direct-to-live affordance.
+    await page.goto("/paper", { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("paper-header")).toBeVisible();
 
     const session = await withDb((c) => latestSession(c));
     // This invariant matters most when NOT already in live mode (signal/paper):
-    // there must be no affordance that reaches the live account except the guarded
-    // mode switch. If the stack is already live (never in the gate), skip.
+    // there must be no affordance that reaches the real account except the guarded
+    // AUTO arm on the LIVE module. If the stack is already live (never in the
+    // gate), skip.
     if (session?.mode === "live") {
       test.skip(true, "session already in live mode — not the signal/paper case.");
       return;
     }
 
-    // There is exactly ONE path to live: the guarded `control-mode-live` switch,
-    // which routes through `live-mode-confirm`. Any control that claims to place
-    // a live order directly (a `live-place-order-live` / `go-live-now` style
-    // affordance) would be a safety hole — assert none exists.
+    // There is exactly ONE path to real money: the guarded `control-exec-auto`
+    // arm on the LIVE module, which routes through `live-arm-confirm`. Any control
+    // on the paper module that claims to place a live order directly (a
+    // `place-live-order` / `go-live-now` style affordance) would be a safety hole —
+    // assert none exists.
     for (const forbidden of [
       "live-place-order-live",
       "go-live-now",
@@ -191,27 +231,22 @@ test.describe("LIVE safety — real money is never activated without the full ga
     ]) {
       expect(
         await page.getByTestId(forbidden).count(),
-        `no direct-to-live affordance "${forbidden}" exists (the only path to live is the guarded mode switch)`,
+        `no direct-to-live affordance "${forbidden}" exists (the only path to real money is the guarded AUTO arm on the LIVE module)`,
       ).toBe(0);
     }
 
-    // The flatten/order controls (when present) operate on the CURRENT session's
-    // account, which is signal (no account) or paper — never the live account
-    // without the mode switch. We assert the live switch, if present, still
-    // requires the confirmation dialog (proven by the test above) rather than
-    // being a one-click activation.
-    const liveSwitch = page.getByTestId("control-mode-live");
-    if (await liveSwitch.count()) {
-      // The control is a mode-switch button, not a live-order placer: clicking it
-      // opens a dialog (guarded) — it never submits to the live account directly.
-      // (Behaviour proven in the test above; here we only assert it is not some
-      // auto-submitting element by checking it is a button-like control.)
-      const tag = await liveSwitch
+    // The paper module's AUTO arm, when present, binds the SIMULATE account (no
+    // real money) and is itself a guarded button (proven by the test above) rather
+    // than a one-click activation. Assert it is a button-like control, not an
+    // auto-submitting element.
+    const armAuto = page.getByTestId("control-exec-auto");
+    if (await armAuto.count()) {
+      const tag = await armAuto
         .first()
         .evaluate((el) => el.tagName.toLowerCase());
       expect(
         ["button", "a"].includes(tag),
-        "the switch-to-live control is a guarded button, not an auto-activating element",
+        "the arm-AUTO control is a guarded button, not an auto-activating element",
       ).toBeTruthy();
     }
   });

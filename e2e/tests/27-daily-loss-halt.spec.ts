@@ -63,7 +63,9 @@ test.describe("portfolio gate — daily-loss halt", () => {
       return;
     }
 
-    await expect(page.getByTestId("live-page")).toBeVisible();
+    // Post-restructure the cockpit is the trade module at /paper; its ready
+    // signal is `paper-header` (the old `live-page` root no longer exists).
+    await expect(page.getByTestId("paper-header")).toBeVisible();
 
     const session = await withDb((c) => latestSession(c));
     const sessionId = session!.id;

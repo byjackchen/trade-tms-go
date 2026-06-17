@@ -20,7 +20,8 @@
  * least one watchlist signal to act on. Skips cleanly otherwise; NEVER live.
  *
  * Testid contract:
- *   live-watchlist / live-watchlist-row [data-symbol]   — the watchlist (existing)
+ *   live-watchlist / live-watchlist-row [data-symbol]   — the watchlist (existing;
+ *     surfaced on the desk or the /strategies workspace post-restructure)
  *   manual-trade-from-signal                            — the per-row Trade control
  *     (carries data-symbol / data-side when the signal implies a side)
  *   manual-ticket / manual-ticket-symbol / -side / -qty / -confirm / -submit
@@ -70,12 +71,13 @@ test.describe("manual desk — trade from a watchlist signal", () => {
     const sessionId = session!.id;
 
     // The Trade-from-signal affordance lives on the watchlist signals. It may be
-    // embedded in the desk, or on the existing /trade/watchlist view. Find the
-    // first Trade control wherever it is surfaced.
+    // embedded in the desk, or on the Strategies workspace (post-restructure the
+    // old /trade/watchlist view 301-redirects to /strategies, which carries the
+    // tracked-universe watchlist). Find the first Trade control wherever surfaced.
     const tradeControl = page.getByTestId("manual-trade-from-signal").first();
     if (!(await tradeControl.count())) {
-      // The desk may surface signals only on the dedicated watchlist tab.
-      await page.goto("/trade/watchlist", { waitUntil: "domcontentloaded" });
+      // The desk may surface signals only on the dedicated watchlist/strategies view.
+      await page.goto("/strategies", { waitUntil: "domcontentloaded" });
       await expect(page.getByTestId("app-shell")).toBeVisible();
     }
     const trade = page.getByTestId("manual-trade-from-signal").first();

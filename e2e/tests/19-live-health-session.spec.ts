@@ -36,7 +36,9 @@ test.describe("live cockpit — health + session", () => {
       return;
     }
 
-    await expect(page.getByTestId("live-page")).toBeVisible();
+    // Post-restructure the cockpit is the paper trade module (/paper); its ready
+    // signal is the module header (the old `live-page` root is gone).
+    await expect(page.getByTestId("paper-header")).toBeVisible();
 
     // Session strip: the cockpit renders the active session's mode + status as
     // deterministic data attributes, plus a human label.
@@ -88,7 +90,7 @@ test.describe("live cockpit — health + session", () => {
       return;
     }
 
-    await expect(page.getByTestId("live-page")).toBeVisible();
+    await expect(page.getByTestId("paper-header")).toBeVisible();
 
     // Health strip mounts. GET /api/v1/trade/health returns the flat-book NAV in
     // signal mode; the WS overlays last-write-wins (api spec §3.10/§5.11). The

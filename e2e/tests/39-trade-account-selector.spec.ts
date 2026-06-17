@@ -78,8 +78,10 @@ test.describe("trade cockpit — account selector", () => {
       "GET /api/v1/trade/accounts mirrors the tms.accounts registry",
     ).toEqual(truthIds);
 
-    // The selector mounts and is enabled (a non-empty registry).
-    await expect(page.getByTestId("live-page")).toBeVisible();
+    // The selector mounts and is enabled (a non-empty registry). Post-restructure
+    // the cockpit is the trade module at /paper, whose ready signal is the
+    // `paper-header` testid (the old `live-page` root is retired).
+    await expect(page.getByTestId("paper-header")).toBeVisible();
     const selector = page.getByTestId("account-selector");
     await expect(selector).toBeVisible({ timeout: 15_000 });
     const input = page.getByTestId("account-selector-input");
@@ -127,7 +129,7 @@ test.describe("trade cockpit — account selector", () => {
     }
     const target = accounts[0].id;
 
-    await expect(page.getByTestId("live-page")).toBeVisible();
+    await expect(page.getByTestId("paper-header")).toBeVisible();
     const input = page.getByTestId("account-selector-input");
     await expect(input).toBeEnabled({ timeout: 15_000 });
 
