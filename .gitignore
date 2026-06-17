@@ -45,3 +45,6 @@ go.work.sum
 
 # keep secret templates, never real secrets
 !secrets/*.example
+
+# Claude Code git worktrees (never track)
+.claude/worktrees/
