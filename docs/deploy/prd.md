@@ -52,7 +52,8 @@ TMS_API_TOKEN=<strong-random>                 # REQUIRED — api won't start wit
 TMS_API_CORS_ORIGINS=https://<your-ui-host>   # or http://<host>:13000 if internal
 TMS_LOG_LEVEL=info
 # --- data / scheduler ---
-TMS_SHARADAR_CACHE_DIR=/srv/tms/sharadar      # parquet cache mount (for import)
+TMS_NASDAQ_DATA_LINK_API_KEY=<key>            # required for `sync` (API->DB) + daily refresh
+TMS_SHARADAR_CACHE_DIR=/srv/tms/sharadar      # only used by the parquet `import` path
 TMS_RUNS_DIR=/srv/tms/runs
 TMS_SCHEDULER_DAILY_AT=18:30
 TMS_SCHEDULER_TZ=America/New_York
@@ -86,19 +87,42 @@ This starts: postgres, redis, migrate (one-shot), api (:18080), worker, schedule
 ## 5. Load market data (one-time)
 
 Schema is built by migrations (which also seed the default compositions +
-baseline params). Now load the heavy **market data** (~1.6 GB: tickers,
-bars_daily, bars_intraday, fundamentals_sf1, events, universe_snapshots).
+baseline params). Now load the heavy **market data** (~1.6 GB across 5 Sharadar
+datasets: TICKERS→tickers, SEP+SFP→bars_daily, SF1→fundamentals_sf1,
+EVENTS→events). Two independent ingest paths feed the DB:
 
-**Option A — import from the Sharadar parquet cache (recommended, reproducible):**
+- **`sync`** — pulls straight from the **Nasdaq Data Link API → TimescaleDB** (no
+  local files). Use this on a fresh host with no cache. ← **default for prd.**
+- **`import sharadar`** — bulk-loads a pre-existing local **parquet cache**.
+
+**Option A — pull from the Nasdaq Data Link API (recommended; no cache needed):**
+
+Prereqs: ① `TMS_NASDAQ_DATA_LINK_API_KEY` in `.env` (get one at
+https://data.nasdaq.com/account/profile); ② the key's account is **subscribed to
+the SHARADAR tables** (paid datasets — otherwise the API returns empty); ③
+outbound HTTPS to `data.nasdaq.com`.
 ```bash
-# put the parquet cache at $TMS_SHARADAR_CACHE_DIR on the host, then:
-docker compose run --rm tmsgo-worker import --help   # confirm flags (entrypoint is `tms`)
-docker compose run --rm tmsgo-worker import …        # backfill from parquet
-# or let tmsgo-scheduler's daily pipeline / `tms catchup` fill incrementally
+# one-time full backfill (TICKERS→SEP→SFP→SF1→EVENTS over the window);
+# narrow --start to bound runtime — full history is many paginated calls.
+docker compose run --rm tmsgo-worker sync bootstrap --start 2010-01-01 --end <T-1>
+# then catch up to T-1 (watermark-driven incremental)
+docker compose run --rm tmsgo-worker sync catchup
+# verify
+docker exec tmsgo-postgres psql -U tms -d tms -tAc \
+  "SELECT count(*), max(t) FROM tms.bars_daily;"
+```
+After this, `tmsgo-scheduler` runs the daily `data.refresh source=api → eod.refresh`
+pipeline automatically (the worker holds the key) — no manual sync thereafter.
+
+**Option B — import from a local parquet cache** (only if you already have one):
+```bash
+# place the parquet cache at $TMS_SHARADAR_CACHE_DIR (mounted to /data/sharadar), then:
+docker compose run --rm tmsgo-worker import sharadar --tables all   # idempotent upsert
 ```
 
-**Option B — data-only dump/restore of the market tables** (faster if prd can't
-reach Sharadar). Hypertables need the TimescaleDB pre/post wrapper:
+**Option C — data-only dump/restore of the market tables** (from an existing dev
+DB, e.g. no API subscription on the prd box). Hypertables need the TimescaleDB
+pre/post wrapper:
 ```bash
 # from the dev/source DB:
 docker exec tmsgo-postgres pg_dump -U tms -d tms -a -Fc \
