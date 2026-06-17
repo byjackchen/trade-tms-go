@@ -17,7 +17,7 @@ import { apiTarget } from "@/lib/server/api";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// GET reads; POST enqueues / mutates; PUT + DELETE back the Models CRUD
+// GET reads; POST enqueues / mutates; PUT + DELETE back the Compositions CRUD
 // (full-replace + delete — docs/concept-alignment.md §3.3).
 const ALLOWED_METHODS = new Set(["GET", "POST", "PUT", "DELETE"]);
 

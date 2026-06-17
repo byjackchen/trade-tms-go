@@ -9,7 +9,7 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { JobProgress } from "@/components/systems/job-progress";
-import { useCreateBacktest, useCancelJob, useModels } from "@/lib/api/hooks";
+import { useCreateBacktest, useCancelJob, useCompositions } from "@/lib/api/hooks";
 import { useJobTracker } from "@/lib/api/use-job-tracker";
 import { ApiError } from "@/lib/api/client";
 import type {
@@ -17,18 +17,18 @@ import type {
   FillProfile,
   BacktestIntent,
   BacktestStrategy,
-  Model,
+  Composition,
 } from "@/lib/api/types";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 type IntentSource = "explicit" | "universe";
 
-/** The scripted (model-less) option value used in the model selector. */
+/** The scripted (composition-less) option value used in the composition selector. */
 const SCRIPTED = "__scripted__";
 
 /**
- * The strategy ids that drive the per-member universe controls. A Model with a
+ * The strategy ids that drive the per-member universe controls. A Composition with a
  * SEPA member can take an explicit stock universe; one with an ORB member needs
  * a single intraday instrument.
  */
@@ -36,12 +36,12 @@ const STRATEGY_SEPA = "sepa";
 const STRATEGY_ORB = "intraday_breakout";
 
 /**
- * Legacy strategy → seed Model id (docs/concept-alignment.md seeds). The
+ * Legacy strategy → seed Composition id (docs/concept-alignment.md seeds). The
  * Strategies module still launches a single-strategy backtest by passing
  * `prefillStrategy`; we resolve it onto the corresponding single-member seed
- * Model so the request always carries a `model_id`. "scripted" stays model-less.
+ * Composition so the request always carries a `composition_id`. "scripted" stays composition-less.
  */
-const LEGACY_MODEL_BY_STRATEGY: Record<string, string> = {
+const LEGACY_COMPOSITION_BY_STRATEGY: Record<string, string> = {
   sepa: "sepa-only",
   sector_rotation: "sector-only",
   pairs: "pairs-only",
@@ -94,7 +94,7 @@ export function NewBacktestDialog({
   open,
   onClose,
   prefillStrategy,
-  prefillModelId,
+  prefillCompositionId,
   onView,
 }: {
   open: boolean;
@@ -102,27 +102,27 @@ export function NewBacktestDialog({
   /**
    * LEGACY: the Strategies module passes a strategy token (sepa|…|multi) to
    * launch a single-strategy backtest. It is resolved onto the matching seed
-   * Model id (LEGACY_MODEL_BY_STRATEGY). A backtest's object is always a Model.
+   * Composition id (LEGACY_COMPOSITION_BY_STRATEGY). A backtest's object is always a Composition.
    */
   prefillStrategy?: BacktestStrategy;
-  /** Preselect a specific Model id (the Models module passes the open Model). */
-  prefillModelId?: string;
+  /** Preselect a specific Composition id (the Compositions module passes the open Composition). */
+  prefillCompositionId?: string;
   /** Open the freshly-completed run in the inline backtest panel. */
   onView?: (id: number) => void;
 }) {
-  const { data: modelsData } = useModels();
-  const models = useMemo<Model[]>(() => modelsData?.models ?? [], [modelsData]);
+  const { data: compositionsData } = useCompositions();
+  const compositions = useMemo<Composition[]>(() => compositionsData?.compositions ?? [], [compositionsData]);
 
-  // Resolve the initial Model selection: an explicit prefillModelId wins, else a
-  // legacy strategy token maps to its seed Model, else scripted.
-  const initialModelId = useMemo(() => {
-    if (prefillModelId) return prefillModelId;
+  // Resolve the initial Composition selection: an explicit prefillCompositionId wins, else a
+  // legacy strategy token maps to its seed Composition, else scripted.
+  const initialCompositionId = useMemo(() => {
+    if (prefillCompositionId) return prefillCompositionId;
     if (prefillStrategy === "scripted") return SCRIPTED;
-    if (prefillStrategy) return LEGACY_MODEL_BY_STRATEGY[prefillStrategy] ?? SCRIPTED;
+    if (prefillStrategy) return LEGACY_COMPOSITION_BY_STRATEGY[prefillStrategy] ?? SCRIPTED;
     return SCRIPTED;
-  }, [prefillModelId, prefillStrategy]);
+  }, [prefillCompositionId, prefillStrategy]);
 
-  const [modelId, setModelId] = useState<string>(initialModelId);
+  const [compositionId, setCompositionId] = useState<string>(initialCompositionId);
   const [tickers, setTickers] = useState("AAPL");
   const [orbSymbol, setOrbSymbol] = useState("SPY");
   const [intentSource, setIntentSource] = useState<IntentSource>("explicit");
@@ -131,7 +131,7 @@ export function NewBacktestDialog({
   const [end, setEnd] = useState("2024-12-31");
   const [balance, setBalance] = useState("100000");
   const [fillProfile, setFillProfile] = useState<FillProfile>("nautilus-compat");
-  const [kind, setKind] = useState("model-backtest");
+  const [kind, setKind] = useState("composition-backtest");
   const [intentsText, setIntentsText] = useState(PRESET_INTENTS);
   const [slippageBps, setSlippageBps] = useState("1");
   const [localError, setLocalError] = useState<string | null>(null);
@@ -140,19 +140,19 @@ export function NewBacktestDialog({
   const cancel = useCancelJob();
   const { tracked, track, reset } = useJobTracker();
 
-  const selectedModel = useMemo(
-    () => models.find((m) => m.id === modelId) ?? null,
-    [models, modelId],
+  const selectedComposition = useMemo(
+    () => compositions.find((m) => m.id === compositionId) ?? null,
+    [compositions, compositionId],
   );
-  const isScripted = modelId === SCRIPTED;
+  const isScripted = compositionId === SCRIPTED;
 
   const hasSEPA = useMemo(
-    () => selectedModel?.members.some((m) => m.strategy_id === STRATEGY_SEPA) ?? false,
-    [selectedModel],
+    () => selectedComposition?.members.some((m) => m.strategy_id === STRATEGY_SEPA) ?? false,
+    [selectedComposition],
   );
   const hasORB = useMemo(
-    () => selectedModel?.members.some((m) => m.strategy_id === STRATEGY_ORB) ?? false,
-    [selectedModel],
+    () => selectedComposition?.members.some((m) => m.strategy_id === STRATEGY_ORB) ?? false,
+    [selectedComposition],
   );
 
   const tickerList = useMemo(
@@ -211,19 +211,19 @@ export function NewBacktestDialog({
       return;
     }
 
-    // A backtest's object is always a Model (concept-alignment §3.3, A3): the
-    // request carries model_id. The only exception is the scripted-intents path,
+    // A backtest's object is always a Composition (concept-alignment §3.3, A3): the
+    // request carries composition_id. The only exception is the scripted-intents path,
     // which bypasses strategy assembly entirely.
     const body: CreateBacktestRequest = {
       start: start.trim(),
       end: end.trim(),
       starting_balance: bal,
       fill_profile: fillProfile,
-      kind: kind.trim() || "model-backtest",
+      kind: kind.trim() || "composition-backtest",
       actor: "ui",
     };
     if (!isScripted) {
-      body.model_id = modelId;
+      body.composition_id = compositionId;
     }
 
     if (isScripted) {
@@ -260,7 +260,7 @@ export function NewBacktestDialog({
       // ORB trades a single intraday instrument; engine accepts orb_symbol.
       const sym = orbSymbol.trim().toUpperCase();
       if (!sym) {
-        setLocalError("This Model has an ORB member — supply an instrument symbol (e.g. SPY).");
+        setLocalError("This Composition has an ORB member — supply an instrument symbol (e.g. SPY).");
         return;
       }
       body.orb_symbol = sym;
@@ -299,7 +299,7 @@ export function NewBacktestDialog({
       open={open}
       onClose={close}
       title="New backtest"
-      description="Backtest a Model against the engine. A run's object is always a Model; progress streams live."
+      description="Backtest a Composition against the engine. A run's object is always a Composition; progress streams live."
       data-testid="backtest-dialog"
       footer={
         tracked ? (
@@ -365,31 +365,31 @@ export function NewBacktestDialog({
         </div>
       ) : (
         <div className="space-y-4" data-testid="backtest-form">
-          {/* Model selector */}
+          {/* Composition selector */}
           <div className="space-y-1.5">
-            <Label htmlFor="bt-model">Model</Label>
+            <Label htmlFor="bt-composition">Composition</Label>
             <Select
-              id="bt-model"
-              value={modelId}
+              id="bt-composition"
+              value={compositionId}
               onChange={(e) => {
-                setModelId(e.target.value);
+                setCompositionId(e.target.value);
                 setLocalError(null);
               }}
-              data-testid="backtest-model"
+              data-testid="backtest-composition"
             >
-              {models.map((m) => (
+              {compositions.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name} ({m.id})
                 </option>
               ))}
-              <option value={SCRIPTED}>Scripted (manual intents — no Model)</option>
+              <option value={SCRIPTED}>Scripted (manual intents — no Composition)</option>
             </Select>
-            <p className="text-xs text-muted-foreground" data-testid="backtest-model-hint">
+            <p className="text-xs text-muted-foreground" data-testid="backtest-composition-hint">
               {isScripted
-                ? "Replays manual trade intents — no signal logic, no Model."
-                : selectedModel
-                  ? `${selectedModel.members.filter((m) => m.active).length} active member(s); the engine drops in this blueprint.`
-                  : "Pick a Model to backtest, or the scripted path."}
+                ? "Replays manual trade intents — no signal logic, no Composition."
+                : selectedComposition
+                  ? `${selectedComposition.members.filter((m) => m.active).length} active member(s); the engine drops in this blueprint.`
+                  : "Pick a Composition to backtest, or the scripted path."}
             </p>
           </div>
 
@@ -472,17 +472,17 @@ export function NewBacktestDialog({
                 data-testid="backtest-orb-symbol"
               />
               <p className="text-xs text-muted-foreground">
-                This Model has an ORB member — it trades one instrument intraday
+                This Composition has an ORB member — it trades one instrument intraday
                 and is flat by EOD.
               </p>
             </div>
           ) : null}
 
           {/* sector_rotation / pairs only: params-derived universe note */}
-          {!isScripted && !hasSEPA && !hasORB && selectedModel ? (
+          {!isScripted && !hasSEPA && !hasORB && selectedComposition ? (
             <Alert data-testid="backtest-derived-universe">
               <AlertDescription>
-                This Model&apos;s members resolve their instruments from the active
+                This Composition&apos;s members resolve their instruments from the active
                 params — there is no universe to select.
               </AlertDescription>
             </Alert>

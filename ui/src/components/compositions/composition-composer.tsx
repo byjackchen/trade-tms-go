@@ -9,14 +9,14 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
-import { useCreateModel, useUpdateModel } from "@/lib/api/hooks";
+import { useCreateComposition, useUpdateComposition } from "@/lib/api/hooks";
 import { ApiError } from "@/lib/api/client";
 import {
-  MODEL_STRATEGY_IDS,
-  type Model,
-  type ModelMember,
-  type ModelRequest,
-  type ModelRisk,
+  COMPOSITION_STRATEGY_IDS,
+  type Composition,
+  type CompositionMember,
+  type CompositionRequest,
+  type CompositionRisk,
 } from "@/lib/api/types";
 
 /** Human labels for the four canonical strategy ids a member may reference. */
@@ -27,8 +27,8 @@ const STRATEGY_LABEL: Record<string, string> = {
   intraday_breakout: "Intraday Breakout (ORB)",
 };
 
-/** Default composite risk for a brand-new Model (the default-multi seed caps). */
-const DEFAULT_RISK: ModelRisk = {
+/** Default composite risk for a brand-new Composition (the default-multi seed caps). */
+const DEFAULT_RISK: CompositionRisk = {
   single_name_pct: 0.5,
   concentration_pct: 0.4,
   daily_loss_halt_pct: 0.1,
@@ -41,15 +41,15 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 /** A composer-local member row (weight/param_set as edit-friendly strings). */
 type MemberDraft = {
   strategy_id: string;
-  enabled: boolean; // present in the Model at all
+  enabled: boolean; // present in the Composition at all
   active: boolean; // counts toward Σ weights
   weight: string; // percent string, e.g. "40"
   paramSetId: string; // "" ⇒ active params
 };
 
-function blankMembers(model?: Model): MemberDraft[] {
-  return MODEL_STRATEGY_IDS.map((sid) => {
-    const existing = model?.members.find((m) => m.strategy_id === sid);
+function blankMembers(composition?: Composition): MemberDraft[] {
+  return COMPOSITION_STRATEGY_IDS.map((sid) => {
+    const existing = composition?.members.find((m) => m.strategy_id === sid);
     return {
       strategy_id: sid,
       enabled: existing != null,
@@ -69,40 +69,40 @@ function pctToFraction(s: string): number | null {
 }
 
 /**
- * The Model Composer — create or edit a named portfolio blueprint
+ * The Composition Composer — create or edit a named portfolio blueprint
  * (docs/concept-alignment.md §3.4 ③). Pick strategies, set each member's capital
  * weight with a live cash remainder, bind a param_set (default = the strategy's
- * active params), and set Model-level risk (single_name / concentration /
+ * active params), and set Composition-level risk (single_name / concentration /
  * daily_loss_halt). Σ(active weights) + cash ≤ 1 is validated client-side before
  * the create/update mutation fires.
  */
-export function ModelComposer({
+export function CompositionComposer({
   open,
   onClose,
-  model,
+  composition,
   onSaved,
 }: {
   open: boolean;
   onClose: () => void;
-  /** When set, the composer edits this Model (PUT); otherwise it creates (POST). */
-  model?: Model | null;
-  /** Called with the saved Model id after a successful create/update. */
+  /** When set, the composer edits this Composition (PUT); otherwise it creates (POST). */
+  composition?: Composition | null;
+  /** Called with the saved Composition id after a successful create/update. */
   onSaved?: (id: string) => void;
 }) {
-  const editing = model != null;
+  const editing = composition != null;
 
-  const [id, setId] = useState(model?.id ?? "");
-  const [name, setName] = useState(model?.name ?? "");
-  const [description, setDescription] = useState(model?.description ?? "");
+  const [id, setId] = useState(composition?.id ?? "");
+  const [name, setName] = useState(composition?.name ?? "");
+  const [description, setDescription] = useState(composition?.description ?? "");
   const [cashPct, setCashPct] = useState(
-    model != null ? String(Math.round(model.cash_pct * 1000) / 10) : "10",
+    composition != null ? String(Math.round(composition.cash_pct * 1000) / 10) : "10",
   );
-  const [members, setMembers] = useState<MemberDraft[]>(blankMembers(model ?? undefined));
-  const [risk, setRisk] = useState<ModelRisk>(model?.risk ?? DEFAULT_RISK);
+  const [members, setMembers] = useState<MemberDraft[]>(blankMembers(composition ?? undefined));
+  const [risk, setRisk] = useState<CompositionRisk>(composition?.risk ?? DEFAULT_RISK);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  const create = useCreateModel();
-  const update = useUpdateModel();
+  const create = useCreateComposition();
+  const update = useUpdateComposition();
   const submitting = create.isPending || update.isPending;
 
   // Live allocation accounting: Σ(active member weights) + cash. The remainder
@@ -127,7 +127,7 @@ export function ModelComposer({
     setLocalError(null);
   };
 
-  const setRiskField = (key: keyof ModelRisk, value: string) => {
+  const setRiskField = (key: keyof CompositionRisk, value: string) => {
     const n = value.trim() === "" ? null : Number(value);
     setRisk((prev) => ({ ...prev, [key]: n }));
     setLocalError(null);
@@ -166,7 +166,7 @@ export function ModelComposer({
       return;
     }
 
-    const wireMembers: ModelMember[] = [];
+    const wireMembers: CompositionMember[] = [];
     for (const m of enabled) {
       const w = pctToFraction(m.weight);
       if (w == null || w <= 0 || w > 1) {
@@ -194,7 +194,7 @@ export function ModelComposer({
       });
     }
 
-    // Client-side guard mirroring the server's Model.Validate: Σ(active weights)
+    // Client-side guard mirroring the server's Composition.Validate: Σ(active weights)
     // + cash ≤ 1 (docs/concept-alignment.md §1.2, §3.1).
     if (overAllocated) {
       setLocalError(
@@ -204,7 +204,7 @@ export function ModelComposer({
     }
 
     // Validate the three required risk caps are in (0, 1].
-    const reqCaps: [keyof ModelRisk, string][] = [
+    const reqCaps: [keyof CompositionRisk, string][] = [
       ["single_name_pct", "Single-name cap"],
       ["concentration_pct", "Concentration cap"],
       ["daily_loss_halt_pct", "Daily-loss halt"],
@@ -231,7 +231,7 @@ export function ModelComposer({
       return;
     }
 
-    const body: ModelRequest = {
+    const body: CompositionRequest = {
       id: slug,
       name: name.trim(),
       description: description.trim(),
@@ -246,8 +246,8 @@ export function ModelComposer({
       members: wireMembers,
       actor: "ui",
     };
-    if (editing && model) {
-      body.version = model.version;
+    if (editing && composition) {
+      body.version = composition.version;
     }
 
     try {
@@ -260,7 +260,7 @@ export function ModelComposer({
       onClose();
     } catch (err) {
       setLocalError(
-        err instanceof ApiError ? err.message : "Failed to save Model.",
+        err instanceof ApiError ? err.message : "Failed to save Composition.",
       );
     }
   };
@@ -269,9 +269,9 @@ export function ModelComposer({
     <Dialog
       open={open}
       onClose={close}
-      title={editing ? `Edit Model — ${model?.name}` : "New Model"}
+      title={editing ? `Edit Composition — ${composition?.name}` : "New Composition"}
       description="A named portfolio blueprint: strategies + weights + param refs + composite risk. Σ(active weights) + cash ≤ 100%."
-      data-testid="model-composer"
+      data-testid="composition-composer"
       className="w-[min(52rem,calc(100vw-2rem))]"
       footer={
         <>
@@ -279,7 +279,7 @@ export function ModelComposer({
             Cancel
           </Button>
           <Button onClick={submit} disabled={submitting} data-testid="composer-submit">
-            {submitting ? "Saving…" : editing ? "Save Model" : "Create Model"}
+            {submitting ? "Saving…" : editing ? "Save Composition" : "Create Composition"}
           </Button>
         </>
       }
@@ -303,7 +303,7 @@ export function ModelComposer({
             />
             {editing ? (
               <p className="text-xs text-muted-foreground">
-                The id is immutable; create a new Model to fork.
+                The id is immutable; create a new Composition to fork.
               </p>
             ) : null}
           </div>
@@ -489,7 +489,7 @@ export function ModelComposer({
 
         {/* risk */}
         <div className="space-y-2" data-testid="composer-risk">
-          <Label>Model-level risk (fractions in (0, 1])</Label>
+          <Label>Composition-level risk (fractions in (0, 1])</Label>
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="mc-risk-single" className="text-xs text-muted-foreground">

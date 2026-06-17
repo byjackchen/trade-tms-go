@@ -8,9 +8,9 @@ import {
 } from "@tanstack/react-query";
 import { apiGet, apiPost, apiPut, apiDelete } from "./client";
 import type {
-  ModelsResponse,
-  ModelResponse,
-  ModelRequest,
+  CompositionsResponse,
+  CompositionResponse,
+  CompositionRequest,
   TradePortfolioResponse,
   CoverageResponse,
   TickerGapDetail,
@@ -227,22 +227,22 @@ export function useCreateBacktest() {
   });
 }
 
-// ---- Models (named portfolio blueprints; the Models module) ----
+// ---- Compositions (named portfolio blueprints; the Compositions module) ----
 //
-// A Model is the engine drop-in for backtest / paper / live: which strategies,
+// A Composition is the engine drop-in for backtest / paper / live: which strategies,
 // each weight + param ref + on/off, a cash reserve, composite risk
-// (docs/concept-alignment.md §0, §1.2). A Model COMPOSES already-tuned strategies
+// (docs/concept-alignment.md §0, §1.2). A Composition COMPOSES already-tuned strategies
 // and is VALIDATED by Backtest; it never re-tunes params (per-strategy Hyperopt
-// owns that). These hooks back the Models module's Composer + the model_id
-// selector the backtest dialog uses. The CRUD routes are /api/v1/models{,/{id}}.
+// owns that). These hooks back the Compositions module's Composer + the composition_id
+// selector the backtest dialog uses. The CRUD routes are /api/v1/compositions{,/{id}}.
 
-/** List every Model (with members) — GET /api/v1/models. */
-export function useModels(): UseQueryResult<ModelsResponse, Error> {
+/** List every Composition (with members) — GET /api/v1/compositions. */
+export function useCompositions(): UseQueryResult<CompositionsResponse, Error> {
   return useQuery({
-    queryKey: ["models"],
-    queryFn: () => apiGet<ModelsResponse>("models"),
+    queryKey: ["compositions"],
+    queryFn: () => apiGet<CompositionsResponse>("compositions"),
     retry: (count, err) => {
-      // 503 (no model store wired) is an expected degraded state, not a retry.
+      // 503 (no composition store wired) is an expected degraded state, not a retry.
       const status = err instanceof ApiError ? err.status : undefined;
       if (status === 503 || (status !== undefined && status < 500)) return false;
       return count < 2;
@@ -250,13 +250,13 @@ export function useModels(): UseQueryResult<ModelsResponse, Error> {
   });
 }
 
-/** One Model — GET /api/v1/models/{id}. */
-export function useModel(
+/** One Composition — GET /api/v1/compositions/{id}. */
+export function useComposition(
   id: string | null,
-): UseQueryResult<ModelResponse, Error> {
+): UseQueryResult<CompositionResponse, Error> {
   return useQuery({
-    queryKey: ["model", id],
-    queryFn: () => apiGet<ModelResponse>(`models/${id}`),
+    queryKey: ["composition", id],
+    queryFn: () => apiGet<CompositionResponse>(`compositions/${id}`),
     enabled: id != null && id !== "",
     retry: (count, err) => {
       // 404 (unknown id) is a terminal empty state, not a retry case.
@@ -266,42 +266,42 @@ export function useModel(
   });
 }
 
-/** Create a Model — POST /api/v1/models (audited). Busts the list. */
-export function useCreateModel() {
+/** Create a Composition — POST /api/v1/compositions (audited). Busts the list. */
+export function useCreateComposition() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: ModelRequest) =>
-      apiPost<ModelResponse>("models", body),
+    mutationFn: (body: CompositionRequest) =>
+      apiPost<CompositionResponse>("compositions", body),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["models"] });
+      void qc.invalidateQueries({ queryKey: ["compositions"] });
     },
   });
 }
 
-/** Replace a Model — PUT /api/v1/models/{id} (audited). Busts list + that model. */
-export function useUpdateModel() {
+/** Replace a Composition — PUT /api/v1/compositions/{id} (audited). Busts list + that composition. */
+export function useUpdateComposition() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { id: string; body: ModelRequest }) =>
-      apiPut<ModelResponse>(`models/${args.id}`, args.body),
+    mutationFn: (args: { id: string; body: CompositionRequest }) =>
+      apiPut<CompositionResponse>(`compositions/${args.id}`, args.body),
     onSuccess: (_data, args) => {
-      void qc.invalidateQueries({ queryKey: ["models"] });
-      void qc.invalidateQueries({ queryKey: ["model", args.id] });
+      void qc.invalidateQueries({ queryKey: ["compositions"] });
+      void qc.invalidateQueries({ queryKey: ["composition", args.id] });
     },
   });
 }
 
-/** Delete a Model — DELETE /api/v1/models/{id}?actor= (audited). Busts the list. */
-export function useDeleteModel() {
+/** Delete a Composition — DELETE /api/v1/compositions/{id}?actor= (audited). Busts the list. */
+export function useDeleteComposition() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (args: { id: string; actor?: string }) =>
-      apiDelete<{ deleted: string }>(`models/${args.id}`, {
+      apiDelete<{ deleted: string }>(`compositions/${args.id}`, {
         actor: args.actor,
       }),
     onSuccess: (_data, args) => {
-      void qc.invalidateQueries({ queryKey: ["models"] });
-      void qc.invalidateQueries({ queryKey: ["model", args.id] });
+      void qc.invalidateQueries({ queryKey: ["compositions"] });
+      void qc.invalidateQueries({ queryKey: ["composition", args.id] });
     },
   });
 }

@@ -21,10 +21,10 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
-	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
 )
 
@@ -360,77 +360,77 @@ func (s *stubSyncForcer) SyncNow(_ context.Context, actor string) (SyncNowResult
 // ---------------------------------------------------------------------------
 
 // testServer bundles a wired Server with its stubs for assertion access.
-// stubModelStore is an in-memory ModelStore seeded from model.SeedModels, so the
-// backtest model_id resolution + the /models CRUD run without a DB.
-type stubModelStore struct {
-	models map[string]model.Model
-	err    error
+// stubCompositionStore is an in-memory CompositionStore seeded from composition.SeedCompositions, so the
+// backtest composition_id resolution + the /compositions CRUD run without a DB.
+type stubCompositionStore struct {
+	compositions map[string]composition.Composition
+	err          error
 }
 
-func newStubModelStore() *stubModelStore {
-	m := map[string]model.Model{}
-	for _, sm := range model.SeedModels() {
+func newStubCompositionStore() *stubCompositionStore {
+	m := map[string]composition.Composition{}
+	for _, sm := range composition.SeedCompositions() {
 		m[sm.ID] = sm
 	}
-	return &stubModelStore{models: m}
+	return &stubCompositionStore{compositions: m}
 }
 
-func (s *stubModelStore) List(context.Context) ([]model.Model, error) {
+func (s *stubCompositionStore) List(context.Context) ([]composition.Composition, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
-	out := make([]model.Model, 0, len(s.models))
-	for _, m := range s.models {
+	out := make([]composition.Composition, 0, len(s.compositions))
+	for _, m := range s.compositions {
 		out = append(out, m)
 	}
 	return out, nil
 }
 
-func (s *stubModelStore) Get(_ context.Context, id string) (*model.Model, error) {
+func (s *stubCompositionStore) Get(_ context.Context, id string) (*composition.Composition, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
-	m, ok := s.models[id]
+	m, ok := s.compositions[id]
 	if !ok {
-		return nil, model.ErrNotFound
+		return nil, composition.ErrNotFound
 	}
 	return &m, nil
 }
 
-func (s *stubModelStore) Create(_ context.Context, m model.Model) error {
+func (s *stubCompositionStore) Create(_ context.Context, m composition.Composition) error {
 	if s.err != nil {
 		return s.err
 	}
 	if err := m.Validate(); err != nil {
 		return err
 	}
-	s.models[m.ID] = m
+	s.compositions[m.ID] = m
 	return nil
 }
 
-func (s *stubModelStore) Update(_ context.Context, m model.Model) error {
+func (s *stubCompositionStore) Update(_ context.Context, m composition.Composition) error {
 	if s.err != nil {
 		return s.err
 	}
-	if _, ok := s.models[m.ID]; !ok {
-		return model.ErrNotFound
+	if _, ok := s.compositions[m.ID]; !ok {
+		return composition.ErrNotFound
 	}
-	s.models[m.ID] = m
+	s.compositions[m.ID] = m
 	return nil
 }
 
-func (s *stubModelStore) Delete(_ context.Context, id string) error {
+func (s *stubCompositionStore) Delete(_ context.Context, id string) error {
 	if s.err != nil {
 		return s.err
 	}
-	if _, ok := s.models[id]; !ok {
-		return model.ErrNotFound
+	if _, ok := s.compositions[id]; !ok {
+		return composition.ErrNotFound
 	}
-	delete(s.models, id)
+	delete(s.compositions, id)
 	return nil
 }
 
-// stubAuditWriter records the audit rows the Model mutations append.
+// stubAuditWriter records the audit rows the Composition mutations append.
 type stubAuditWriter struct {
 	records []AuditRecord
 	err     error
@@ -445,17 +445,17 @@ func (s *stubAuditWriter) WriteAudit(_ context.Context, rec AuditRecord) error {
 }
 
 type testServer struct {
-	srv      *Server
-	jobs     *stubJobQueue
-	data     *stubDataStore
-	uni      *stubUniverseReader
-	runs     *stubRunsReader
-	hyperopt *stubHyperoptReader
-	promoter *stubPromoter
-	audit    *stubAuditReader
-	sync     *stubSyncForcer
-	models   *stubModelStore
-	auditLog *stubAuditWriter
+	srv          *Server
+	jobs         *stubJobQueue
+	data         *stubDataStore
+	uni          *stubUniverseReader
+	runs         *stubRunsReader
+	hyperopt     *stubHyperoptReader
+	promoter     *stubPromoter
+	audit        *stubAuditReader
+	sync         *stubSyncForcer
+	compositions *stubCompositionStore
+	auditLog     *stubAuditWriter
 }
 
 // pingOK / pingErr are reusable PingFuncs.
@@ -478,31 +478,31 @@ func newTestServer(t *testing.T) *testServer {
 	pr := &stubPromoter{}
 	ar := &stubAuditReader{}
 	sf := &stubSyncForcer{result: SyncNowResult{TradingDate: "2024-06-12", Forced: true, DataJobID: 1, EODJobID: 2}}
-	ms := newStubModelStore()
+	ms := newStubCompositionStore()
 	aw := &stubAuditWriter{}
 
 	srv, err := NewServer(Deps{
-		Log:         zerolog.Nop(),
-		Token:       testToken,
-		CORSOrigins: []string{testOrigin},
-		Jobs:        jq,
-		Data:        ds,
-		Universe:    ur,
-		Runs:        rr,
-		Strategies:  NewStrategyReader(nil, ""),
-		Hyperopt:    hr,
-		Promoter:    pr,
-		Models:      ms,
-		AuditLog:    aw,
-		Calendar:    cal,
-		PingPG:      pingOK,
-		PingRedis:   pingOK,
-		Audit:       ar,
-		Sync:        sf,
-		Now:         func() time.Time { return fixedNow },
+		Log:          zerolog.Nop(),
+		Token:        testToken,
+		CORSOrigins:  []string{testOrigin},
+		Jobs:         jq,
+		Data:         ds,
+		Universe:     ur,
+		Runs:         rr,
+		Strategies:   NewStrategyReader(nil, ""),
+		Hyperopt:     hr,
+		Promoter:     pr,
+		Compositions: ms,
+		AuditLog:     aw,
+		Calendar:     cal,
+		PingPG:       pingOK,
+		PingRedis:    pingOK,
+		Audit:        ar,
+		Sync:         sf,
+		Now:          func() time.Time { return fixedNow },
 	})
 	require.NoError(t, err)
-	return &testServer{srv: srv, jobs: jq, data: ds, uni: ur, runs: rr, hyperopt: hr, promoter: pr, audit: ar, sync: sf, models: ms, auditLog: aw}
+	return &testServer{srv: srv, jobs: jq, data: ds, uni: ur, runs: rr, hyperopt: hr, promoter: pr, audit: ar, sync: sf, compositions: ms, auditLog: aw}
 }
 
 // do issues a request against the wired router and returns the recorder.

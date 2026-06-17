@@ -318,26 +318,26 @@ export type RealisticParams = {
 };
 
 /**
- * POST /api/v1/backtests body. A backtest's object is ALWAYS a Model
- * (docs/concept-alignment.md §3.3, A3): the request carries `model_id` (the
+ * POST /api/v1/backtests body. A backtest's object is ALWAYS a Composition
+ * (docs/concept-alignment.md §3.3, A3): the request carries `composition_id` (the
  * legacy `strategy=` selector is GONE) and the server resolves + drops in the
- * blueprint. A single-strategy backtest is just a single-member Model id (e.g.
- * "sepa-only"). The scripted-intents path is the only one that omits `model_id`
+ * blueprint. A single-strategy backtest is just a single-member Composition id (e.g.
+ * "sepa-only"). The scripted-intents path is the only one that omits `composition_id`
  * (it bypasses strategy assembly entirely). Mirrors `backtestRequest` in
  * internal/api/handlers_backtests.go.
  */
 export type CreateBacktestRequest = {
   start: string;
   end: string;
-  /** A single-member Model is a single-strategy backtest (e.g. "sepa-only"). */
-  model_id?: string;
+  /** A single-member Composition is a single-strategy backtest (e.g. "sepa-only"). */
+  composition_id?: string;
   tickers?: string[];
   universe?: BacktestUniverseSpec;
   starting_balance?: number;
   fill_profile?: FillProfile;
-  /** Required when the Model has an ORB member (or pass exactly one ticker). */
+  /** Required when the Composition has an ORB member (or pass exactly one ticker). */
   orb_symbol?: string;
-  /** Scripted-strategy path only (mutually exclusive with model_id). */
+  /** Scripted-strategy path only (mutually exclusive with composition_id). */
   intents?: BacktestIntent[];
   kind?: string;
   seed?: number;
@@ -348,26 +348,26 @@ export type CreateBacktestRequest = {
   dedupe_key?: string;
 };
 
-// ---- Models (named, persistable portfolio blueprints) ----
+// ---- Compositions (named, persistable portfolio blueprints) ----
 //
-// A Model is the single source of truth the engine drops in for backtest /
+// A Composition is the single source of truth the engine drops in for backtest /
 // paper / live: which strategies, each weight + param ref + on/off, a
 // cash reserve, and composite portfolio-level risk (docs/concept-alignment.md §0,
-// §1.2). Mirrors the Go `model.Model` / `model.Member` / `model.Risk` JSON shapes
-// (internal/model/model.go) and the /api/v1/models CRUD handlers.
+// §1.2). Mirrors the Go `composition.Composition` / `composition.Member` / `composition.Risk` JSON shapes
+// (internal/composition/composition.go) and the /api/v1/compositions CRUD handlers.
 
-/** The four canonical strategy ids a Model member may reference. */
-export const MODEL_STRATEGY_IDS = [
+/** The four canonical strategy ids a Composition member may reference. */
+export const COMPOSITION_STRATEGY_IDS = [
   "sepa",
   "sector_rotation",
   "pairs",
   "intraday_breakout",
 ] as const;
-export type ModelStrategyID = (typeof MODEL_STRATEGY_IDS)[number];
+export type CompositionStrategyID = (typeof COMPOSITION_STRATEGY_IDS)[number];
 
-/** One strategy's slot in a Model: capital weight, on/off, and its params ref. */
-export type ModelMember = {
-  strategy_id: ModelStrategyID | string;
+/** One strategy's slot in a Composition: capital weight, on/off, and its params ref. */
+export type CompositionMember = {
+  strategy_id: CompositionStrategyID | string;
   /** capital_pct in (0,1]. */
   weight: number;
   active: boolean;
@@ -375,8 +375,8 @@ export type ModelMember = {
   param_set_id?: number | null;
 };
 
-/** Composite, portfolio-level risk of a Model. The three *_pct caps are (0,1]. */
-export type ModelRisk = {
+/** Composite, portfolio-level risk of a Composition. The three *_pct caps are (0,1]. */
+export type CompositionRisk = {
   single_name_pct: number;
   concentration_pct: number;
   daily_loss_halt_pct: number;
@@ -385,33 +385,33 @@ export type ModelRisk = {
 };
 
 /** A named portfolio blueprint. Σ(active weights) + cash_pct must be ≤ 1. */
-export type Model = {
+export type Composition = {
   id: string;
   name: string;
   description: string;
   cash_pct: number;
-  risk: ModelRisk;
-  members: ModelMember[];
+  risk: CompositionRisk;
+  members: CompositionMember[];
   version: number;
 };
 
-export type ModelsResponse = { models: Model[] };
-export type ModelResponse = { model: Model };
+export type CompositionsResponse = { compositions: Composition[] };
+export type CompositionResponse = { composition: Composition };
 
-/** POST/PUT /api/v1/models body (the blueprint + the audit actor). */
-export type ModelRequest = {
+/** POST/PUT /api/v1/compositions body (the blueprint + the audit actor). */
+export type CompositionRequest = {
   id: string;
   name: string;
   description?: string;
   cash_pct?: number;
-  risk: ModelRisk;
-  members: ModelMember[];
+  risk: CompositionRisk;
+  members: CompositionMember[];
   version?: number;
   actor?: string;
 };
 
-// NOTE: there is no OptimizeModelRequest / Model-level optimize body. Model-level
-// joint hyperopt is dropped from the product — a Model COMPOSES already-tuned
+// NOTE: there is no OptimizeCompositionRequest / Composition-level optimize body. Composition-level
+// joint hyperopt is dropped from the product — a Composition COMPOSES already-tuned
 // strategies and is VALIDATED by Backtest; params are tuned only by per-strategy
 // Hyperopt (CreateStudyRequest below).
 
@@ -436,8 +436,8 @@ export type ParamSchema = {
  * launches a run with `backtest_id`.
  *
  * NOTE (docs/concept-alignment.md §3.3, C3): `capital_pct` and `active` were
- * REMOVED from GET /strategies — weight + on/off are Model-member properties now,
- * served by the /models endpoints, NOT strategy metadata.
+ * REMOVED from GET /strategies — weight + on/off are Composition-member properties now,
+ * served by the /compositions endpoints, NOT strategy metadata.
  */
 export type StrategyMeta = {
   id: string;
@@ -520,7 +520,7 @@ export type Dataset = (typeof DATASETS)[number];
  * Strategies a NEW study can tune. POST /api/v1/hyperopt is single-strategy ONLY
  * (docs/concept-alignment.md §3.3, A2): params are tuned per-strategy in the
  * Strategies module's Hyperopt. Joint (multi-strategy) tuning is dropped from the
- * product — Models compose already-tuned strategies. Mirrors the
+ * product — Compositions compose already-tuned strategies. Mirrors the
  * handlers_hyperopt.go validation switch ({sepa, sector_rotation, pairs}).
  */
 export const HYPEROPT_STRATEGIES = [

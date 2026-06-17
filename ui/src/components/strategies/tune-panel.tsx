@@ -16,7 +16,7 @@ import type { HyperoptStrategy } from "@/lib/api/types";
  * study locked to it, and selecting a study row opens its detail INLINE below —
  * promote a completed trial to write its params back as the strategy's active set.
  *
- * Models do NOT tune params — they COMPOSE already-tuned strategies and are
+ * Compositions do NOT tune params — they COMPOSE already-tuned strategies and are
  * VALIDATED by Backtest. ORB has no Hyperopt panel (it is intraday; §3.4 A4).
  */
 export function TunePanel({ strategy }: { strategy: HyperoptStrategy }) {

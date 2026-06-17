@@ -22,7 +22,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // POST /hyperopt is single-strategy ONLY (concept-alignment §3.3, A2): params are
 // tuned per-strategy here. Joint (multi-strategy) tuning is dropped from the
-// product — Models compose already-tuned strategies and are validated by Backtest.
+// product — Compositions compose already-tuned strategies and are validated by Backtest.
 const STRATEGY_OPTIONS: { value: HyperoptStrategy; label: string }[] = [
   { value: "sepa", label: "SEPA" },
   { value: "sector_rotation", label: "Sector Rotation" },

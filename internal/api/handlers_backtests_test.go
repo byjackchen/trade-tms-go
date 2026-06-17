@@ -33,17 +33,17 @@ func TestBacktestEnqueue(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 		assert.Equal(t, CodeValidation, errCode(t, rec))
 	})
-	t.Run("no model_id and no intents is 400", func(t *testing.T) {
+	t.Run("no composition_id and no intents is 400", func(t *testing.T) {
 		ts := newTestServer(t)
 		rec := ts.do(t, http.MethodPost, "/api/v1/backtests",
 			strings.NewReader(`{"start":"2024-01-02","end":"2024-12-31","tickers":["AAPL"]}`), true)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 		assert.Equal(t, CodeValidation, errCode(t, rec))
 	})
-	t.Run("unknown model_id is 404", func(t *testing.T) {
+	t.Run("unknown composition_id is 404", func(t *testing.T) {
 		ts := newTestServer(t)
 		rec := ts.do(t, http.MethodPost, "/api/v1/backtests",
-			strings.NewReader(`{"start":"2024-01-02","end":"2024-12-31","model_id":"no-such-model"}`), true)
+			strings.NewReader(`{"start":"2024-01-02","end":"2024-12-31","composition_id":"no-such-composition"}`), true)
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 	t.Run("unknown fill_profile is 400", func(t *testing.T) {
@@ -52,21 +52,21 @@ func TestBacktestEnqueue(t *testing.T) {
 			strings.NewReader(`{"start":"2024-01-02","end":"2024-12-31","tickers":["AAPL"],"fill_profile":"magic"}`), true)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
-	t.Run("legacy strategy field is rejected as unknown (model_id hard-cut)", func(t *testing.T) {
+	t.Run("legacy strategy field is rejected as unknown (composition_id hard-cut)", func(t *testing.T) {
 		ts := newTestServer(t)
 		rec := ts.do(t, http.MethodPost, "/api/v1/backtests",
 			strings.NewReader(`{"start":"2024-01-02","end":"2024-12-31","tickers":["AAPL"],"strategy":"sepa"}`), true)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
-	t.Run("single-member Model enqueues without explicit tickers", func(t *testing.T) {
+	t.Run("single-member Composition enqueues without explicit tickers", func(t *testing.T) {
 		ts := newTestServer(t)
 		rec := ts.do(t, http.MethodPost, "/api/v1/backtests",
-			strings.NewReader(`{"start":"2024-01-02","end":"2024-12-31","model_id":"sector-only"}`), true)
+			strings.NewReader(`{"start":"2024-01-02","end":"2024-12-31","composition_id":"sector-only"}`), true)
 		require.Equal(t, http.StatusAccepted, rec.Code)
 		require.Len(t, ts.jobs.enqueued, 1)
 		payload := ts.jobs.enqueued[0].Payload.(map[string]any)
-		assert.Equal(t, "sector-only", payload["model_id"])
-		assert.NotNil(t, payload["model"])
+		assert.Equal(t, "sector-only", payload["composition_id"])
+		assert.NotNil(t, payload["composition"])
 	})
 	t.Run("unknown json field is 400", func(t *testing.T) {
 		ts := newTestServer(t)

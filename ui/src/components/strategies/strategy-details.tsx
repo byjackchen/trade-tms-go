@@ -44,12 +44,12 @@ function formatRange(p: ParamSchema): string {
  * params table (active_values overlaid on the schema defaults).
  *
  * A strategy has NO backtest entry here (docs/concept-alignment.md §3.4 A3):
- * Backtest is a Model operation — to backtest a single strategy, backtest its
- * single-member Model (e.g. `sepa-only`) from the Models module. The only
+ * Backtest is a Composition operation — to backtest a single strategy, backtest its
+ * single-member Composition (e.g. `sepa-only`) from the Compositions module. The only
  * param-tuning surface on a strategy is the Hyperopt panel (sibling component).
  *
  * NOTE (§3.3, C3): `capital_pct` and `active` were REMOVED from GET /strategies —
- * weight + on/off are Model-member properties now, served by /models — so this
+ * weight + on/off are Composition-member properties now, served by /compositions — so this
  * view does NOT render allocation or an enabled flag.
  */
 export function StrategyDetails({ strategyId }: { strategyId: string }) {

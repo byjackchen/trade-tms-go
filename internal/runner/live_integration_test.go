@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/byjackchen/trade-tms-go/internal/commands"
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/core"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
-	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/publish"
 	"github.com/byjackchen/trade-tms-go/internal/runner"
 )
@@ -26,10 +26,10 @@ import (
 // sink, gated by emitGate (nil = always emit).
 func buildSectorSession(t *testing.T, sink livengine.IntentSink, emitGate func() bool) *livengine.Session {
 	t.Helper()
-	sectorModel, err := model.Seed("sector-only")
+	sectorComposition, err := composition.Seed("sector-only")
 	require.NoError(t, err)
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Model:           sectorModel,
+		Composition:     sectorComposition,
 		StartingBalance: 100000,
 		Params:          strategyassembly.Params{Sector: paramsSector()},
 	})

@@ -166,7 +166,7 @@ func NewTradeSession(cfg TradeSessionConfig) (*TradeSession, error) {
 	sess, err := livengine.NewSession(livengine.Config{
 		Exec:            domain.ExecAuto,
 		Strategies:      cfg.Strategies,
-		Gate:       cfg.Gate,
+		Gate:            cfg.Gate,
 		Context:         cfg.Context,
 		SPYSymbol:       cfg.SPYSymbol,
 		Warmup:          cfg.Warmup,

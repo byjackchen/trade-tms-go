@@ -135,7 +135,7 @@ function StrategiesBody({ accountId }: { accountId: string | undefined }) {
             <AlertDescription>
               Intraday Breakout (ORB) trades opening-range breakouts within the
               session — it has no end-of-day watchlist and no hyperopt tuning
-              here. Backtest it as a single-member Model from the Models module.
+              here. Backtest it as a single-member Composition from the Compositions module.
             </AlertDescription>
           </Alert>
         ) : (

@@ -35,10 +35,11 @@ type Deps struct {
 	Strategies  StrategyReader
 	Hyperopt    HyperoptReader
 	Promoter    HyperoptPromoter
-	// Models backs the /api/v1/models CRUD + the model_id resolution the backtest
-	// and optimize endpoints do. Optional: when nil those endpoints return 503.
-	Models ModelStore
-	// AuditLog appends rows to tms.audit_log for the Model mutation endpoints.
+	// Compositions backs the /api/v1/compositions CRUD + the composition_id
+	// resolution the backtest and optimize endpoints do. Optional: when nil those
+	// endpoints return 503.
+	Compositions CompositionStore
+	// AuditLog appends rows to tms.audit_log for the Composition mutation endpoints.
 	// Optional: when nil those mutations skip the audit write (best-effort).
 	AuditLog  AuditWriter
 	Calendar  *calendar.Calendar
@@ -82,31 +83,31 @@ type Deps struct {
 
 // Server is the HTTP/WebSocket API for the UI (contract: docs/api.md).
 type Server struct {
-	log         zerolog.Logger
-	token       string
-	corsOrigins []string
-	jobs        JobQueue
-	data        DataStore
-	uni         UniverseReader
-	runs        RunsReader
-	strat       StrategyReader
-	hyperopt    HyperoptReader
-	promoter    HyperoptPromoter
-	models      ModelStore
-	auditLog    AuditWriter
-	cal         *calendar.Calendar
-	pingPG      PingFunc
-	pingRedis   PingFunc
-	trade       TradeReader
-	commands    CommandEnqueuer
-	system      SystemReader
-	audit       AuditReader
-	sync        SyncForcer
-	preflight   PreflightRunner
-	manual      ManualTrader
-	manualProxy *ManualTradeProxy
-	hub         *Hub
-	now         func() time.Time
+	log          zerolog.Logger
+	token        string
+	corsOrigins  []string
+	jobs         JobQueue
+	data         DataStore
+	uni          UniverseReader
+	runs         RunsReader
+	strat        StrategyReader
+	hyperopt     HyperoptReader
+	promoter     HyperoptPromoter
+	compositions CompositionStore
+	auditLog     AuditWriter
+	cal          *calendar.Calendar
+	pingPG       PingFunc
+	pingRedis    PingFunc
+	trade        TradeReader
+	commands     CommandEnqueuer
+	system       SystemReader
+	audit        AuditReader
+	sync         SyncForcer
+	preflight    PreflightRunner
+	manual       ManualTrader
+	manualProxy  *ManualTradeProxy
+	hub          *Hub
+	now          func() time.Time
 }
 
 // NewServer validates deps and builds the server (including its WS hub).
@@ -133,31 +134,31 @@ func NewServer(d Deps) (*Server, error) {
 	}
 	log := d.Log.With().Str("component", "api").Logger()
 	return &Server{
-		log:         log,
-		token:       d.Token,
-		corsOrigins: d.CORSOrigins,
-		jobs:        d.Jobs,
-		data:        d.Data,
-		uni:         d.Universe,
-		runs:        d.Runs,
-		strat:       d.Strategies,
-		hyperopt:    d.Hyperopt,
-		promoter:    d.Promoter,
-		models:      d.Models,
-		auditLog:    d.AuditLog,
-		cal:         d.Calendar,
-		pingPG:      d.PingPG,
-		pingRedis:   d.PingRedis,
-		trade:       d.Trade,
-		commands:    d.Commands,
-		system:      d.System,
-		audit:       d.Audit,
-		sync:        d.Sync,
-		preflight:   d.Preflight,
-		manual:      d.Manual,
-		manualProxy: d.ManualProxy,
-		hub:         NewHub(log, d.CORSOrigins),
-		now:         now,
+		log:          log,
+		token:        d.Token,
+		corsOrigins:  d.CORSOrigins,
+		jobs:         d.Jobs,
+		data:         d.Data,
+		uni:          d.Universe,
+		runs:         d.Runs,
+		strat:        d.Strategies,
+		hyperopt:     d.Hyperopt,
+		promoter:     d.Promoter,
+		compositions: d.Compositions,
+		auditLog:     d.AuditLog,
+		cal:          d.Calendar,
+		pingPG:       d.PingPG,
+		pingRedis:    d.PingRedis,
+		trade:        d.Trade,
+		commands:     d.Commands,
+		system:       d.System,
+		audit:        d.Audit,
+		sync:         d.Sync,
+		preflight:    d.Preflight,
+		manual:       d.Manual,
+		manualProxy:  d.ManualProxy,
+		hub:          NewHub(log, d.CORSOrigins),
+		now:          now,
 	}, nil
 }
 
@@ -214,20 +215,22 @@ func (s *Server) Routes() *chi.Mux {
 			r.Get("/strategies", s.handleStrategyList)
 			r.Get("/strategies/{id}", s.handleStrategyGet)
 
-			// Models (named portfolio blueprints): CRUD only. The mutating routes
-			// are audited (tms.audit_log). A Model COMPOSES already-tuned strategies
-			// + weights + risk and is VALIDATED by Backtest; it never re-tunes params
-			// (params are tuned per-strategy in the Strategies module's Hyperopt).
-			// Backtest drops in the Model by id (docs/concept-alignment.md §3.3).
-			r.Get("/models", s.handleModelList)
-			r.Get("/models/{id}", s.handleModelGet)
-			r.Post("/models", s.handleModelCreate)
-			r.Put("/models/{id}", s.handleModelUpdate)
-			r.Delete("/models/{id}", s.handleModelDelete)
-			// NOTE: there is intentionally NO Model-level optimize route. Model-level
-			// joint hyperopt is dropped from the product; the hyperopt engine's
-			// internal "joint" study code stays DORMANT (never exposed as a Model
-			// operation). Params are tuned ONLY by per-strategy Hyperopt below.
+			// Compositions (named portfolio blueprints): CRUD only. The mutating
+			// routes are audited (tms.audit_log). A Composition COMPOSES already-tuned
+			// strategies + weights + risk and is VALIDATED by Backtest; it never
+			// re-tunes params (params are tuned per-strategy in the Strategies module's
+			// Hyperopt). Backtest drops in the Composition by id
+			// (docs/concept-alignment.md §3.3).
+			r.Get("/compositions", s.handleCompositionList)
+			r.Get("/compositions/{id}", s.handleCompositionGet)
+			r.Post("/compositions", s.handleCompositionCreate)
+			r.Put("/compositions/{id}", s.handleCompositionUpdate)
+			r.Delete("/compositions/{id}", s.handleCompositionDelete)
+			// NOTE: there is intentionally NO Composition-level optimize route.
+			// Composition-level joint hyperopt is dropped from the product; the
+			// hyperopt engine's internal "joint" study code stays DORMANT (never
+			// exposed as a Composition operation). Params are tuned ONLY by
+			// per-strategy Hyperopt below.
 
 			// Aggregated system status (P7 capstone): pg + redis + moomoo feed
 			// + active sessions + job-queue depth + data freshness in one call

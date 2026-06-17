@@ -27,12 +27,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/metrics"
-	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 )
 
@@ -102,7 +102,7 @@ func triplePairDefaults() map[string]any {
 }
 
 // runPairsEngineLoneGate assembles + runs the pairs strategy over [start, end]
-// on the shared dataset under the pairs-only Model's lone gate (100% budget,
+// on the shared dataset under the pairs-only Composition's lone gate (100% budget,
 // the pairs default risk caps) and returns the whole run Result. It mirrors
 // Evaluator.run so the two can be compared directly. With parity abandoned the
 // pairs objective now uses exactly this lone gate (it no longer force-installs
@@ -113,12 +113,12 @@ func runPairsEngineLoneGate(t *testing.T, ds *Dataset, defaults map[string]any, 
 	if err != nil {
 		t.Fatalf("PairsFromMap: %v", err)
 	}
-	mdl, err := model.Seed("pairs-only")
+	comp, err := composition.Seed("pairs-only")
 	if err != nil {
-		t.Fatalf("model.Seed(pairs-only): %v", err)
+		t.Fatalf("composition.Seed(pairs-only): %v", err)
 	}
 	in := strategyassembly.Input{
-		Model:           mdl,
+		Composition:     comp,
 		StartingBalance: startBal,
 	}
 	in.Params.Pairs = pp
@@ -189,7 +189,7 @@ func emptyPairsDecoded() Decoded {
 }
 
 // TestObjectiveUsesLoneGate proves the post-parity contract: the single-strategy
-// pairs objective path gates under the pairs-only Model's LONE gate (100% budget
+// pairs objective path gates under the pairs-only Composition's LONE gate (100% budget
 // + the pairs default risk caps), NOT the multi-strategy portfolio gate. The old
 // MultiStrategyGate force-install is gone (parity abandoned), so the Evaluator's
 // counters must equal a lone-gate engine run over the same dataset.
@@ -244,7 +244,7 @@ func engineMetricsSharpe(t *testing.T, r *engine.Result, startBal float64) float
 // TestObjectiveObjectiveValuesMatchLoneGate proves the objective VECTOR (sharpe,
 // calmar) computed by the Evaluator equals the lone-gate engine run's metrics
 // exactly — the post-parity contract at the value level (the objective uses the
-// pairs-only Model's gate, not the multi gate).
+// pairs-only Composition's gate, not the multi gate).
 func TestObjectiveObjectiveValuesMatchLoneGate(t *testing.T) {
 	const startBal = 100000.0
 	start := calendar.NewDate(2023, 1, 2)

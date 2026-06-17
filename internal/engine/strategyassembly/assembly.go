@@ -5,8 +5,8 @@ import (
 	"sort"
 	"sync/atomic"
 
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/engine"
-	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 	"github.com/byjackchen/trade-tms-go/internal/strategy/orb"
@@ -28,19 +28,19 @@ const (
 	IDORB    = "IntradayBreakoutRunner-000"
 )
 
-// engineID maps a LOGICAL model strategy id (the values a model.Member carries)
-// to its canonical ENGINE id (the allocator key). The weights and risk that used
-// to be hardcoded constants here are now DATA carried by the Model
-// (docs/concept-alignment.md §1.2, §3.2).
+// engineID maps a LOGICAL composition strategy id (the values a
+// composition.Member carries) to its canonical ENGINE id (the allocator key). The
+// weights and risk that used to be hardcoded constants here are now DATA carried
+// by the Composition (docs/concept-alignment.md §1.2, §3.2).
 func engineID(strategyID string) (string, error) {
 	switch strategyID {
-	case model.StrategySEPA:
+	case composition.StrategySEPA:
 		return IDSEPA, nil
-	case model.StrategySectorRotation:
+	case composition.StrategySectorRotation:
 		return IDSector, nil
-	case model.StrategyPairs:
+	case composition.StrategyPairs:
 		return IDPairs, nil
-	case model.StrategyIntradayBreakout:
+	case composition.StrategyIntradayBreakout:
 		return IDORB, nil
 	default:
 		return "", fmt.Errorf("strategyassembly: unknown strategy id %q", strategyID)
@@ -85,26 +85,26 @@ type Params struct {
 
 // Input is the assembly request.
 type Input struct {
-	// Model is the portfolio blueprint that drives assembly: its ACTIVE members
-	// select which strategies to build (logical id -> engine id) and seed the
-	// allocator budgets (CapitalPct = member.Weight), and model.Risk seeds the
-	// risk constraints. This replaces the old "multi"/"sepa"/… strategy switch and
-	// the hardcoded weight/risk constants — risk is now DATA, not code branches.
-	Model model.Model
+	// Composition is the portfolio blueprint that drives assembly: its ACTIVE
+	// members select which strategies to build (logical id -> engine id) and seed
+	// the allocator budgets (CapitalPct = member.Weight), and composition.Risk seeds
+	// the risk constraints. This replaces the old "multi"/"sepa"/… strategy switch
+	// and the hardcoded weight/risk constants — risk is now DATA, not code branches.
+	Composition composition.Composition
 	// StartingBalance seeds the late-bound equity fallback (used until the
 	// engine account is bound and for the allocator's pre-run sizing context).
 	StartingBalance float64
 	// Params carries the resolved per-strategy knobs.
 	Params Params
 	// SEPAStocks is the SEPA stock universe (one per-symbol generator each). Only
-	// used when the Model has a SEPA member.
+	// used when the Composition has a SEPA member.
 	SEPAStocks []string
 	// ORBSymbol is the single instrument the ORB path trades (intraday). Only used
-	// when the Model has an intraday_breakout member.
+	// when the Composition has an intraday_breakout member.
 	ORBSymbol string
 	// Context, when non-nil, is the look-ahead-safe per-bar context provider the
 	// engine drives on the SPY heartbeat (regime / market-cap / earnings). Only
-	// consumed when the Model has a SEPA member.
+	// consumed when the Composition has a SEPA member.
 	Context *riskgate.ContextProvider
 	// SPYSymbol is the context heartbeat instrument (default "SPY").
 	SPYSymbol string
@@ -134,25 +134,26 @@ func (a *Assembly) BindEquity(eng *engine.Engine) {
 	}
 }
 
-// Assemble builds the strategy set the Model describes: it wires a generator for
-// each ACTIVE member, an allocator from the member weights (logical id -> engine
-// id, CapitalPct = member.Weight) and risk constraints from the Model risk. This
-// is the single Model-driven assembler that replaced the old per-strategy
-// switch + hardcoded weight/risk constants (docs/concept-alignment.md §3.2).
+// Assemble builds the strategy set the Composition describes: it wires a
+// generator for each ACTIVE member, an allocator from the member weights (logical
+// id -> engine id, CapitalPct = member.Weight) and risk constraints from the
+// Composition risk. This is the single Composition-driven assembler that replaced
+// the old per-strategy switch + hardcoded weight/risk constants
+// (docs/concept-alignment.md §3.2).
 func Assemble(in Input) (*Assembly, error) {
-	return assembleFromModel(in)
+	return assembleFromComposition(in)
 }
 
-// assembleFromModel is the crux of the Model-driven assembly: from in.Model it
-// builds the riskgate.Allocator (one StrategyAllocation per ACTIVE member,
-// keyed by the member's ENGINE id with CapitalPct = member.Weight) and the
-// riskgate.RiskConstraints (from model.Risk), then wires the SEPA / Sector /
-// Pairs / ORB generators for whichever members are present (reusing the
+// assembleFromComposition is the crux of the Composition-driven assembly: from
+// in.Composition it builds the riskgate.Allocator (one StrategyAllocation per
+// ACTIVE member, keyed by the member's ENGINE id with CapitalPct = member.Weight)
+// and the riskgate.RiskConstraints (from composition.Risk), then wires the SEPA /
+// Sector / Pairs / ORB generators for whichever members are present (reusing the
 // buildSEPA / buildSector / buildPairs / buildORB helpers). ExtraTickers union
 // the SPY heartbeat (FIRST, when a context provider is configured), then the
 // sector universe and pair legs, deduped SPY-first (look-ahead-safe context).
-func assembleFromModel(in Input) (*Assembly, error) {
-	if err := in.Model.Validate(); err != nil {
+func assembleFromComposition(in Input) (*Assembly, error) {
+	if err := in.Composition.Validate(); err != nil {
 		return nil, fmt.Errorf("strategyassembly: %w", err)
 	}
 	spy := in.SPYSymbol
@@ -168,7 +169,7 @@ func assembleFromModel(in Input) (*Assembly, error) {
 		legs     []string // pair legs (if a pairs member is present)
 	)
 
-	for _, mem := range in.Model.Members {
+	for _, mem := range in.Composition.Members {
 		if !mem.Active {
 			continue
 		}
@@ -179,27 +180,27 @@ func assembleFromModel(in Input) (*Assembly, error) {
 		allocs = append(allocs, riskgate.StrategyAllocation{StrategyID: id, CapitalPct: mem.Weight})
 
 		switch mem.StrategyID {
-		case model.StrategySEPA:
+		case composition.StrategySEPA:
 			sepaStrats, err := buildSEPA(in.Params.SEPA, in.SEPAStocks, eq)
 			if err != nil {
 				return nil, err
 			}
 			strats = append(strats, sepaStrats...)
-		case model.StrategySectorRotation:
+		case composition.StrategySectorRotation:
 			adp, uni, err := buildSector(in.Params.Sector, eq)
 			if err != nil {
 				return nil, err
 			}
 			strats = append(strats, adp)
 			universe = uni
-		case model.StrategyPairs:
+		case composition.StrategyPairs:
 			adp, lg, err := buildPairs(in.Params.Pairs, eq)
 			if err != nil {
 				return nil, err
 			}
 			strats = append(strats, adp)
 			legs = lg
-		case model.StrategyIntradayBreakout:
+		case composition.StrategyIntradayBreakout:
 			adp, err := buildORB(in.Params.ORB, in.ORBSymbol, eq)
 			if err != nil {
 				return nil, err
@@ -209,7 +210,7 @@ func assembleFromModel(in Input) (*Assembly, error) {
 		}
 	}
 
-	gate, err := buildGate(allocs, in.Model.Risk)
+	gate, err := buildGate(allocs, in.Composition.Risk)
 	if err != nil {
 		return nil, err
 	}
@@ -235,10 +236,11 @@ func assembleFromModel(in Input) (*Assembly, error) {
 	return a, nil
 }
 
-// buildGate builds the portfolio gate from the Model-derived allocations and
-// risk: the allocator budgets (one per active member) and the risk constraints
-// (the Model's SingleNamePct / ConcentrationPct / DailyLossHaltPct).
-func buildGate(allocs []riskgate.StrategyAllocation, risk model.Risk) (*riskgate.Gate, error) {
+// buildGate builds the portfolio gate from the Composition-derived allocations
+// and risk: the allocator budgets (one per active member) and the risk
+// constraints (the Composition's SingleNamePct / ConcentrationPct /
+// DailyLossHaltPct).
+func buildGate(allocs []riskgate.StrategyAllocation, risk composition.Risk) (*riskgate.Gate, error) {
 	alloc, err := riskgate.NewAllocator(allocs)
 	if err != nil {
 		return nil, fmt.Errorf("strategyassembly: allocator: %w", err)

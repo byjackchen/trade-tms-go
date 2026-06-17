@@ -20,12 +20,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/core"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
-	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 )
 
@@ -63,13 +63,13 @@ func sectorInstruments() []engine.InstrumentBars {
 	return out
 }
 
-// mustSeed resolves a seed Model for the assembly Input (replacing the old
+// mustSeed resolves a seed Composition for the assembly Input (replacing the old
 // strategy string selector).
-func mustSeed(t *testing.T, id string) model.Model {
+func mustSeed(t *testing.T, id string) composition.Composition {
 	t.Helper()
-	mdl, err := model.Seed(id)
+	comp, err := composition.Seed(id)
 	require.NoError(t, err)
-	return mdl
+	return comp
 }
 
 // buildSectorSession assembles a signal-mode live Session over a fresh
@@ -77,7 +77,7 @@ func mustSeed(t *testing.T, id string) model.Model {
 func buildSectorSession(t *testing.T, sink livengine.IntentSink) *livengine.Session {
 	t.Helper()
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Model:           mustSeed(t, "sector-only"),
+		Composition:     mustSeed(t, "sector-only"),
 		StartingBalance: 100000,
 		Params:          strategyassembly.Params{Sector: wideSectorParams()},
 	})
@@ -181,7 +181,7 @@ func sepaParams() params.SEPAParams {
 func buildSEPASession(t *testing.T, sink livengine.IntentSink, warmup livengine.WarmupProvider, warmupSyms []string) *livengine.Session {
 	t.Helper()
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Model:           mustSeed(t, "sepa-only"),
+		Composition:     mustSeed(t, "sepa-only"),
 		StartingBalance: 100000,
 		SEPAStocks:      []string{"AAA"},
 		Params:          strategyassembly.Params{SEPA: sepaParams()},
@@ -259,7 +259,7 @@ func TestLiveWarmupConsistency(t *testing.T) {
 // TestLiveSignalModeRejectsPaper confirms paper/live modes are not wired in P5.
 func TestLiveSignalModeRejectsPaper(t *testing.T) {
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Model:           mustSeed(t, "sector-only"),
+		Composition:     mustSeed(t, "sector-only"),
 		StartingBalance: 100000,
 		Params:          strategyassembly.Params{Sector: wideSectorParams()},
 	})

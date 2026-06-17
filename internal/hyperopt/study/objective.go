@@ -17,13 +17,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt"
 	"github.com/byjackchen/trade-tms-go/internal/metrics"
-	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
@@ -50,27 +50,27 @@ func (r EvalResult) Objectives() []float64 {
 // Evaluate builds its own engine over a fresh foldFeed; no mutable state is
 // shared between concurrent calls (the dataset is immutable).
 type Evaluator struct {
-	strategy  string
-	model     *model.Model // joint target Model (nil => seed Model for strategy)
-	order     []string
-	ds        *Dataset
-	start     calendar.Date
-	end       calendar.Date
-	folds     []hyperopt.EvalSegment // nil/empty => single-window mode
-	defaults  map[string]map[string]any
-	sepaStock []string // SEPA stock universe (the trading symbols)
-	startBal  float64
-	spy       string
+	strategy    string
+	composition *composition.Composition // joint target Composition (nil => seed Composition for strategy)
+	order       []string
+	ds          *Dataset
+	start       calendar.Date
+	end         calendar.Date
+	folds       []hyperopt.EvalSegment // nil/empty => single-window mode
+	defaults    map[string]map[string]any
+	sepaStock   []string // SEPA stock universe (the trading symbols)
+	startBal    float64
+	spy         string
 }
 
 // EvaluatorConfig parameterizes a new Evaluator.
 type EvaluatorConfig struct {
 	Strategy string // sepa|sector_rotation|pairs|joint
-	// Model, when set, is the concrete blueprint a JOINT study assembles (its
-	// ACTIVE members + weights + risk). nil => the strategy's seed Model
+	// Composition, when set, is the concrete blueprint a JOINT study assembles (its
+	// ACTIVE members + weights + risk). nil => the strategy's seed Composition
 	// (docs/concept-alignment.md §3.3).
-	Model           *model.Model
-	Dataset         *Dataset // shared read-only bars
+	Composition     *composition.Composition
+	Dataset         *Dataset               // shared read-only bars
 	Start, End      calendar.Date          // study window (inclusive)
 	Folds           []hyperopt.EvalSegment // nil => single full-window backtest
 	Defaults        map[string]map[string]any
@@ -97,17 +97,17 @@ func NewEvaluator(cfg EvaluatorConfig) (*Evaluator, error) {
 		bal = 100000.0
 	}
 	return &Evaluator{
-		strategy:  cfg.Strategy,
-		model:     cfg.Model,
-		order:     order,
-		ds:        cfg.Dataset,
-		start:     cfg.Start,
-		end:       cfg.End,
-		folds:     cfg.Folds,
-		defaults:  cfg.Defaults,
-		sepaStock: append([]string(nil), cfg.SEPAStocks...),
-		startBal:  bal,
-		spy:       spy,
+		strategy:    cfg.Strategy,
+		composition: cfg.Composition,
+		order:       order,
+		ds:          cfg.Dataset,
+		start:       cfg.Start,
+		end:         cfg.End,
+		folds:       cfg.Folds,
+		defaults:    cfg.Defaults,
+		sepaStock:   append([]string(nil), cfg.SEPAStocks...),
+		startBal:    bal,
+		spy:         spy,
 	}, nil
 }
 
@@ -154,19 +154,19 @@ func (e *Evaluator) Evaluate(ctx context.Context, dec Decoded) (EvalResult, erro
 // strategyassembly.Input (minus context, which is built per-run since it depends
 // on the fold window). A validation failure here FAILs the trial.
 func (e *Evaluator) buildAssemblyInput(dec Decoded) (strategyassembly.Input, error) {
-	mdl, err := e.assemblyModel()
+	comp, err := e.assemblyComposition()
 	if err != nil {
 		return strategyassembly.Input{}, err
 	}
 	in := strategyassembly.Input{
-		// A joint study assembles the TARGET Model the optimize endpoint enqueued
-		// (its ACTIVE members + weights + risk); when none was enqueued (single
-		// tune, or older queued joint payload) it falls back to the strategy's SEED
-		// Model: joint -> default-multi, each single -> its *-only single-member
-		// Model. The allocator + risk come from that Model; the old
-		// MultiStrategyGate parity flag is gone (parity is abandoned —
-		// docs/concept-alignment.md §3.2/§3.3, D1).
-		Model:           mdl,
+		// A joint study assembles the TARGET Composition the optimize endpoint
+		// enqueued (its ACTIVE members + weights + risk); when none was enqueued
+		// (single tune, or older queued joint payload) it falls back to the
+		// strategy's SEED Composition: joint -> default-multi, each single -> its
+		// *-only single-member Composition. The allocator + risk come from that
+		// Composition; the old MultiStrategyGate parity flag is gone (parity is
+		// abandoned — docs/concept-alignment.md §3.2/§3.3, D1).
+		Composition:     comp,
 		StartingBalance: e.startBal,
 		SEPAStocks:      e.sepaStock,
 		SPYSymbol:       e.spy,
@@ -329,14 +329,15 @@ func (e *Evaluator) buildContext(start, end calendar.Date) *riskgate.ContextProv
 // helpers
 // ---------------------------------------------------------------------------
 
-// assemblyModel returns the Model this study assembles: the concrete TARGET Model
-// the optimize endpoint enqueued (e.model) when present, else the strategy's SEED
-// Model. The seed mapping is the legacy fallback: "joint" runs the canonical
-// 3-strategy blend (default-multi); each single strategy runs its *-only
-// single-member Model. Resolved in-process from model.SeedModels (no DB pool).
-func (e *Evaluator) assemblyModel() (model.Model, error) {
-	if e.model != nil {
-		return *e.model, nil
+// assemblyComposition returns the Composition this study assembles: the concrete
+// TARGET Composition the optimize endpoint enqueued (e.composition) when present,
+// else the strategy's SEED Composition. The seed mapping is the legacy fallback:
+// "joint" runs the canonical 3-strategy blend (default-multi); each single
+// strategy runs its *-only single-member Composition. Resolved in-process from
+// composition.SeedCompositions (no DB pool).
+func (e *Evaluator) assemblyComposition() (composition.Composition, error) {
+	if e.composition != nil {
+		return *e.composition, nil
 	}
 	id := map[string]string{
 		"joint":           "default-multi",
@@ -345,9 +346,9 @@ func (e *Evaluator) assemblyModel() (model.Model, error) {
 		"pairs":           "pairs-only",
 	}[e.strategy]
 	if id == "" {
-		return model.Model{}, fmt.Errorf("hyperopt: no seed model for strategy %q", e.strategy)
+		return composition.Composition{}, fmt.Errorf("hyperopt: no seed composition for strategy %q", e.strategy)
 	}
-	return model.Seed(id)
+	return composition.Seed(id)
 }
 
 // mergeOverrides overlays the searched override values (float64) onto a copy of

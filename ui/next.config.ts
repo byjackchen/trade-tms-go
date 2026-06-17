@@ -13,8 +13,8 @@ const nextConfig: NextConfig = {
   // Concept-alignment (docs/concept-alignment.md §3.4, C7) collapsed the old 6-top
   // IA into 5 pipeline sections. These permanent (301) redirects keep every old
   // bookmark / deep-link alive by mapping the retired routes onto their new homes:
-  // Data + Ops fold into Systems & Data (as tabs); Backtests folds into Models (a
-  // backtest's object is always a Model); Hyperopt folds into Strategies
+  // Data + Ops fold into Systems & Data (as tabs); Backtests folds into Compositions (a
+  // backtest's object is always a Composition); Hyperopt folds into Strategies
   // (single-strategy tuning); the /trade/* cockpit splits into Paper (sim) + the
   // strategies / systems sub-views. Next preserves the query string across a
   // redirect, so the `?tab=` / `?backtest=` / `?study=` hints survive the hop.
@@ -25,8 +25,8 @@ const nextConfig: NextConfig = {
     return [
       { source: "/data", destination: "/systems?tab=data", permanent: true },
       { source: "/ops", destination: "/systems?tab=jobs", permanent: true },
-      { source: "/backtests", destination: "/models", permanent: true },
-      { source: "/backtests/:id", destination: "/models?backtest=:id", permanent: true },
+      { source: "/backtests", destination: "/compositions", permanent: true },
+      { source: "/backtests/:id", destination: "/compositions?backtest=:id", permanent: true },
       { source: "/hyperopt", destination: "/strategies", permanent: true },
       { source: "/hyperopt/:id", destination: "/strategies?study=:id", permanent: true },
       { source: "/trade", destination: "/paper", permanent: true },

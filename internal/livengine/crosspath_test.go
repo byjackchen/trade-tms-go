@@ -133,7 +133,7 @@ func canonicalIntentStream(t *testing.T, recs []livengine.IntentRecord) []string
 func assembleSector(t *testing.T) *strategyassembly.Assembly {
 	t.Helper()
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Model:           mustSeed(t, "sector-only"),
+		Composition:     mustSeed(t, "sector-only"),
 		StartingBalance: 100000,
 		Params:          strategyassembly.Params{Sector: wideSectorParams()},
 	})

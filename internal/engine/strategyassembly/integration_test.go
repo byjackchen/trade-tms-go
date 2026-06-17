@@ -20,11 +20,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
-	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 	"github.com/byjackchen/trade-tms-go/internal/strategy/sepaadapter"
@@ -83,13 +83,13 @@ func wideETFBars() []engine.InstrumentBars {
 	return out
 }
 
-// seedModel resolves the named seed Model (the Model-driven assembler's input,
+// seedComposition resolves the named seed Composition (the Composition-driven assembler's input,
 // replacing the old strategy string selector).
-func seedModel(t *testing.T, id string) model.Model {
+func seedComposition(t *testing.T, id string) composition.Composition {
 	t.Helper()
-	mdl, err := model.Seed(id)
+	comp, err := composition.Seed(id)
 	require.NoError(t, err)
-	return mdl
+	return comp
 }
 
 // runAssembly builds the engine from an Assembly + feed and runs it.
@@ -102,7 +102,7 @@ func runAssembly(t *testing.T, asm *strategyassembly.Assembly, start, end calend
 		StartingBalance:    domain.MustMoney(bal),
 		Profile:            engine.ProfileNautilusCompat,
 		PrebuiltStrategies: asm.Strategies,
-		Gate:          asm.Gate,
+		Gate:               asm.Gate,
 		Context:            asm.Context,
 		SPYSymbol:          asm.SPYSymbol,
 	}
@@ -121,7 +121,7 @@ func runAssembly(t *testing.T, asm *strategyassembly.Assembly, start, end calend
 func TestSectorRotationEndToEnd(t *testing.T) {
 	build := func() *strategyassembly.Assembly {
 		asm, err := strategyassembly.Assemble(strategyassembly.Input{
-			Model:           seedModel(t, "sector-only"),
+			Composition:     seedComposition(t, "sector-only"),
 			StartingBalance: 100000,
 			Params:          strategyassembly.Params{Sector: wideSectorParams()},
 		})
@@ -195,7 +195,7 @@ func TestLoneSectorBaselineTopK3Trades(t *testing.T) {
 	for _, bal := range []string{"100000", "1000000"} {
 		t.Run("nav="+bal, func(t *testing.T) {
 			asm, err := strategyassembly.Assemble(strategyassembly.Input{
-				Model:           seedModel(t, "sector-only"),
+				Composition:     seedComposition(t, "sector-only"),
 				StartingBalance: mustFloat(bal),
 				Params: strategyassembly.Params{Sector: params.SectorRotationParams{
 					Universe:         []string{"XLK", "XLF", "XLE"},
@@ -243,7 +243,7 @@ func TestPortfolioGateRejectsOverBudget(t *testing.T) {
 	// the allocator budget (a hard 30% ceiling) rejects once priced at the drifted
 	// rebalance close.
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Model:           seedModel(t, "default-multi"),
+		Composition:     seedComposition(t, "default-multi"),
 		StartingBalance: 100000,
 		SEPAStocks:      []string{"AAA"}, // a stock with no qualifying signal
 		Params: strategyassembly.Params{
@@ -341,7 +341,7 @@ func TestSEPAContextInjection(t *testing.T) {
 	provider := riskgate.NewContextProvider(spy, sf1, nil, []string{"AAA"}, "MRT", 0)
 
 	asm, err := strategyassembly.Assemble(strategyassembly.Input{
-		Model:           seedModel(t, "sepa-only"),
+		Composition:     seedComposition(t, "sepa-only"),
 		StartingBalance: 100000,
 		SEPAStocks:      []string{"AAA"},
 		Params:          strategyassembly.Params{SEPA: sepaParams()},
@@ -369,7 +369,7 @@ func TestSEPAContextInjection(t *testing.T) {
 		StartingBalance:    domain.MustMoney("100000"),
 		Profile:            engine.ProfileNautilusCompat,
 		PrebuiltStrategies: asm.Strategies,
-		Gate:          asm.Gate,
+		Gate:               asm.Gate,
 		Context:            asm.Context,
 		SPYSymbol:          asm.SPYSymbol,
 	}

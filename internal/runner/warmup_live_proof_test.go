@@ -158,7 +158,7 @@ func TestWarmedLiveSectorProof(t *testing.T) {
 	liveSess, err := livengine.NewSession(livengine.Config{
 		Exec:            domain.ExecSignal,
 		Strategies:      as.Assembly.Strategies,
-		Gate:       as.Assembly.Gate,
+		Gate:            as.Assembly.Gate,
 		SPYSymbol:       as.SPYSymbol,
 		WarmupBatch:     warmupBatch,
 		StartingBalance: domain.MustMoney("100000"),
@@ -198,7 +198,7 @@ func TestWarmedLiveSectorProof(t *testing.T) {
 	fullSess, err := livengine.NewSession(livengine.Config{
 		Exec:            domain.ExecSignal,
 		Strategies:      mustReassembleSector(t, pool, ctx, now, runEnd).Assembly.Strategies,
-		Gate:       as.Assembly.Gate,
+		Gate:            as.Assembly.Gate,
 		SPYSymbol:       as.SPYSymbol,
 		StartingBalance: domain.MustMoney("100000"),
 		Sink:            fullSink,
@@ -249,7 +249,7 @@ func TestWarmedLivePairsProof(t *testing.T) {
 	liveSess, err := livengine.NewSession(livengine.Config{
 		Exec:            domain.ExecSignal,
 		Strategies:      as.Assembly.Strategies,
-		Gate:       as.Assembly.Gate,
+		Gate:            as.Assembly.Gate,
 		SPYSymbol:       as.SPYSymbol,
 		WarmupBatch:     warmupBatch,
 		StartingBalance: domain.MustMoney("100000"),
@@ -295,7 +295,7 @@ func TestWarmedLivePairsProof(t *testing.T) {
 	fullSess, err := livengine.NewSession(livengine.Config{
 		Exec:            domain.ExecSignal,
 		Strategies:      mustReassemblePairs(t, pool, ctx, now, runEnd).Assembly.Strategies,
-		Gate:       as.Assembly.Gate,
+		Gate:            as.Assembly.Gate,
 		SPYSymbol:       as.SPYSymbol,
 		StartingBalance: domain.MustMoney("100000"),
 		Sink:            fullSink,

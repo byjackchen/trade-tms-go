@@ -38,8 +38,8 @@ import (
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
 	"github.com/byjackchen/trade-tms-go/internal/livetrade"
-	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 	"github.com/byjackchen/trade-tms-go/internal/publish"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // The live node's runtime control-plane vocabulary: the operator switches a
@@ -708,7 +708,7 @@ func (l *Live) buildRunnable(ctx context.Context, mode string, as *Assembled, wa
 		sess, err := livengine.NewSession(livengine.Config{
 			Exec:            domain.ExecSignal,
 			Strategies:      as.Assembly.Strategies,
-			Gate:       as.Assembly.Gate,
+			Gate:            as.Assembly.Gate,
 			Context:         as.Assembly.Context,
 			SPYSymbol:       as.SPYSymbol,
 			Warmup:          warmup,

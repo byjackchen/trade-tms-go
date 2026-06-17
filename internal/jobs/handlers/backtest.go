@@ -22,13 +22,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
-	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 	"github.com/byjackchen/trade-tms-go/internal/params/paramsdb"
 	"github.com/byjackchen/trade-tms-go/internal/riskgate"
@@ -60,8 +60,8 @@ const sepaWarmupCalendarDays = 400
 //	  "end":              "YYYY-MM-DD",         // required (bar window end)
 //	  "starting_balance": 100000.0,             // USD; default 100000
 //	  "fill_profile":     "nautilus-compat",    // or "realistic"; default nautilus-compat
-//	  "model_id":         "sepa-only",          // the Model the backtest runs (API resolves it)
-//	  "model":            { ... model.Model ... }, // the resolved blueprint (enqueued by the API)
+//	  "composition_id":   "sepa-only",          // the Composition the backtest runs (API resolves it)
+//	  "composition":       { ... composition.Composition ... }, // the resolved blueprint (enqueued by the API)
 //	  "strategy":         "scripted",           // legacy selector (back-compat for old queued payloads)
 //	  "intents": [ {"date":"YYYY-MM-DD","ticker":"AAPL","side":"LONG","qty":100}, ... ], // scripted only
 //	  "orb_symbol":       "AAPL",                // orb strategy: the single intraday instrument
@@ -139,27 +139,28 @@ type realisticJSON struct {
 
 // backtestParams is the payload wire shape.
 //
-// A Model-driven run carries Model (the resolved blueprint the API enqueues,
-// docs/concept-alignment.md §3.3) and optionally ModelID (for logging/history);
-// a scripted run carries Intents and no Model. Strategy is the legacy selector,
-// kept only as a fallback for older queued payloads (multi/sepa/... mapping to a
-// seed Model); new enqueues set Model directly.
+// A Composition-driven run carries Composition (the resolved blueprint the API
+// enqueues, docs/concept-alignment.md §3.3) and optionally CompositionID (for
+// logging/history); a scripted run carries Intents and no Composition. Strategy is
+// the legacy selector, kept only as a fallback for older queued payloads
+// (multi/sepa/... mapping to a seed Composition); new enqueues set Composition
+// directly.
 type backtestParams struct {
-	Tickers         []string       `json:"tickers"`
-	Universe        *universeJSON  `json:"universe"`
-	Start           string         `json:"start"`
-	End             string         `json:"end"`
-	StartingBalance *float64       `json:"starting_balance"`
-	FillProfile     string         `json:"fill_profile"`
-	ModelID         string         `json:"model_id"`
-	Model           *model.Model   `json:"model"`
-	Strategy        string         `json:"strategy"`
-	ORBSymbol       string         `json:"orb_symbol"`
-	Intents         []intentJSON   `json:"intents"`
-	Kind            string         `json:"kind"`
-	Seed            int64          `json:"seed"`
-	RunTS           string         `json:"run_ts"`
-	Realistic       *realisticJSON `json:"realistic"`
+	Tickers         []string                 `json:"tickers"`
+	Universe        *universeJSON            `json:"universe"`
+	Start           string                   `json:"start"`
+	End             string                   `json:"end"`
+	StartingBalance *float64                 `json:"starting_balance"`
+	FillProfile     string                   `json:"fill_profile"`
+	CompositionID   string                   `json:"composition_id"`
+	Composition     *composition.Composition `json:"composition"`
+	Strategy        string                   `json:"strategy"`
+	ORBSymbol       string                   `json:"orb_symbol"`
+	Intents         []intentJSON             `json:"intents"`
+	Kind            string                   `json:"kind"`
+	Seed            int64                    `json:"seed"`
+	RunTS           string                   `json:"run_ts"`
+	Realistic       *realisticJSON           `json:"realistic"`
 }
 
 // Run implements jobs.Handler.
@@ -280,12 +281,12 @@ func (h *Backtest) Run(ctx context.Context, job *jobs.Job, report jobs.ProgressF
 // late-bind the equity provider after engine.New) and the run_ts (idempotency
 // key).
 func (h *Backtest) buildConfig(ctx context.Context, p backtestParams) (engine.Config, *strategyassembly.Assembly, string, error) {
-	// Resolve the Model the backtest drops in. New payloads carry the resolved
-	// blueprint (p.Model, enqueued by the API after it looked the model_id up);
-	// older queued payloads carry only a legacy strategy= selector, which maps to
-	// its seed Model in-process. A "scripted" run (intents, no Model) bypasses
-	// strategy assembly entirely.
-	mdl, scripted, err := h.resolveModel(p)
+	// Resolve the Composition the backtest drops in. New payloads carry the
+	// resolved blueprint (p.Composition, enqueued by the API after it looked the
+	// composition_id up); older queued payloads carry only a legacy strategy=
+	// selector, which maps to its seed Composition in-process. A "scripted" run
+	// (intents, no Composition) bypasses strategy assembly entirely.
+	comp, scripted, err := h.resolveComposition(p)
 	if err != nil {
 		return engine.Config{}, nil, "", err
 	}
@@ -350,7 +351,7 @@ func (h *Backtest) buildConfig(ctx context.Context, p backtestParams) (engine.Co
 		cfg.Tickers = tickers
 		cfg.Strategies = []engine.StrategySpec{{ID: "Scripted-000", Intents: intents}}
 	} else {
-		cfg, asm, err = h.assembleFromModel(ctx, mdl, cfg, tickers, p)
+		cfg, asm, err = h.assembleFromComposition(ctx, comp, cfg, tickers, p)
 		if err != nil {
 			return engine.Config{}, nil, "", err
 		}
@@ -370,38 +371,39 @@ func (h *Backtest) buildConfig(ctx context.Context, p backtestParams) (engine.Co
 	return cfg, asm, runTS, nil
 }
 
-// resolveModel decides which blueprint the backtest drops in and whether it is a
-// scripted (intent-driven) run. Precedence: an explicit p.Model (the resolved
-// blueprint the API now enqueues) wins; otherwise the legacy p.Strategy selector
-// is honoured (mapping multi/sepa/... to its seed Model, or "scripted"/"" to the
-// scripted path). It returns (model, scripted, err).
-func (h *Backtest) resolveModel(p backtestParams) (model.Model, bool, error) {
-	if p.Model != nil {
-		if err := p.Model.Validate(); err != nil {
-			return model.Model{}, false, fmt.Errorf("backtest.run: invalid model: %w", err)
+// resolveComposition decides which blueprint the backtest drops in and whether it
+// is a scripted (intent-driven) run. Precedence: an explicit p.Composition (the
+// resolved blueprint the API now enqueues) wins; otherwise the legacy p.Strategy
+// selector is honoured (mapping multi/sepa/... to its seed Composition, or
+// "scripted"/"" to the scripted path). It returns (composition, scripted, err).
+func (h *Backtest) resolveComposition(p backtestParams) (composition.Composition, bool, error) {
+	if p.Composition != nil {
+		if err := p.Composition.Validate(); err != nil {
+			return composition.Composition{}, false, fmt.Errorf("backtest.run: invalid composition: %w", err)
 		}
-		return *p.Model, false, nil
+		return *p.Composition, false, nil
 	}
 	strategy := p.Strategy
 	if strategy == "" || strategy == "scripted" {
-		// No Model selector: the scripted (intent-driven) path, which bypasses
-		// strategy assembly. The API enforces model_id; this default keeps older
-		// queued payloads (tickers + no strategy) running.
-		return model.Model{}, true, nil
+		// No Composition selector: the scripted (intent-driven) path, which bypasses
+		// strategy assembly. The API enforces composition_id; this default keeps
+		// older queued payloads (tickers + no strategy) running.
+		return composition.Composition{}, true, nil
 	}
-	mdl, err := seedModelForStrategy(strategy)
+	comp, err := seedCompositionForStrategy(strategy)
 	if err != nil {
-		return model.Model{}, false, fmt.Errorf("backtest.run: %w", err)
+		return composition.Composition{}, false, fmt.Errorf("backtest.run: %w", err)
 	}
-	return mdl, false, nil
+	return comp, false, nil
 }
 
-// seedModelForStrategy maps a legacy strategy selector
-// (sepa|sector_rotation|pairs|orb|multi) to its backward-compatible SEED Model
-// (multi -> default-multi; the singles -> their *-only single-member Model),
-// resolved in-process from model.SeedModels (no DB pool). Kept for older queued
-// payloads that predate the model_id hard-cut (docs/concept-alignment.md §3.2).
-func seedModelForStrategy(strategy string) (model.Model, error) {
+// seedCompositionForStrategy maps a legacy strategy selector
+// (sepa|sector_rotation|pairs|orb|multi) to its backward-compatible SEED
+// Composition (multi -> default-multi; the singles -> their *-only single-member
+// Composition), resolved in-process from composition.SeedCompositions (no DB
+// pool). Kept for older queued payloads that predate the composition_id hard-cut
+// (docs/concept-alignment.md §3.2).
+func seedCompositionForStrategy(strategy string) (composition.Composition, error) {
 	id := map[string]string{
 		"multi":           "default-multi",
 		"sepa":            "sepa-only",
@@ -410,19 +412,19 @@ func seedModelForStrategy(strategy string) (model.Model, error) {
 		"orb":             "orb-only",
 	}[strategy]
 	if id == "" {
-		return model.Model{}, fmt.Errorf("no seed model for strategy %q", strategy)
+		return composition.Composition{}, fmt.Errorf("no seed composition for strategy %q", strategy)
 	}
-	return model.Seed(id)
+	return composition.Seed(id)
 }
 
-// assembleFromModel builds the strategy adapters + gate + context for the given
-// Model via strategyassembly, and unions the strategies' required instruments
-// (ETFs / pair legs / SPY heartbeat) into the engine ticker registration — SPY
-// FIRST so its bar dispatches before same-date stock bars (look-ahead-safe
-// context). Mirrors multi_strategy_backtest.py.
-func (h *Backtest) assembleFromModel(ctx context.Context, mdl model.Model, cfg engine.Config, tickers []string, p backtestParams) (engine.Config, *strategyassembly.Assembly, error) {
+// assembleFromComposition builds the strategy adapters + gate + context for the
+// given Composition via strategyassembly, and unions the strategies' required
+// instruments (ETFs / pair legs / SPY heartbeat) into the engine ticker
+// registration — SPY FIRST so its bar dispatches before same-date stock bars
+// (look-ahead-safe context). Mirrors multi_strategy_backtest.py.
+func (h *Backtest) assembleFromComposition(ctx context.Context, comp composition.Composition, cfg engine.Config, tickers []string, p backtestParams) (engine.Config, *strategyassembly.Assembly, error) {
 	in := strategyassembly.Input{
-		Model:           mdl,
+		Composition:     comp,
 		StartingBalance: cfg.StartingBalance.Float64(),
 		SEPAStocks:      tickers,
 		ORBSymbol:       p.ORBSymbol,
@@ -431,31 +433,32 @@ func (h *Backtest) assembleFromModel(ctx context.Context, mdl model.Model, cfg e
 
 	// Resolve only the params each ACTIVE member needs (db active_params ->
 	// param_sets -> file dir -> embedded baseline). A SEPA member additionally
-	// pulls the look-ahead-safe context + warmup tail. This is the Model-driven
-	// twin of the old per-strategy switch (docs/concept-alignment.md §3.2).
+	// pulls the look-ahead-safe context + warmup tail. This is the
+	// Composition-driven twin of the old per-strategy switch
+	// (docs/concept-alignment.md §3.2).
 	var (
 		hasSEPA, hasORB bool
 		err2            error
 	)
-	for _, mem := range mdl.Members {
+	for _, mem := range comp.Members {
 		if !mem.Active {
 			continue
 		}
 		switch mem.StrategyID {
-		case model.StrategySEPA:
+		case composition.StrategySEPA:
 			hasSEPA = true
 			if in.Params.SEPA, _, err2 = h.loader.SEPA(ctx); err2 != nil {
 				return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve sepa params: %w", err2)
 			}
-		case model.StrategySectorRotation:
+		case composition.StrategySectorRotation:
 			if in.Params.Sector, _, err2 = h.loader.SectorRotation(ctx); err2 != nil {
 				return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve sector params: %w", err2)
 			}
-		case model.StrategyPairs:
+		case composition.StrategyPairs:
 			if in.Params.Pairs, _, err2 = h.loader.Pairs(ctx); err2 != nil {
 				return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve pairs params: %w", err2)
 			}
-		case model.StrategyIntradayBreakout:
+		case composition.StrategyIntradayBreakout:
 			hasORB = true
 			if in.Params.ORB, _, err2 = h.loader.IntradayBreakout(ctx); err2 != nil {
 				return engine.Config{}, nil, fmt.Errorf("backtest.run: resolve orb params: %w", err2)

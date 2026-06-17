@@ -23,11 +23,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
 	"github.com/byjackchen/trade-tms-go/internal/jobs/handlers"
 	"github.com/byjackchen/trade-tms-go/internal/metrics"
-	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
 )
 
@@ -44,11 +44,11 @@ const (
 // queue-level actor / max_attempts / dedupe_key. Unknown fields are rejected.
 //
 // The strategy selector is GONE (docs/concept-alignment.md §3.3, A3): a backtest's
-// object is always a Model, so the request carries model_id and the server
-// resolves the blueprint, passing it through to the engine's assembleFromModel. A
-// single-strategy backtest is just a single-member Model (e.g. "sepa-only"). The
-// "scripted" intents path keeps working WITHOUT a model_id (it bypasses strategy
-// assembly entirely).
+// object is always a Composition, so the request carries composition_id and the
+// server resolves the blueprint, passing it through to the engine's
+// assembleFromComposition. A single-strategy backtest is just a single-member
+// Composition (e.g. "sepa-only"). The "scripted" intents path keeps working
+// WITHOUT a composition_id (it bypasses strategy assembly entirely).
 type backtestRequest struct {
 	Tickers         []string         `json:"tickers"`
 	Universe        map[string]any   `json:"universe"`
@@ -56,7 +56,7 @@ type backtestRequest struct {
 	End             string           `json:"end"`
 	StartingBalance *float64         `json:"starting_balance"`
 	FillProfile     string           `json:"fill_profile"`
-	ModelID         string           `json:"model_id"`
+	CompositionID   string           `json:"composition_id"`
 	ORBSymbol       string           `json:"orb_symbol"`
 	Intents         []map[string]any `json:"intents"`
 	Kind            string           `json:"kind"`
@@ -79,43 +79,44 @@ func (s *Server) handleBacktestEnqueue(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, CodeValidation, `"start" and "end" are required (YYYY-MM-DD)`)
 		return
 	}
-	modelID := strings.TrimSpace(req.ModelID)
-	// Two backtest shapes: a Model-driven run (model_id, the real strategies) or a
-	// scripted run (intents, no model). Exactly one selector must be present.
-	scripted := len(req.Intents) > 0 && modelID == ""
+	compositionID := strings.TrimSpace(req.CompositionID)
+	// Two backtest shapes: a Composition-driven run (composition_id, the real
+	// strategies) or a scripted run (intents, no composition). Exactly one selector
+	// must be present.
+	scripted := len(req.Intents) > 0 && compositionID == ""
 	switch {
-	case modelID == "" && !scripted:
+	case compositionID == "" && !scripted:
 		writeError(w, http.StatusBadRequest, CodeValidation,
-			`"model_id" is required (single-strategy backtest = a single-member Model id like "sepa-only")`)
+			`"composition_id" is required (single-strategy backtest = a single-member Composition id like "sepa-only")`)
 		return
-	case modelID != "" && len(req.Intents) > 0:
-		writeError(w, http.StatusBadRequest, CodeValidation, `"model_id" and "intents" are mutually exclusive`)
+	case compositionID != "" && len(req.Intents) > 0:
+		writeError(w, http.StatusBadRequest, CodeValidation, `"composition_id" and "intents" are mutually exclusive`)
 		return
 	}
 
-	// Resolve the Model up front (so a bad id is a clean 404 here, not a deferred
-	// job failure) and pass the blueprint through to the engine's
-	// assembleFromModel. ORB-bearing Models need either orb_symbol or a single
-	// ticker; SEPA/multi treat supplied tickers as the stock universe.
-	var mdl *model.Model
-	if modelID != "" {
-		if s.models == nil {
-			writeError(w, http.StatusServiceUnavailable, CodeInternal, "model store not configured")
+	// Resolve the Composition up front (so a bad id is a clean 404 here, not a
+	// deferred job failure) and pass the blueprint through to the engine's
+	// assembleFromComposition. ORB-bearing Compositions need either orb_symbol or a
+	// single ticker; SEPA/multi treat supplied tickers as the stock universe.
+	var comp *composition.Composition
+	if compositionID != "" {
+		if s.compositions == nil {
+			writeError(w, http.StatusServiceUnavailable, CodeInternal, "composition store not configured")
 			return
 		}
-		resolved, err := s.models.Get(r.Context(), modelID)
-		if errors.Is(err, model.ErrNotFound) {
-			writeError(w, http.StatusNotFound, CodeNotFound, fmt.Sprintf("model %q not found", modelID))
+		resolved, err := s.compositions.Get(r.Context(), compositionID)
+		if errors.Is(err, composition.ErrNotFound) {
+			writeError(w, http.StatusNotFound, CodeNotFound, fmt.Sprintf("composition %q not found", compositionID))
 			return
 		}
 		if err != nil {
-			internalError(w, s.log, "backtest resolve model", err)
+			internalError(w, s.log, "backtest resolve composition", err)
 			return
 		}
-		mdl = resolved
-		if backtestHasORB(mdl) && strings.TrimSpace(req.ORBSymbol) == "" && len(req.Tickers) != 1 {
+		comp = resolved
+		if backtestHasORB(comp) && strings.TrimSpace(req.ORBSymbol) == "" && len(req.Tickers) != 1 {
 			writeError(w, http.StatusBadRequest, CodeValidation,
-				`this Model has an ORB member; supply "orb_symbol" (or exactly one ticker)`)
+				`this Composition has an ORB member; supply "orb_symbol" (or exactly one ticker)`)
 			return
 		}
 	} else if len(req.Tickers) == 0 && req.Universe == nil {
@@ -147,11 +148,11 @@ func (s *Server) handleBacktestEnqueue(w http.ResponseWriter, r *http.Request) {
 	if req.FillProfile != "" {
 		payload["fill_profile"] = req.FillProfile
 	}
-	if mdl != nil {
+	if comp != nil {
 		// The resolved blueprint travels in the payload so the worker assembles
 		// from it directly (no second DB lookup, no legacy strategy= mapping).
-		payload["model_id"] = mdl.ID
-		payload["model"] = mdl
+		payload["composition_id"] = comp.ID
+		payload["composition"] = comp
 	}
 	if s := strings.TrimSpace(req.ORBSymbol); s != "" {
 		payload["orb_symbol"] = s
@@ -450,12 +451,12 @@ func backtestIDParam(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	return id, true
 }
 
-// backtestHasORB reports whether the Model has an intraday_breakout (ORB)
+// backtestHasORB reports whether the Composition has an intraday_breakout (ORB)
 // member — the ORB path trades a single intraday instrument, so it needs an
 // orb_symbol (or exactly one ticker) at enqueue time.
-func backtestHasORB(m *model.Model) bool {
+func backtestHasORB(m *composition.Composition) bool {
 	for _, mem := range m.Members {
-		if mem.StrategyID == model.StrategyIntradayBreakout {
+		if mem.StrategyID == composition.StrategyIntradayBreakout {
 			return true
 		}
 	}

@@ -13,7 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ErrorState, LoadingRows } from "@/components/shell/states";
-import { MetricCard } from "@/components/models/metric-card";
+import { MetricCard } from "@/components/compositions/metric-card";
 import { StudyStatusBadge } from "./status-badge";
 import { ParetoChart } from "./pareto-chart";
 import { ConvergenceChart } from "./convergence-chart";

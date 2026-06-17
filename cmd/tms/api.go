@@ -20,13 +20,13 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/apistore"
 	"github.com/byjackchen/trade-tms-go/internal/app"
 	"github.com/byjackchen/trade-tms-go/internal/commands"
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/config"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 	"github.com/byjackchen/trade-tms-go/internal/db"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt/study"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
-	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params/paramsdb"
 	"github.com/byjackchen/trade-tms-go/internal/preflight"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
@@ -178,10 +178,11 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		Strategies:  api.NewStrategyReader(paramsdb.NewReader(pool), env.cfg.StrategyParamsDir),
 		Hyperopt:    study.NewStore(pool),
 		Promoter:    study.NewPromoter(pool),
-		// Models backs the /api/v1/models CRUD + the model_id resolution the
-		// backtest and optimize endpoints do (docs/concept-alignment.md §3.3).
-		Models: model.NewStore(pool),
-		// AuditLog appends tms.audit_log rows for the Model mutation endpoints
+		// Compositions backs the /api/v1/compositions CRUD + the composition_id
+		// resolution the backtest and optimize endpoints do
+		// (docs/concept-alignment.md §3.3).
+		Compositions: composition.NewStore(pool),
+		// AuditLog appends tms.audit_log rows for the Composition mutation endpoints
 		// (the same PGStore that serves GET /api/v1/audit).
 		AuditLog:  pgStore,
 		Calendar:  cal,

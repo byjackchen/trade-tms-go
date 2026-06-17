@@ -11,11 +11,11 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 	"github.com/byjackchen/trade-tms-go/internal/hyperopt/study"
 	"github.com/byjackchen/trade-tms-go/internal/jobs"
-	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/runs"
 )
 
@@ -101,25 +101,25 @@ type HyperoptPromoter interface {
 	Promote(ctx context.Context, in study.PromoteInput) ([]study.PromotedStrategy, error)
 }
 
-// ModelStore is the persistence seam for the Model CRUD (satisfied by
-// *model.Store). It backs the GET/POST/PUT/DELETE /api/v1/models endpoints and is
-// the resolver POST /api/v1/backtests reaches for to turn a model_id into the
-// blueprint the engine drops in (a Model composes already-tuned strategies; it is
-// never re-tuned). Get returns
-// model.ErrNotFound for an unknown id; Create/Update reject an invalid Model
-// (model.Model.Validate) before touching the DB.
-type ModelStore interface {
-	List(ctx context.Context) ([]model.Model, error)
-	Get(ctx context.Context, id string) (*model.Model, error)
-	Create(ctx context.Context, m model.Model) error
-	Update(ctx context.Context, m model.Model) error
+// CompositionStore is the persistence seam for the Composition CRUD (satisfied by
+// *composition.Store). It backs the GET/POST/PUT/DELETE /api/v1/compositions
+// endpoints and is the resolver POST /api/v1/backtests reaches for to turn a
+// composition_id into the blueprint the engine drops in (a Composition composes
+// already-tuned strategies; it is never re-tuned). Get returns
+// composition.ErrNotFound for an unknown id; Create/Update reject an invalid
+// Composition (composition.Composition.Validate) before touching the DB.
+type CompositionStore interface {
+	List(ctx context.Context) ([]composition.Composition, error)
+	Get(ctx context.Context, id string) (*composition.Composition, error)
+	Create(ctx context.Context, m composition.Composition) error
+	Update(ctx context.Context, m composition.Composition) error
 	Delete(ctx context.Context, id string) error
 }
 
 // AuditWriter appends one row to the append-only tms.audit_log (satisfied by
-// *apistore.PGStore). It is how the Model mutation endpoints (create/update/delete
-// /api/v1/models) record their writes, matching the audit trail the job queue and
-// command consumer keep for their own mutations.
+// *apistore.PGStore). It is how the Composition mutation endpoints
+// (create/update/delete /api/v1/compositions) record their writes, matching the
+// audit trail the job queue and command consumer keep for their own mutations.
 type AuditWriter interface {
 	WriteAudit(ctx context.Context, rec AuditRecord) error
 }
@@ -165,7 +165,7 @@ type StrategyMeta struct {
 	// RawDoc is the full resolved parameter document (strategy, schema_version,
 	// display, metadata, parameters{name:{default,...}}, constraints) verbatim.
 	// (An "allocation" block may still physically be present in the source bytes
-	// but is no longer parsed/exposed — the Model owns allocation.) It is NOT
+	// but is no longer parsed/exposed — the Composition owns allocation.) It is NOT
 	// serialized inline; the detail handler emits it under a
 	// top-level "payload" key so ground-truth tooling can read the canonical
 	// document shape. Empty on the list path / on a resolution error.

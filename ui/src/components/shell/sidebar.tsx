@@ -27,13 +27,13 @@ type Section = {
 };
 
 // The five top-level sections, in pipeline order (docs/concept-alignment.md §3.4,
-// C7): Systems & Data → Strategies → Models → Paper Trade → Live Trade. Backtest
-// lives under Models (a backtest's object is always a Model); Hyperopt lives under
+// C7): Systems & Data → Strategies → Compositions → Paper Trade → Live Trade. Backtest
+// lives under Compositions (a backtest's object is always a Composition); Hyperopt lives under
 // Strategies (single-strategy tuning).
 const SECTIONS: Section[] = [
   { href: "/systems", label: "Systems & Data", icon: ServerCog, testid: "nav-systems", ready: true },
   { href: "/strategies", label: "Strategies", icon: Boxes, testid: "nav-strategies", ready: true },
-  { href: "/models", label: "Models", icon: Layers, testid: "nav-models", ready: true },
+  { href: "/compositions", label: "Compositions", icon: Layers, testid: "nav-compositions", ready: true },
   { href: "/paper", label: "Paper Trade", icon: FlaskConical, testid: "nav-paper", ready: true },
   { href: "/live", label: "Live Trade", icon: Activity, testid: "nav-live", ready: true },
 ];

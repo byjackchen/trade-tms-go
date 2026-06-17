@@ -38,6 +38,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/config"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
@@ -45,7 +46,6 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
-	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 )
 
@@ -221,9 +221,9 @@ func parityCurveLen(t *testing.T, ctx context.Context, ds *Dataset, defaults map
 	t.Helper()
 	pp, err := params.PairsFromMap(defaults)
 	require.NoError(t, err)
-	mdl, err := model.Seed("pairs-only")
+	comp, err := composition.Seed("pairs-only")
 	require.NoError(t, err)
-	in := strategyassembly.Input{Model: mdl, StartingBalance: 100000.0}
+	in := strategyassembly.Input{Composition: comp, StartingBalance: 100000.0}
 	in.Params.Pairs = pp
 	asm, err := strategyassembly.Assemble(in)
 	require.NoError(t, err)

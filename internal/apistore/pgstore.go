@@ -376,8 +376,8 @@ func (s *PGStore) Audit(ctx context.Context, f api.AuditFilter) ([]api.AuditEntr
 }
 
 // WriteAudit implements api.AuditWriter: append one row to the append-only
-// tms.audit_log (the write twin of Audit). It backs the Model mutation endpoints
-// (create/update/delete /api/v1/models), matching the trail the job queue and
+// tms.audit_log (the write twin of Audit). It backs the Composition mutation
+// endpoints (create/update/delete /api/v1/compositions), matching the trail the job queue and
 // command consumer keep for their own writes. Details, when nil, is stored as an
 // empty object so the column's NOT NULL default is satisfied.
 func (s *PGStore) WriteAudit(ctx context.Context, rec api.AuditRecord) error {

@@ -9,8 +9,9 @@ package params
 // hyperopt.ParseStrategyParams.
 //
 // The strategy param payloads may still physically carry an "allocation" block,
-// but the Model (internal/model) is the sole owner of capital allocation now, so
-// Document neither parses nor exposes it (see docs/concept-alignment.md §3.3).
+// but the Composition (internal/composition) is the sole owner of capital
+// allocation now, so Document neither parses nor exposes it (see
+// docs/concept-alignment.md §3.3).
 
 import (
 	"encoding/json"

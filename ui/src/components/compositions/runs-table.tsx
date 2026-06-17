@@ -56,7 +56,7 @@ function ReturnCell({ b }: { b: BacktestSummary }) {
 const STATUS_OPTIONS = ["", "RUNNING", "COMPLETE", "INTERRUPTED", "FAIL"];
 
 /**
- * Backtest runs list for the Models module. A row click selects a run for the
+ * Backtest runs list for the Compositions module. A row click selects a run for the
  * inline backtest panel — the standalone `/backtests/[id]` route is retired and
  * results render in place (docs/concept-alignment.md §3.4 ③). `selectedId`
  * highlights the open run.

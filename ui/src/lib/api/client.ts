@@ -63,7 +63,7 @@ export async function apiPost<T>(
   return apiBody<T>("POST", path, body);
 }
 
-/** PUT a JSON body to `<proxy>/<path>` (full-replace mutations, e.g. Model update). */
+/** PUT a JSON body to `<proxy>/<path>` (full-replace mutations, e.g. Composition update). */
 export async function apiPut<T>(path: string, body: unknown): Promise<T> {
   return apiBody<T>("PUT", path, body);
 }

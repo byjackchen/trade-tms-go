@@ -22,13 +22,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/data/universe"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	"github.com/byjackchen/trade-tms-go/internal/engine"
 	"github.com/byjackchen/trade-tms-go/internal/engine/strategyassembly"
 	"github.com/byjackchen/trade-tms-go/internal/livengine"
-	"github.com/byjackchen/trade-tms-go/internal/model"
 	"github.com/byjackchen/trade-tms-go/internal/params"
 	"github.com/byjackchen/trade-tms-go/internal/params/paramsdb"
 	"github.com/byjackchen/trade-tms-go/internal/riskgate"
@@ -198,16 +198,16 @@ func (a *Assembler) Assemble(ctx context.Context, in AssemblyInput, start, end c
 		in.Tickers = capped
 	}
 
-	// Resolve the SEED Model the legacy strategy selector maps to (multi ->
-	// default-multi; the singles -> their *-only single-member Model). The
-	// assembler is Model-driven: weights + risk come from this Model, not
-	// hardcoded constants (docs/concept-alignment.md §3.2).
-	mdl, err := seedModelForStrategy(in.Strategy)
+	// Resolve the SEED Composition the legacy strategy selector maps to (multi ->
+	// default-multi; the singles -> their *-only single-member Composition). The
+	// assembler is Composition-driven: weights + risk come from this Composition,
+	// not hardcoded constants (docs/concept-alignment.md §3.2).
+	comp, err := seedCompositionForStrategy(in.Strategy)
 	if err != nil {
 		return nil, fmt.Errorf("runner: %w", err)
 	}
 	asmIn := strategyassembly.Input{
-		Model:           mdl,
+		Composition:     comp,
 		StartingBalance: in.StartingBalance,
 		SEPAStocks:      in.Tickers,
 		ORBSymbol:       in.ORBSymbol,
@@ -309,12 +309,13 @@ func (a *Assembler) Assemble(ctx context.Context, in AssemblyInput, start, end c
 	}, nil
 }
 
-// seedModelForStrategy maps a legacy strategy selector
-// (sepa|sector_rotation|pairs|orb|multi) to its backward-compatible SEED Model
-// (multi -> default-multi; the singles -> their *-only single-member Model),
-// resolved in-process from model.SeedModels (no DB pool). The Model carries the
-// weights + risk the assembler used to hardcode (docs/concept-alignment.md §3.2).
-func seedModelForStrategy(strategy string) (model.Model, error) {
+// seedCompositionForStrategy maps a legacy strategy selector
+// (sepa|sector_rotation|pairs|orb|multi) to its backward-compatible SEED
+// Composition (multi -> default-multi; the singles -> their *-only single-member
+// Composition), resolved in-process from composition.SeedCompositions (no DB
+// pool). The Composition carries the weights + risk the assembler used to hardcode
+// (docs/concept-alignment.md §3.2).
+func seedCompositionForStrategy(strategy string) (composition.Composition, error) {
 	id := map[string]string{
 		"multi":           "default-multi",
 		"sepa":            "sepa-only",
@@ -323,9 +324,9 @@ func seedModelForStrategy(strategy string) (model.Model, error) {
 		"orb":             "orb-only",
 	}[strategy]
 	if id == "" {
-		return model.Model{}, fmt.Errorf("no seed model for strategy %q", strategy)
+		return composition.Composition{}, fmt.Errorf("no seed composition for strategy %q", strategy)
 	}
-	return model.Seed(id)
+	return composition.Seed(id)
 }
 
 // resolveFixedBaskets returns the always-subscribed instruments the live cap MUST

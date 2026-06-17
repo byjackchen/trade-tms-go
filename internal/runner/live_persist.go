@@ -24,8 +24,8 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/domain"
 	moexec "github.com/byjackchen/trade-tms-go/internal/exec/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/livetrade"
-	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 	"github.com/byjackchen/trade-tms-go/internal/publish"
+	"github.com/byjackchen/trade-tms-go/internal/riskgate"
 )
 
 // LivePersist persists paper/live trading state to PG + mirrors to Redis.
