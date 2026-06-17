@@ -1,8 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import { FlaskConical } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -14,13 +11,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ErrorState, EmptyState, LoadingRows } from "@/components/shell/states";
-import { NewBacktestDialog } from "@/components/models/new-backtest-dialog";
 import { useStrategy } from "@/lib/api/hooks";
-import {
-  BACKTEST_STRATEGIES,
-  type BacktestStrategy,
-  type ParamSchema,
-} from "@/lib/api/types";
+import { type ParamSchema } from "@/lib/api/types";
 
 /** Render any param value (number/string/list) as a stable display string. */
 function formatValue(v: unknown): string {
@@ -47,26 +39,22 @@ function formatRange(p: ParamSchema): string {
   return `${p.search_low} – ${p.search_high}`;
 }
 
-/** Narrow the backtest token to the dialog's accepted set (defaults scripted). */
-function asBacktestStrategy(token: string): BacktestStrategy {
-  return (BACKTEST_STRATEGIES as readonly string[]).includes(token)
-    ? (token as BacktestStrategy)
-    : "scripted";
-}
-
 /**
- * One strategy's DETAILS: schema version + params source, the resolved active
- * params table (active_values overlaid on the schema defaults), and a launcher
- * for a single-member-Model backtest.
+ * One strategy's DETAILS: schema version + params source and the resolved active
+ * params table (active_values overlaid on the schema defaults).
  *
- * NOTE (docs/concept-alignment.md §3.3, C3): `capital_pct` and `active` were
- * REMOVED from GET /strategies — weight + on/off are Model-member properties now,
- * served by /models — so this view does NOT render allocation or an enabled flag.
+ * A strategy has NO backtest entry here (docs/concept-alignment.md §3.4 A3):
+ * Backtest is a Model operation — to backtest a single strategy, backtest its
+ * single-member Model (e.g. `sepa-only`) from the Models module. The only
+ * param-tuning surface on a strategy is the Hyperopt panel (sibling component).
+ *
+ * NOTE (§3.3, C3): `capital_pct` and `active` were REMOVED from GET /strategies —
+ * weight + on/off are Model-member properties now, served by /models — so this
+ * view does NOT render allocation or an enabled flag.
  */
 export function StrategyDetails({ strategyId }: { strategyId: string }) {
   const query = useStrategy(strategyId);
   const m = query.data?.strategy;
-  const [dialogOpen, setDialogOpen] = useState(false);
 
   return (
     <div
@@ -89,31 +77,19 @@ export function StrategyDetails({ strategyId }: { strategyId: string }) {
         />
       ) : (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3" data-testid="strategy-meta">
-              <Badge
-                variant={m.params_source === "db" ? "default" : "secondary"}
-                data-testid="strategy-source"
-              >
-                {m.params_source}
-              </Badge>
-              <span className="font-mono text-xs text-muted-foreground">
-                schema v{m.schema_version}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {m.parameters_count} params
-              </span>
-            </div>
-            {!m.error ? (
-              <Button
-                size="sm"
-                onClick={() => setDialogOpen(true)}
-                data-testid="strategy-backtest-launch"
-              >
-                <FlaskConical />
-                Run backtest with this strategy
-              </Button>
-            ) : null}
+          <div className="flex items-center gap-3" data-testid="strategy-meta">
+            <Badge
+              variant={m.params_source === "db" ? "default" : "secondary"}
+              data-testid="strategy-source"
+            >
+              {m.params_source}
+            </Badge>
+            <span className="font-mono text-xs text-muted-foreground">
+              schema v{m.schema_version}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {m.parameters_count} params
+            </span>
           </div>
 
           {m.description ? (
@@ -206,16 +182,6 @@ export function StrategyDetails({ strategyId }: { strategyId: string }) {
           )}
         </>
       )}
-
-      {/* Mount the dialog only while open so its initial form state picks up this
-          strategy as the prefill (no in-flight prop sync needed). */}
-      {m && !m.error && dialogOpen ? (
-        <NewBacktestDialog
-          open
-          onClose={() => setDialogOpen(false)}
-          prefillStrategy={asBacktestStrategy(m.backtest_id)}
-        />
-      ) : null}
     </div>
   );
 }
