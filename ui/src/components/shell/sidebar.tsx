@@ -6,8 +6,6 @@ import { CircleDot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { NAV_SECTIONS, isSectionActive } from "@/components/shell/nav";
-import { ThemeToggle } from "@/components/shell/theme-toggle";
-import { ModeToggle } from "@/components/shell/mode-toggle";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -53,14 +51,6 @@ export function Sidebar() {
           );
         })}
       </nav>
-
-      <div className="flex flex-col gap-1 border-t border-sidebar-border p-2">
-        {/* The explicit display-mode toggle (desktop|mobile|auto). Mounted here
-            so a desktop user has an in-app path to force the mobile shell —
-            LOCKED DECISION 4; the cookie/provider/refresh path already works. */}
-        <ModeToggle fullWidth />
-        <ThemeToggle />
-      </div>
     </aside>
   );
 }

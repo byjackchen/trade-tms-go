@@ -3,6 +3,8 @@
 import { useUiMode } from "@/components/shell/ui-mode-provider";
 import { Sidebar } from "@/components/shell/sidebar";
 import { MobileShell } from "@/components/shell/mobile-shell";
+import { ModeToggle } from "@/components/shell/mode-toggle";
+import { ThemeToggle } from "@/components/shell/theme-toggle";
 
 /**
  * Branches the app chrome on the resolved UI mode (docs/concept-alignment.md,
@@ -25,7 +27,15 @@ export function ShellSwitch({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen" data-testid="app-shell">
       <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Top utility bar: the display-mode toggle + theme live TOP-RIGHT,
+            consistent with the mobile app bar (icon-only). */}
+        <header className="flex h-12 shrink-0 items-center justify-end gap-1 border-b border-sidebar-border px-4">
+          <ModeToggle iconOnly />
+          <ThemeToggle variant="bar" />
+        </header>
+        <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+      </div>
     </div>
   );
 }
