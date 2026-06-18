@@ -8,8 +8,6 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useUiMode } from "@/components/shell/ui-mode-provider";
-import { cn } from "@/lib/utils";
 import { JobProgress } from "@/components/systems/job-progress";
 import { useCreateBacktest, useCancelJob, useCompositions } from "@/lib/api/hooks";
 import { useJobTracker } from "@/lib/api/use-job-tracker";
@@ -112,9 +110,7 @@ export function NewBacktestDialog({
   /** Open the freshly-completed run in the inline backtest panel. */
   onView?: (id: number) => void;
 }) {
-  const { mode } = useUiMode();
-  const mobile = mode === "mobile";
-  const grid2 = cn("grid gap-3", mobile ? "grid-cols-1" : "grid-cols-2");
+  const grid2 = "grid gap-3 grid-cols-2 ui-mobile:grid-cols-1";
 
   const { data: compositionsData } = useCompositions();
   const compositions = useMemo<Composition[]>(() => compositionsData?.compositions ?? [], [compositionsData]);

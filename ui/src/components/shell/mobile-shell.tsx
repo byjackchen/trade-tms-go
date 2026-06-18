@@ -5,11 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CircleDot } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  NAV_SECTIONS,
-  isSectionActive,
-  activeSectionLabel,
-} from "@/components/shell/nav";
+import { activeSectionLabel } from "@/components/shell/nav";
+import { useNavItems, navLinkProps } from "@/components/shell/nav-item";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { ModeToggle } from "@/components/shell/mode-toggle";
 import { AccountSelector } from "@/components/portfolio/account-selector";
@@ -81,7 +78,7 @@ function MobileAppBar() {
 
 /** Fixed bottom tab bar: the four top-levels as icon+label tabs. */
 function MobileTabBar() {
-  const pathname = usePathname();
+  const items = useNavItems();
   return (
     // The nav's own height is the 64px tab row PLUS the bottom safe-area inset,
     // added as real space BELOW the row (`pb-[env(...)]`) so the iOS home-swipe
@@ -94,16 +91,13 @@ function MobileTabBar() {
       className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
     >
       <div className="flex h-16 items-stretch">
-        {NAV_SECTIONS.map((s) => {
-          const active = isSectionActive(pathname, s.href);
+        {items.map((item) => {
+          const { section: s, active } = item;
           const Icon = s.icon;
           return (
             <Link
               key={s.href}
-              href={s.href}
-              data-testid={s.testid}
-              data-active={active ? "true" : "false"}
-              aria-current={active ? "page" : undefined}
+              {...navLinkProps(item)}
               className={cn(
                 // flex-1 splits the row four ways; min-h-11 (44px) guarantees the
                 // touch target even before the row's own h-16.

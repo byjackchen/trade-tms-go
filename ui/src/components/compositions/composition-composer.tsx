@@ -8,7 +8,6 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useUiMode } from "@/components/shell/ui-mode-provider";
 import { cn } from "@/lib/utils";
 import { useCreateComposition, useUpdateComposition } from "@/lib/api/hooks";
 import { ApiError } from "@/lib/api/client";
@@ -91,8 +90,6 @@ export function CompositionComposer({
   onSaved?: (id: string) => void;
 }) {
   const editing = composition != null;
-  const { mode } = useUiMode();
-  const mobile = mode === "mobile";
 
   const [id, setId] = useState(composition?.id ?? "");
   const [name, setName] = useState(composition?.name ?? "");
@@ -275,7 +272,7 @@ export function CompositionComposer({
       title={editing ? `Edit Composition — ${composition?.name}` : "New Composition"}
       description="A named portfolio blueprint: strategies + weights + param refs + composite risk. Σ(active weights) + cash ≤ 100%."
       data-testid="composition-composer"
-      className={mobile ? undefined : "w-[min(52rem,calc(100vw-2rem))]"}
+      className="ui-desktop:w-[min(52rem,calc(100vw-2rem))]"
       footer={
         <>
           <Button variant="ghost" onClick={close} data-testid="composer-cancel">
@@ -289,7 +286,7 @@ export function CompositionComposer({
     >
       <div className="space-y-5" data-testid="composer-form">
         {/* identity */}
-        <div className={cn("grid gap-3", mobile ? "grid-cols-1" : "grid-cols-2")}>
+        <div className="grid gap-3 grid-cols-2 ui-mobile:grid-cols-1">
           <div className="space-y-1.5">
             <Label htmlFor="mc-id">Id (slug)</Label>
             <Input
@@ -387,7 +384,7 @@ export function CompositionComposer({
                           }
                           inputMode="decimal"
                           placeholder="40"
-                          className={cn("w-20 font-mono", mobile ? "h-11" : "h-8")}
+                          className="w-20 font-mono h-8 ui-mobile:h-11"
                           data-testid={`member-weight-${m.strategy_id}`}
                         />
                       </div>
@@ -418,7 +415,7 @@ export function CompositionComposer({
                           }
                           inputMode="numeric"
                           placeholder="active"
-                          className={cn("w-24 font-mono", mobile ? "h-11" : "h-8")}
+                          className="w-24 font-mono h-8 ui-mobile:h-11"
                           data-testid={`member-paramset-${m.strategy_id}`}
                         />
                       </div>
@@ -437,10 +434,7 @@ export function CompositionComposer({
 
         {/* cash + live remainder */}
         <div
-          className={cn(
-            "grid items-end gap-4",
-            mobile ? "grid-cols-1" : "grid-cols-[10rem_1fr]",
-          )}
+          className="grid items-end gap-4 grid-cols-[10rem_1fr] ui-mobile:grid-cols-1"
         >
           <div className="space-y-1.5">
             <Label htmlFor="mc-cash">Cash reserve %</Label>
@@ -498,7 +492,7 @@ export function CompositionComposer({
         {/* risk */}
         <div className="space-y-2" data-testid="composer-risk">
           <Label>Composition-level risk (fractions in (0, 1])</Label>
-          <div className={cn("grid gap-3", mobile ? "grid-cols-2" : "grid-cols-3")}>
+          <div className="grid gap-3 grid-cols-3 ui-mobile:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="mc-risk-single" className="text-xs text-muted-foreground">
                 Single name

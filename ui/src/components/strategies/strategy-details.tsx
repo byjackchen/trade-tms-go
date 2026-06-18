@@ -6,7 +6,6 @@ import {
   ResponsiveTable,
   type ColumnDef,
 } from "@/components/ui/responsive-table";
-import { useUiMode } from "@/components/shell/ui-mode-provider";
 import { ErrorState, EmptyState, LoadingRows } from "@/components/shell/states";
 import { useStrategy } from "@/lib/api/hooks";
 import { type ParamSchema } from "@/lib/api/types";
@@ -110,7 +109,6 @@ function buildParamColumns(
 }
 
 export function StrategyDetails({ strategyId }: { strategyId: string }) {
-  const { mode } = useUiMode();
   const query = useStrategy(strategyId);
   const m = query.data?.strategy;
 
@@ -182,11 +180,7 @@ export function StrategyDetails({ strategyId }: { strategyId: string }) {
                   />
                 ) : (
                   <div
-                    className={
-                      mode === "mobile"
-                        ? undefined
-                        : "overflow-hidden rounded-lg border border-border"
-                    }
+                    className="ui-desktop:overflow-hidden ui-desktop:rounded-lg ui-desktop:border ui-desktop:border-border"
                     data-testid="strategy-params-table"
                   >
                     <ResponsiveTable

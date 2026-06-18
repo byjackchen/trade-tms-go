@@ -9,7 +9,6 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { JobProgress } from "@/components/systems/job-progress";
-import { useUiMode } from "@/components/shell/ui-mode-provider";
 import { cn } from "@/lib/utils";
 import { useCreateStudy, useCancelJob, useStrategy } from "@/lib/api/hooks";
 import { useJobTracker } from "@/lib/api/use-job-tracker";
@@ -74,10 +73,9 @@ export function NewStudyDialog({
   /** Open the freshly-completed study in the inline detail panel. */
   onView?: (ts: string) => void;
 }) {
-  const { mode } = useUiMode();
-  // Mobile (cookie-driven, not CSS): stack the two-up input rows into one column
-  // so each field gets the full sheet width.
-  const grid2 = cn("grid gap-3", mode === "mobile" ? "grid-cols-1" : "grid-cols-2");
+  // Mobile (CSS via ui-mobile: variant): stack the two-up input rows into one
+  // column so each field gets the full sheet width. Desktop is the base.
+  const grid2 = "grid gap-3 grid-cols-2 ui-mobile:grid-cols-1";
   const [strategy, setStrategy] = useState<HyperoptStrategy>(defaultStrategy);
   const [start, setStart] = useState("2023-01-02");
   const [end, setEnd] = useState("2023-12-29");

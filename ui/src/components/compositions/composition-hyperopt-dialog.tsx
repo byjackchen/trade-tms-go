@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useUiMode } from "@/components/shell/ui-mode-provider";
 import { cn } from "@/lib/utils";
 import { JobProgress } from "@/components/systems/job-progress";
 import { useCompositionHyperopt, useCancelJob } from "@/lib/api/hooks";
@@ -43,15 +42,13 @@ function RangeRow({
   testid,
   value,
   onChange,
-  mobile,
 }: {
   label: string;
   testid: string;
   value: RangeDraft;
   onChange: (next: RangeDraft) => void;
-  mobile?: boolean;
 }) {
-  const inputCls = cn("w-20 font-mono", mobile ? "h-11" : "h-8");
+  const inputCls = "w-20 font-mono h-8 ui-mobile:h-11";
   return (
     <div
       className="flex items-center justify-between gap-3"
@@ -102,9 +99,7 @@ export function CompositionHyperoptDialog({
   /** Open the freshly-completed study in the inline panel. */
   onView?: (ts: string) => void;
 }) {
-  const { mode } = useUiMode();
-  const mobile = mode === "mobile";
-  const grid2 = cn("grid gap-3", mobile ? "grid-cols-1" : "grid-cols-2");
+  const grid2 = "grid gap-3 grid-cols-2 ui-mobile:grid-cols-1";
 
   // Only ACTIVE members get a weight dim (LOCKED DECISION 1a / 4).
   const activeMembers = useMemo(
@@ -284,7 +279,7 @@ export function CompositionHyperoptDialog({
       title="Composition Hyperopt — weights & risk"
       description="Search this Composition's member weights + cash + risk caps with NSGA-II walk-forward. Strategy params stay FIXED at each member's active set."
       data-testid="composition-hyperopt-dialog"
-      className={mobile ? undefined : "w-[min(48rem,calc(100vw-2rem))]"}
+      className="ui-desktop:w-[min(48rem,calc(100vw-2rem))]"
       footer={
         tracked ? (
           <>
@@ -390,7 +385,6 @@ export function CompositionHyperoptDialog({
                   label="weight (raw, per active member)"
                   testid="weight"
                   value={weight}
-                  mobile={mobile}
                   onChange={(next) => {
                     setWeight(next);
                     setLocalError(null);
@@ -400,7 +394,6 @@ export function CompositionHyperoptDialog({
                   label="cash (raw)"
                   testid="cash"
                   value={cash}
-                  mobile={mobile}
                   onChange={(next) => {
                     setCash(next);
                     setLocalError(null);
@@ -423,7 +416,6 @@ export function CompositionHyperoptDialog({
                 label="single_name_pct"
                 testid="single-name"
                 value={singleName}
-                mobile={mobile}
                 onChange={(next) => {
                   setSingleName(next);
                   setLocalError(null);
@@ -433,7 +425,6 @@ export function CompositionHyperoptDialog({
                 label="concentration_pct"
                 testid="concentration"
                 value={concentration}
-                mobile={mobile}
                 onChange={(next) => {
                   setConcentration(next);
                   setLocalError(null);
@@ -443,7 +434,6 @@ export function CompositionHyperoptDialog({
                 label="daily_loss_halt_pct"
                 testid="daily-loss-halt"
                 value={dailyLossHalt}
-                mobile={mobile}
                 onChange={(next) => {
                   setDailyLossHalt(next);
                   setLocalError(null);

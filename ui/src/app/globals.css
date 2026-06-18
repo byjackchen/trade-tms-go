@@ -3,6 +3,19 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
+ * UI-mode variants — drive desktop/mobile *layout* (grid columns, padding,
+ * touch-target sizing) from the server-seeded `<html data-ui-mode>` attribute,
+ * NOT the viewport. This is what lets a manual toggle force mobile on a desktop
+ * (and vice versa) — pure `lg:`-style breakpoints can't, since they only know
+ * the viewport. Authoring rule: desktop is the BASE, `ui-mobile:` overrides for
+ * mobile (mirrors how `dark:` overrides light). Use `ui-desktop:` only when a
+ * class must apply to desktop exclusively. Replaces the scattered
+ * `const mobile = mode === "mobile"` className ternaries across the pages.
+ */
+@custom-variant ui-mobile (&:is([data-ui-mode="mobile"] *));
+@custom-variant ui-desktop (&:is([data-ui-mode="desktop"] *));
+
+/*
  * Design tokens: the neutral oklch palette of the shadcn "base-nova" theme, with a
  * dark cockpit default. We inline the tokens (rather than depend on the
  * `shadcn/tailwind.css` magic import) so the build is hermetic and `npm run

@@ -7,7 +7,6 @@ import { PageHeader } from "@/components/shell/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useUiMode } from "@/components/shell/ui-mode-provider";
 import { useSelectedAccount } from "@/components/portfolio/account-selector";
 import { StrategyLiveCard } from "@/components/strategies/strategy-live-card";
 import { StrategyDetails } from "@/components/strategies/strategy-details";
@@ -93,8 +92,6 @@ function StrategiesInner() {
 
 function StrategiesBody({ accountId }: { accountId: string | undefined }) {
   const router = useRouter();
-  const { mode } = useUiMode();
-  const mobile = mode === "mobile";
   const [tabId, setTabId] = useState<string>(FIRST_TAB.id);
   const tab = TABS.find((t) => t.id === tabId) ?? FIRST_TAB;
   // RE-ADDED Backtest (LOCKED DECISION 5): backtest this strategy's single-member
@@ -116,7 +113,7 @@ function StrategiesBody({ accountId }: { accountId: string | undefined }) {
       <nav
         className={cn(
           "flex items-center gap-1 border-b border-border px-6",
-          mobile && "overflow-x-auto no-scrollbar px-4",
+          "ui-mobile:overflow-x-auto ui-mobile:no-scrollbar ui-mobile:px-4",
         )}
         data-testid="strategy-tabs"
         role="tablist"
@@ -134,7 +131,7 @@ function StrategiesBody({ accountId }: { accountId: string | undefined }) {
               onClick={() => setTabId(t.id)}
               className={cn(
                 "border-b-2 px-3 py-2.5 text-sm font-medium transition-colors",
-                mobile && "min-h-[44px] shrink-0 whitespace-nowrap",
+                "ui-mobile:min-h-[44px] ui-mobile:shrink-0 ui-mobile:whitespace-nowrap",
                 active
                   ? "border-primary text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground",
@@ -148,8 +145,7 @@ function StrategiesBody({ accountId }: { accountId: string | undefined }) {
 
       <main
         className={cn(
-          "mx-auto w-full max-w-7xl flex-1 space-y-6",
-          mobile ? "p-4" : "p-6",
+          "mx-auto w-full max-w-7xl flex-1 space-y-6 p-6 ui-mobile:p-4",
         )}
         data-testid="strategies-page"
         data-active-tab={tab.id}

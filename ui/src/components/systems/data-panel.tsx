@@ -3,8 +3,6 @@
 import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useUiMode } from "@/components/shell/ui-mode-provider";
-import { cn } from "@/lib/utils";
 import { CoverageTable } from "@/components/systems/coverage-table";
 import { GapHeatmap } from "@/components/systems/gap-heatmap";
 import { SyncRunsTable } from "@/components/systems/sync-runs-table";
@@ -22,8 +20,6 @@ import { RefreshDialog } from "@/components/systems/refresh-dialog";
 export function DataPanel() {
   const [refreshOpen, setRefreshOpen] = useState(false);
   const [inspectTicker, setInspectTicker] = useState<string | null>(null);
-  const { mode } = useUiMode();
-  const mobile = mode === "mobile";
 
   return (
     <div className="space-y-4" data-testid="systems-data">
@@ -43,24 +39,14 @@ export function DataPanel() {
       {/* Multi-column on desktop; single stacked column on mobile (LOCKED
           DECISION 4 — the switch follows the ui-mode cookie, not a CSS
           breakpoint, so a forced-mobile desktop also stacks). */}
-      <div
-        className={cn(
-          "grid grid-cols-1 gap-4",
-          !mobile && "lg:grid-cols-3",
-        )}
-      >
-        <div className={cn(!mobile && "lg:col-span-2")}>
+      <div className="grid grid-cols-1 gap-4 ui-desktop:lg:grid-cols-3">
+        <div className="ui-desktop:lg:col-span-2">
           <GapHeatmap initialTicker={inspectTicker} />
         </div>
         <UniverseCard />
       </div>
 
-      <div
-        className={cn(
-          "grid grid-cols-1 gap-4",
-          !mobile && "lg:grid-cols-2",
-        )}
-      >
+      <div className="grid grid-cols-1 gap-4 ui-desktop:lg:grid-cols-2">
         <SyncRunsTable />
         <JobsPanel />
       </div>

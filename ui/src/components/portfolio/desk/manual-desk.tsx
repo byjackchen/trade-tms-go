@@ -2,7 +2,6 @@
 
 import { Suspense } from "react";
 import { Banknote, FlaskConical } from "lucide-react";
-import { useUiMode } from "@/components/shell/ui-mode-provider";
 import { cn } from "@/lib/utils";
 import { useLiveSession } from "@/lib/api/hooks";
 import { hasSession } from "@/lib/api/types";
@@ -42,8 +41,6 @@ export function ManualDesk({
 }) {
   const sessionQ = useLiveSession();
   const session = hasSession(sessionQ.data) ? sessionQ.data : null;
-  const { mode } = useUiMode();
-  const mobile = mode === "mobile";
   // Live env is always real-money armed (no disarm). Paper never arms live.
   const liveArmed = env === "live";
 
@@ -67,8 +64,7 @@ export function ManualDesk({
     <TradeDeskProvider>
       <main
         className={cn(
-          "mx-auto w-full max-w-7xl flex-1 space-y-4",
-          mobile ? "p-4" : "p-6",
+          "mx-auto w-full max-w-7xl flex-1 space-y-4 p-6 ui-mobile:p-4",
         )}
         data-testid="manual-desk"
         data-env={env}
@@ -107,7 +103,9 @@ export function ManualDesk({
         <AccountPanel variant="desk" accountId={accountId} />
 
         <div
-          className={cn("grid grid-cols-1 gap-4", !mobile && "lg:grid-cols-3")}
+          className={cn(
+            "grid grid-cols-1 gap-4 ui-desktop:lg:grid-cols-3",
+          )}
         >
           {/* Order ticket — the single client of POST /trade/order. */}
           <div className="space-y-4">
@@ -118,7 +116,7 @@ export function ManualDesk({
           </div>
 
           {/* Book: positions (with Close) + blotter (with Cancel) + fills. */}
-          <div className={cn("space-y-4", !mobile && "lg:col-span-2")}>
+          <div className={cn("space-y-4 ui-desktop:lg:col-span-2")}>
             <PositionsTable
               withActions
               liveArmed={liveArmed}

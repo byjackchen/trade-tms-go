@@ -121,7 +121,7 @@ export function CompositionsList({
         />
       ) : (
         <div
-          className={cn("grid gap-4", mobile ? "grid-cols-1" : "lg:grid-cols-2")}
+          className={cn("grid gap-4 ui-desktop:lg:grid-cols-2 ui-mobile:grid-cols-1")}
           data-testid="compositions-grid"
         >
           {compositions.map((m) => {
@@ -198,7 +198,7 @@ export function CompositionsList({
                   <div className="flex flex-wrap gap-2 pt-1">
                     <Button
                       size={mobile ? "lg" : "sm"}
-                      className={mobile ? "min-h-11" : undefined}
+                      className="ui-mobile:min-h-11"
                       onClick={() => onBacktest(m)}
                       data-testid={`composition-backtest-${m.id}`}
                     >
@@ -207,7 +207,7 @@ export function CompositionsList({
                     </Button>
                     <Button
                       size={mobile ? "lg" : "sm"}
-                      className={mobile ? "min-h-11" : undefined}
+                      className="ui-mobile:min-h-11"
                       variant="outline"
                       onClick={() => onHyperopt(m)}
                       data-testid={`composition-hyperopt-${m.id}`}
@@ -217,7 +217,7 @@ export function CompositionsList({
                     </Button>
                     <Button
                       size={mobile ? "lg" : "sm"}
-                      className={mobile ? "min-h-11" : undefined}
+                      className="ui-mobile:min-h-11"
                       variant="ghost"
                       onClick={() => onEdit(m)}
                       data-testid={`composition-edit-${m.id}`}
@@ -227,7 +227,7 @@ export function CompositionsList({
                     </Button>
                     <Button
                       size={mobile ? "lg" : "sm"}
-                      className={mobile ? "min-h-11" : undefined}
+                      className="ui-mobile:min-h-11"
                       variant="ghost"
                       onClick={() => remove(m)}
                       disabled={del.isPending}

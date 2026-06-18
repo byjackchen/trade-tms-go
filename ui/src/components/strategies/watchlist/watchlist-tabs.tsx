@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { AccountSelector } from "@/components/portfolio/account-selector";
-import { useUiMode } from "@/components/shell/ui-mode-provider";
 import { cn } from "@/lib/utils";
 import { SepaTable } from "./sepa-table";
 import { SectorTable } from "./sector-table";
@@ -32,8 +31,6 @@ const TABS: { id: TabId; label: string; testid: string }[] = [
  * `live-watchlist-row` testid contract the e2e suite (specs 20, 34) depends on.
  */
 export function WatchlistTabs({ accountId }: { accountId?: string } = {}) {
-  const { mode } = useUiMode();
-  const mobile = mode === "mobile";
   const [tab, setTab] = useState<TabId>("sepa");
   const [query, setQuery] = useState("");
 
@@ -62,7 +59,7 @@ export function WatchlistTabs({ accountId }: { accountId?: string } = {}) {
         <nav
           className={cn(
             "flex items-center gap-1 border-b border-border",
-            mobile && "overflow-x-auto no-scrollbar",
+            "ui-mobile:overflow-x-auto ui-mobile:no-scrollbar",
           )}
           data-testid="watchlist-tabs"
           role="tablist"
@@ -80,7 +77,7 @@ export function WatchlistTabs({ accountId }: { accountId?: string } = {}) {
                 onClick={() => setTab(t.id)}
                 className={cn(
                   "border-b-2 px-3 py-2 text-sm font-medium transition-colors",
-                  mobile && "min-h-[44px] shrink-0 whitespace-nowrap",
+                  "ui-mobile:min-h-[44px] ui-mobile:shrink-0 ui-mobile:whitespace-nowrap",
                   active
                     ? "border-primary text-foreground"
                     : "border-transparent text-muted-foreground hover:text-foreground",

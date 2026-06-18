@@ -4,7 +4,6 @@ import { Suspense } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { PageHeader } from "@/components/shell/page-header";
-import { useUiMode } from "@/components/shell/ui-mode-provider";
 import { cn } from "@/lib/utils";
 import { LiveIndicator } from "./live-indicator";
 import { ExecBanner } from "./exec-banner";
@@ -123,8 +122,6 @@ function ModuleHeader({
 function ModuleTabs({ view }: { view: View }) {
   const pathname = usePathname();
   const search = useSearchParams();
-  const { mode } = useUiMode();
-  const mobile = mode === "mobile";
   const account = search.get("account");
   const acctQs = account ? `&account=${encodeURIComponent(account)}` : "";
   const tabs: { view: View; label: string; testid: string }[] = [
@@ -135,10 +132,9 @@ function ModuleTabs({ view }: { view: View }) {
     <nav
       className={cn(
         "flex items-center border-b border-border",
-        mobile
-          ? // Mobile: horizontally-scrollable segmented control, edge-to-edge.
-            "gap-2 overflow-x-auto px-4 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          : "gap-1 px-6",
+        // Desktop base: underlined tab bar. Mobile override: horizontally-
+        // scrollable segmented control, edge-to-edge.
+        "gap-1 px-6 ui-mobile:gap-2 ui-mobile:overflow-x-auto ui-mobile:px-4 ui-mobile:py-2 ui-mobile:[scrollbar-width:none] ui-mobile:[&::-webkit-scrollbar]:hidden",
       )}
       data-testid="trade-module-tabs"
     >
@@ -157,20 +153,12 @@ function ModuleTabs({ view }: { view: View }) {
             aria-current={active ? "page" : undefined}
             className={cn(
               "text-sm font-medium transition-colors",
-              mobile
-                ? // Segmented pill, >=44px tall, never shrinks below tap size.
-                  cn(
-                    "flex min-h-11 shrink-0 items-center rounded-full px-4",
-                    active
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:text-foreground",
-                  )
-                : cn(
-                    "border-b-2 px-3 py-2",
-                    active
-                      ? "border-primary text-foreground"
-                      : "border-transparent text-muted-foreground hover:text-foreground",
-                  ),
+              // Desktop base: underlined tab. Mobile override: segmented pill,
+              // >=44px tall, never shrinks below tap size.
+              "border-b-2 px-3 py-2 ui-mobile:flex ui-mobile:min-h-11 ui-mobile:shrink-0 ui-mobile:items-center ui-mobile:rounded-full ui-mobile:border-b-0 ui-mobile:px-4 ui-mobile:py-0",
+              active
+                ? "border-primary text-foreground ui-mobile:border-transparent ui-mobile:bg-primary ui-mobile:text-primary-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground ui-mobile:bg-muted",
             )}
           >
             {t.label}
@@ -193,14 +181,12 @@ function PortfolioView({
   env: TradeEnv;
   accountId: string | undefined;
 }) {
-  const { mode } = useUiMode();
-  const mobile = mode === "mobile";
   return (
     <main
       className={cn(
         "mx-auto w-full max-w-7xl flex-1 space-y-4",
         // Tighter padding on mobile so panels get the full container width.
-        mobile ? "p-4" : "p-6",
+        "p-6 ui-mobile:p-4",
       )}
       data-testid="portfolio-view"
       data-env={env}
@@ -220,8 +206,8 @@ function PortfolioView({
           session controls. On mobile this stacks into a single column (the
           explicit mobile cookie collapses the desktop 3-col split regardless of
           viewport width — LOCKED DECISION 4). */}
-      <div className={cn("grid grid-cols-1 gap-4", !mobile && "lg:grid-cols-3")}>
-        <div className={cn("space-y-4", !mobile && "lg:col-span-2")}>
+      <div className={cn("grid grid-cols-1 gap-4 ui-desktop:lg:grid-cols-3")}>
+        <div className={cn("space-y-4 ui-desktop:lg:col-span-2")}>
           <PositionsTable accountId={accountId} />
           <Blotter accountId={accountId} />
           <FillsList accountId={accountId} />

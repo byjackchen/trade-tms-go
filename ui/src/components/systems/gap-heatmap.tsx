@@ -12,8 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ErrorState, LoadingRows, EmptyState } from "@/components/shell/states";
-import { useUiMode } from "@/components/shell/ui-mode-provider";
-import { cn } from "@/lib/utils";
 import { ApiError } from "@/lib/api/client";
 import { useTickerGaps } from "@/lib/api/hooks";
 import { formatInt } from "@/lib/format";
@@ -57,8 +55,6 @@ export function GapHeatmap({ initialTicker }: { initialTicker: string | null }) 
   }
 
   const { data, isLoading, error, refetch, isFetching } = useTickerGaps(ticker);
-  const { mode } = useUiMode();
-  const mobile = mode === "mobile";
 
   const months = useMemo(() => {
     if (!data || data.bars === 0) return [];
@@ -182,12 +178,7 @@ export function GapHeatmap({ initialTicker }: { initialTicker: string | null }) 
               </span>
             </div>
 
-            <div
-              className={cn(
-                "grid grid-cols-1 gap-3",
-                !mobile && "sm:grid-cols-2 lg:grid-cols-3",
-              )}
-            >
+            <div className="grid grid-cols-1 gap-3 ui-desktop:sm:grid-cols-2 ui-desktop:lg:grid-cols-3">
               {months.map((month) => (
                 <div
                   key={month.key}

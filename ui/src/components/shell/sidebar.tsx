@@ -1,14 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { CircleDot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { NAV_SECTIONS, isSectionActive } from "@/components/shell/nav";
+import { useNavItems, navLinkProps } from "@/components/shell/nav-item";
 
 export function Sidebar() {
-  const pathname = usePathname();
+  const items = useNavItems();
   return (
     <aside
       data-testid="sidebar"
@@ -23,16 +22,13 @@ export function Sidebar() {
       </div>
 
       <nav className="flex flex-1 flex-col gap-0.5 p-2" data-testid="nav">
-        {NAV_SECTIONS.map((s) => {
-          const active = isSectionActive(pathname, s.href);
+        {items.map((item) => {
+          const { section: s, active } = item;
           const Icon = s.icon;
           return (
             <Link
               key={s.href}
-              href={s.href}
-              data-testid={s.testid}
-              data-active={active ? "true" : "false"}
-              aria-current={active ? "page" : undefined}
+              {...navLinkProps(item)}
               className={cn(
                 "group flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 active
