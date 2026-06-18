@@ -180,6 +180,36 @@ func TestEODBatchReplaceDropsStaleRows(t *testing.T) {
 	assert.Equal(t, 1, sepaRows, "SCOPED: a different strategy's rows for the same as_of must survive")
 }
 
+// TestEODStampsTsEqualsAsOf is the regression for the cross-as_of-same-ts dup:
+// an EOD snapshot stamps its rows' `ts` with the AS_OF date (not the source bar
+// instant), so two refreshes computed from the same latest bar never collide on
+// ts and the watchlist's max(ts) frontier anchors on the latest refresh.
+func TestEODStampsTsEqualsAsOf(t *testing.T) {
+	pool := requirePG(t)
+	ctx := testCtx(t)
+
+	// as_of is a TRADING day with NO same-day bar — the seeded bars stop the day
+	// before — so the source bar instant is the prior day. Pre-fix `ts` would be
+	// that prior day; post-fix `ts` must equal as_of.
+	asOfDate := time.Date(2024, time.July, 16, 0, 0, 0, 0, time.UTC)
+	seedDailyBars(t, pool, sectorETFs, tradingDates(asOfDate.AddDate(0, 0, -1), 40))
+	eod := runner.NewEOD(pool, "", zerolog.Nop())
+	_, err := eod.RunRefresh(ctx, runner.EODConfig{
+		AsOf:               calendar.NewDate(2024, time.July, 16),
+		Strategy:           "sector_rotation",
+		StartingBalance:    100000,
+		WindowCalendarDays: 60,
+	}, nil)
+	require.NoError(t, err)
+
+	var total, tsMatchesAsOf int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*), count(*) FILTER (WHERE ts::date = as_of)
+		   FROM tms.signals WHERE as_of = '2024-07-16'`).Scan(&total, &tsMatchesAsOf))
+	require.Positive(t, total, "refresh should have written rows")
+	assert.Equal(t, total, tsMatchesAsOf, "every EOD row's ts::date must equal its as_of")
+}
+
 // TestEODDeterministicContent proves the upserted intent JSON is byte-identical
 // across re-runs (idempotency is content-stable, not just count-stable).
 func TestEODDeterministicContent(t *testing.T) {

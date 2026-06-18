@@ -128,11 +128,20 @@ func rowArgs(row IntentRow, upsert bool) ([]any, string, error) {
 		prox,                        // $6
 		row.Norm.Generation,         // $7
 		string(body),                // $8
-		ts.UnixNano(),               // $9
-		ts,                          // $10
+		ts.UnixNano(),               // $9  ts_event_ns — the exact source-bar instant
+		ts,                          // $10 ts — source-bar instant (live append path)
 	}
 	if upsert {
-		args = append(args, row.AsOf.UTC()) // $11
+		// EOD snapshot: the persisted `ts` is the as_of DATE, NOT the source-bar
+		// instant. This gives every as_of refresh a DISTINCT ts, so two refreshes
+		// computed from the SAME latest bar — e.g. an as_of=T run started before
+		// T's bar was loaded stamps the T-1 bar's instant — never collide on ts.
+		// The watchlist's max(ts) frontier then anchors on the LATEST refresh, and
+		// no cross-as_of rows pile up at one ts. ts_event_ns ($9) still records the
+		// exact source bar for audit/precision.
+		asOf := row.AsOf.UTC()
+		args[9] = asOf            // $10 ts := as_of (snapshot identity)
+		args = append(args, asOf) // $11 as_of
 		return args, upsertSQL, nil
 	}
 	return args, appendSQL, nil
