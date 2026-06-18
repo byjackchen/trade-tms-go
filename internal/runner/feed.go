@@ -66,7 +66,16 @@ type MoomooFeed struct {
 	coalesce bool
 	mu       sync.Mutex            // guards pending
 	pending  map[string]domain.Bar // per-symbol forming bar awaiting close
+
+	// onEmit, if set, is invoked for EVERY closed bar the feed forwards
+	// downstream — the tap for the ephemeral live BAR tape. It MUST be cheap and
+	// non-blocking (it runs on the client's reader goroutine): the runner wires it
+	// to a drop-if-full channel send, never a synchronous publish.
+	onEmit func(domain.Bar)
 }
+
+// SetOnEmit installs a per-bar tap (the live tape). Call before Open.
+func (f *MoomooFeed) SetOnEmit(fn func(domain.Bar)) { f.onEmit = fn }
 
 // intraday reports whether kl is a sub-daily K-line type whose pushes carry a
 // forming (not-yet-closed) current bar that must be coalesced + close-detected.
@@ -186,6 +195,11 @@ func (f *MoomooFeed) FlushPending() {
 // warning) only if the consumer has fallen catastrophically behind (back-pressure
 // safety — a wedged consumer must not block the client's single reader goroutine).
 func (f *MoomooFeed) emit(symbol string, b domain.Bar) {
+	// Tap the tape first (cheap, non-blocking) so a wedged engine consumer below
+	// doesn't also starve the tape.
+	if f.onEmit != nil {
+		f.onEmit(b)
+	}
 	select {
 	case f.pushCh <- b:
 	default:

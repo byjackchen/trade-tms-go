@@ -468,6 +468,32 @@ func (l *Live) Run(ctx context.Context) error {
 	// universe is resolved at first assembly; we (re)subscribe per session.
 	feed := NewMoomooFeed(nil, klType, 0, l.log) // symbols set per session
 
+	// Live BAR tape (ephemeral, no PG): tap every closed bar onto a drop-if-full
+	// channel that a single goroutine publishes to Redis (TopicBar). Decoupling
+	// via the channel keeps the moomoo client's reader goroutine free of any Redis
+	// latency — a slow/wedged tape just drops bars (it's monitoring only).
+	if l.publisher != nil {
+		tape := make(chan domain.Bar, 512)
+		feed.SetOnEmit(func(b domain.Bar) {
+			select {
+			case tape <- b:
+			default: // tape consumer behind — drop (the tape is best-effort)
+			}
+		})
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case b := <-tape:
+					if err := l.publisher.PublishBar(ctx, b); err != nil {
+						l.log.Debug().Err(err).Msg("tape: publish bar failed (best-effort)")
+					}
+				}
+			}
+		}()
+	}
+
 	client := moomoo.NewClient(moomoo.Options{
 		Addr:             l.cfg.MoomooAddr,
 		MaxSubscriptions: l.cfg.MoomooMaxSub,

@@ -21,6 +21,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
+
+	"github.com/byjackchen/trade-tms-go/internal/domain"
 )
 
 // Stream topics (api-ws-redis.md §2.4). These are the exact topic
@@ -34,6 +36,11 @@ const (
 	// node is tracking (the cockpit watchlist panel reads it for continuity).
 	// Kept under the same data.* namespace.
 	TopicWatchlist = "data.WatchlistUpdate"
+	// TopicBar is the live BAR tape: every closed K-line bar the streaming feed
+	// emits (after intraday forming-coalescing), for an ephemeral cockpit ticker.
+	// PURE TRANSPORT — never persisted (no PG row); the Redis stream is MAXLEN-
+	// bounded and the UI only tails a small rolling window.
+	TopicBar = "data.BarUpdate"
 )
 
 // MaxStreamLen caps each stream's length (XADD MAXLEN ~). Redis is transport;
@@ -145,6 +152,19 @@ type SignalEnvelope struct {
 	TSInit     int64           `json:"ts_init"`
 }
 
+// BarEnvelope is the BarUpdate wire shape: one closed K-line bar for the live
+// tape. OHLC use domain.Price's decimal JSON; ts_event is the bar instant (ns).
+type BarEnvelope struct {
+	Symbol  string       `json:"symbol"`
+	TSEvent int64        `json:"ts_event"`
+	Open    domain.Price `json:"open"`
+	High    domain.Price `json:"high"`
+	Low     domain.Price `json:"low"`
+	Close   domain.Price `json:"close"`
+	Volume  int64        `json:"volume"`
+	TSInit  int64        `json:"ts_init"`
+}
+
 // StrategyStateEnvelope is the StrategyStateUpdate wire shape (§5.8):
 // {strategy_id, state_json, ts_event, ts_init}. state_json is an opaque JSON
 // string (the strategy's state_summary serialized).
@@ -204,6 +224,24 @@ func (p *Publisher) PublishSignal(ctx context.Context, n NormalizedSignal, tsEve
 		SignalJSON: body,
 		TSEvent:    tsEventNS,
 		TSInit:     p.nowNS(),
+	})
+}
+
+// PublishBar publishes one closed bar onto the live BAR tape (TopicBar). Pure
+// transport: best-effort, never persisted. Safe on a nil publisher.
+func (p *Publisher) PublishBar(ctx context.Context, b domain.Bar) error {
+	if p == nil {
+		return nil
+	}
+	return p.publish(ctx, TopicBar, BarEnvelope{
+		Symbol:  b.Symbol,
+		TSEvent: b.TS.UTC().UnixNano(),
+		Open:    b.Open,
+		High:    b.High,
+		Low:     b.Low,
+		Close:   b.Close,
+		Volume:  b.Volume,
+		TSInit:  p.nowNS(),
 	})
 }
 

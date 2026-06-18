@@ -481,7 +481,9 @@ export type WsEventType =
   | "order_update"
   | "fill_update"
   | "live_position"
-  | "account_update";
+  | "account_update"
+  // Ephemeral live bar tape (never persisted).
+  | "bar_update";
 
 export type WsEnvelope = {
   type: WsEventType;
@@ -1032,6 +1034,18 @@ export type WsSignal = {
   symbol: string;
   signal_json: Record<string, unknown>;
   ts_event: number;
+  ts_init: number;
+};
+
+/** `bar_update` frame payload — one closed K-line bar for the live tape. */
+export type WsBar = {
+  symbol: string;
+  ts_event: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
   ts_init: number;
 };
 

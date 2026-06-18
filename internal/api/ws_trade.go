@@ -40,6 +40,10 @@ const (
 	WSTypeFillUpdate    = "fill_update"
 	WSTypeLivePosition  = "live_position"
 	WSTypeAccountUpdate = "account_update"
+	// WSTypeBar is the ephemeral live BAR tape (publish.TopicBar): every closed
+	// K-line the streaming feed emits. Transport only — never persisted; the UI
+	// tails a small rolling window.
+	WSTypeBar = "bar_update"
 )
 
 // tradeTopic pairs a Redis stream topic with its WS envelope type.
@@ -61,6 +65,8 @@ func tradeTopics() []tradeTopic {
 		{publish.TopicLiveFill, WSTypeFillUpdate},
 		{publish.TopicLivePosition, WSTypeLivePosition},
 		{publish.TopicLiveAccount, WSTypeAccountUpdate},
+		// Ephemeral live bar tape.
+		{publish.TopicBar, WSTypeBar},
 	}
 }
 

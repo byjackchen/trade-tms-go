@@ -6,6 +6,7 @@ import { useLiveSession } from "@/lib/api/hooks";
 import { hasSession } from "@/lib/api/types";
 import { SessionBar } from "./session-bar";
 import { SessionControls } from "./session-controls";
+import { TickTape } from "./tick-tape";
 import type { TradeEnv } from "./trade-env";
 
 /**
@@ -59,7 +60,11 @@ export function SessionPanel({ env }: { env: TradeEnv }) {
               testid="session-account"
             />
           </div>
-        ) : (
+        ) : null}
+
+        {/* Live BAR tape — ephemeral feed monitor (no DB). Empty unless a
+            streaming session with a market feed is up. */}
+        {session ? <TickTape /> : (
           // No running session: the book below shows whichever account is picked
           // in the header (account-scoped, queryable without a session).
           <div
