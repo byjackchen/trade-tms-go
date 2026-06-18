@@ -40,17 +40,21 @@ type Route = {
   ready: string[];
 };
 
-// The FINAL 4-top IA (docs/concept-alignment.md §3.4, C7): Systems & Data →
-// Strategies → Compositions → Trade. The retired 6-top routes (/data,/backtests,
-// /hyperopt,/ops) and the interim 5-top (/paper,/live) 301-redirect onto these
-// (see ui/next.config.ts). Each `ready` testid is the page's main-content root as
-// rendered today (ui/src/app/*/page.tsx); Trade's is the unified <TradeModule>
-// wrapper (`trade-module`) + its header (`trade-header`).
+// The FINAL 5-top IA (docs/concept-alignment.md §3.4, C7): Systems & Data →
+// Strategies → Compositions → Session → Account. The old single "Trade" top-level
+// was SPLIT into Session (/session, runtime control) and Account (/account, the
+// book); the retired 6-top routes (/data,/backtests,/hyperopt,/ops) and the
+// interim (/paper,/live,/trade) 301-redirect onto these (see ui/next.config.ts).
+// Each `ready` testid is the page's main-content root as rendered today
+// (ui/src/app/*/page.tsx); Session's is the <SessionModule> wrapper
+// (`session-module`) + its header (`session-header`), and Account's is the
+// <AccountModule> wrapper (`account-module`) + its header (`account-header`).
 const ROUTES: Route[] = [
   { path: "/systems", ready: ["systems-page"] },
   { path: "/strategies", ready: ["strategies-page"] },
   { path: "/compositions", ready: ["compositions-page"] },
-  { path: "/trade", ready: ["trade-module", "trade-header"] },
+  { path: "/session", ready: ["session-module", "session-header"] },
+  { path: "/account", ready: ["account-module", "account-header"] },
 ];
 
 /** Wait for the first of the candidate readiness testids to become visible. */

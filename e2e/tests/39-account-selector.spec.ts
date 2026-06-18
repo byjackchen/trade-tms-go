@@ -1,12 +1,17 @@
 /**
- * (4) Trade cockpit — the ACCOUNT SELECTOR lists the registry and filters the book.
+ * (4) Account view — the ACCOUNT SELECTOR lists the registry and filters the book.
+ *
+ * Post-split (docs/concept-alignment.md §3.4) the old single "Trade" top-level was
+ * split into Session (/session, runtime control) and Account (/account, the book).
+ * The account SELECTOR now lives on /account (the AccountModule / account-view),
+ * NOT on the old /trade surface.
  *
  * The live→trade refactor made accounts first-class (migration 000014_accounts):
- * the cockpit/desk grew an account selector whose dropdown lists the registered
+ * the account view grew an account selector whose dropdown lists the registered
  * trading accounts from GET /api/v1/trade/accounts. Selecting an account writes
- * `?account=<id>` to the URL (shareable + sticky across the cockpit/desk tabs),
- * which the positions panel / blotter / account panel read back as their
- * `account_id` filter; "All accounts" clears the filter (and the query param).
+ * `?account=<id>` to the URL (shareable + sticky), which the positions panel /
+ * blotter / account panel read back as their `account_id` filter; "All accounts"
+ * clears the filter (and the query param).
  *
  * This spec proves the two halves of that contract:
  *   1. the dropdown's options MATCH the registry GET /api/v1/trade/accounts
@@ -24,7 +29,7 @@
 import { test, expect } from "../fixtures/test";
 import { getAuthed } from "../lib/api";
 import { withDb, tradingAccounts, type AccountTruth } from "../lib/db";
-import { liveUiReady, liveReaderAvailable } from "../lib/live";
+import { liveReaderAvailable } from "../lib/live";
 
 /** The account-registry shape GET /api/v1/trade/accounts returns. */
 type AccountsResponse = {
@@ -37,12 +42,36 @@ type AccountsResponse = {
   }>;
 };
 
-test.describe("trade cockpit — account selector", () => {
+/** True once the /account view (the AccountModule, which carries the account
+ * selector + the book) is rendered. The selector moved off the old /trade surface
+ * to /account in the Session/Account split; the module's ready signal is the
+ * `account-header` testid. Returns false when the app-shell or the header never
+ * appears (route not built / not implemented). */
+async function accountUiReady(
+  page: import("@playwright/test").Page,
+): Promise<boolean> {
+  await page.goto("/account", { waitUntil: "domcontentloaded" });
+  const shell = page.getByTestId("app-shell");
+  try {
+    await shell.waitFor({ state: "visible", timeout: 15_000 });
+  } catch {
+    return false;
+  }
+  const header = page.getByTestId("account-header");
+  try {
+    await header.waitFor({ state: "visible", timeout: 15_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+test.describe("account view — account selector", () => {
   test("the dropdown lists the accounts from GET /api/v1/trade/accounts", async ({
     page,
   }) => {
-    if (!(await liveUiReady(page))) {
-      test.skip(true, "Trade cockpit not yet implemented (coming-soon).");
+    if (!(await accountUiReady(page))) {
+      test.skip(true, "Account view not yet implemented (coming-soon).");
       return;
     }
     if (!(await liveReaderAvailable())) {
@@ -78,10 +107,10 @@ test.describe("trade cockpit — account selector", () => {
       "GET /api/v1/trade/accounts mirrors the tms.accounts registry",
     ).toEqual(truthIds);
 
-    // The selector mounts and is enabled (a non-empty registry). Post-restructure
-    // the cockpit is the trade module at /paper, whose ready signal is the
-    // signal is the unified `trade-header` testid (the old paper/live page roots are retired).
-    await expect(page.getByTestId("trade-header")).toBeVisible();
+    // The selector mounts and is enabled (a non-empty registry). Post-split the
+    // selector lives on the /account view, whose ready signal is the
+    // `account-header` testid (the old /trade page root is retired).
+    await expect(page.getByTestId("account-header")).toBeVisible();
     const selector = page.getByTestId("account-selector");
     await expect(selector).toBeVisible({ timeout: 15_000 });
     const input = page.getByTestId("account-selector-input");
@@ -104,8 +133,8 @@ test.describe("trade cockpit — account selector", () => {
   test("selecting an account sets ?account= and filters the positions read", async ({
     page,
   }) => {
-    if (!(await liveUiReady(page))) {
-      test.skip(true, "Trade cockpit not yet implemented (coming-soon).");
+    if (!(await accountUiReady(page))) {
+      test.skip(true, "Account view not yet implemented (coming-soon).");
       return;
     }
     if (!(await liveReaderAvailable())) {
@@ -129,7 +158,7 @@ test.describe("trade cockpit — account selector", () => {
     }
     const target = accounts[0].id;
 
-    await expect(page.getByTestId("trade-header")).toBeVisible();
+    await expect(page.getByTestId("account-header")).toBeVisible();
     const input = page.getByTestId("account-selector-input");
     await expect(input).toBeEnabled({ timeout: 15_000 });
 

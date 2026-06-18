@@ -97,9 +97,9 @@ func (p *LivePersist) UpsertOrder(ctx context.Context, o domain.Order) error {
 	// duplicate or out-of-order push must not walk a FILLED row backwards.
 	//
 	// order_type + limit_px are written from the order (NOT hardcoded 'MARKET'): the
-	// manual desk fully supports LIMIT orders (validated, sent to the venue with the
+	// auto/strategy path supports LIMIT orders (validated, sent to the venue with the
 	// limit price), and the durable record + blotter MUST faithfully reflect the
-	// operator's order type + limit price on this audited, real-money-capable surface
+	// order's type + limit price on this audited, real-money-capable surface
 	// (finding 2). The schema CHECK ('LIMIT' requires limit_px NOT NULL) is satisfied
 	// because the executor only sets Type=LIMIT alongside a positive LimitPrice; a
 	// MARKET order carries no limit_px (NULL via nullPx on a nil/zero LimitPrice).
@@ -236,7 +236,7 @@ func (p *LivePersist) RecordSyncAction(ctx context.Context, a livetrade.SyncAudi
 // column CHECKs actor <> ”).
 func actorOr(operator string) string {
 	if operator == "" {
-		return "manual-desk:unknown"
+		return "broker-sync:unknown"
 	}
 	return operator
 }

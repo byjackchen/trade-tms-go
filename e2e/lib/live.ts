@@ -58,23 +58,24 @@ export const INTENT_STATES = [
 /**
  * True once the trade module (the post-restructure cockpit) is rendered.
  *
- * Post-restructure (docs/concept-alignment.md §3.4): the old `/trade` cockpit and
- * the interim `/paper` + `/live` split collapsed into ONE unified <TradeModule>
- * at the single `/trade` route, whose bound account (paper|live) is chosen by the
- * top-right account selector. The module's ready signal is the `trade-header`
- * testid (rendered by both the Portfolio and Desk views — ui/src/components/
- * portfolio/trade-module.tsx). Returns false when the app-shell or the module
- * header never appears (route not built / not implemented).
+ * Post-restructure: the former "Trade" top-level SPLIT into "Session" (runtime
+ * control, /session) and "Account" (the persistent book, /account). This generic
+ * "the live cockpit mounted" gate targets the SESSION view (the runtime surface
+ * with the session controls + live tape); its ready signal is the `session-header`
+ * testid (ui/src/components/portfolio/session-view.tsx). The old `/trade` route
+ * 301-redirects to /session. Returns false when the app-shell or the header never
+ * appears (route not built / not implemented). Specs that need the account BOOK
+ * use a local /account gate (see 39-account-selector.spec.ts).
  */
 export async function liveUiReady(page: Page): Promise<boolean> {
-  await page.goto("/trade", { waitUntil: "domcontentloaded" });
+  await page.goto("/session", { waitUntil: "domcontentloaded" });
   const shell = page.getByTestId("app-shell");
   try {
     await shell.waitFor({ state: "visible", timeout: 15_000 });
   } catch {
     return false;
   }
-  const header = page.getByTestId("trade-header");
+  const header = page.getByTestId("session-header");
   try {
     await header.waitFor({ state: "visible", timeout: 15_000 });
     return true;

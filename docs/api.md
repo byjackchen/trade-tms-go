@@ -1065,108 +1065,21 @@ vs strategy books). `diff = broker_net − strategy_books_sum`. A mismatch
 **halts** the node + surfaces here; it is **never** auto-corrected by trading.
 Trigger an on-demand reconcile with the `reconcile` command.
 
-## Manual trading desk (operator-driven)
+## Broker sync (operator-driven reconcile)
 
-The **only** broker-mutation surface in the HTTP API. The strategy-driven trade
-flow stays out of the API (orders come from strategies + the `flatten` command);
-this adds a tightly-gated **discretionary** desk so an operator can place / cancel
-/ close orders **by hand** against a paper or live account, independent of the
-strategy execution mode (in signal mode the operator *is* the executor; in
-paper/live it is an override alongside the auto book). Manual orders are
-attributed to a `MANUAL` pseudo-strategy so reconciliation + per-strategy
-accounting stay clean.
+TMS does NOT place orders by hand — discretionary orders are placed at the broker
+directly. The only operator broker-touch in the HTTP API is a **READ-ONLY sync**
+that pulls the account's ACTUAL positions back into TMS so the books reflect
+reality. Externally-placed positions land in an **`EXTERNAL`** pseudo-strategy book
+(distinct from the auto strategies' books) so reconciliation + per-strategy
+accounting stay clean. The sync calls ONLY `Trd_Get*` reads (never `PlaceOrder`),
+so it is safe in ALL modes — signal AND auto, paper AND live.
 
-These endpoints are served by the **live-node process** (it holds the broker
-connection), on a separate bearer-guarded listener (`--manual-api-addr`, default
-`127.0.0.1:18091`), enabled with `tms trade run --manual-mode paper|live`. When no
-manual desk is connected every endpoint returns **503**.
-
-**Topology (single host).** The main API process cannot itself hold a broker
-connection, so when `TMS_MANUAL_TRADE_URL` points the API at the live node's manual
-listener (compose: `http://tmsgo-live-manual:18091`) the API **reverse-proxies**
-`/api/v1/trade/*` onto it — the UI (`/api/proxy/trade/*`) and the e2e suite hit one
-host (`:18080`) while the broker-connected live node executes. The proxy adds no
-trust: every safety gate runs in the live node's controller and the bearer token is
-re-authenticated upstream. When the live node is down (or `TMS_MANUAL_TRADE_URL` is
-unset, e.g. a signal-only `app` stack) `/trade/*` returns **503** (no desk
-connected). Run the full lifecycle in compose with:
-
-```
-docker compose --profile app --profile manual up -d --build --wait
-```
-
-which brings up the standalone mock OpenD trading venue (`tms mock-opend`) + a paper
-live node with the operator manual desk (`tms trade run --mode signal --manual-mode
-paper`) over that mock.
-
-**SAFETY (paramount — this can place real orders):**
-
-- A **live** (real-money) manual order requires the **full 4-factor live
-  activation** (real acc id + `TMS_LIVE_CONFIRM` phrase + `UnlockTrade` + the
-  `TMS-LIVE-REAL-001` trader id — proven by the desk's live-bound executor)
-  **plus** a **per-order** typed confirmation phrase in `confirm_token`
-  (`I CONFIRM THIS REAL MONEY MANUAL ORDER`). Missing/wrong ⇒ **412
-  `confirmation_required`** and **no order is placed**.
-- A **paper** manual order requires the **trade password** in `confirm_token`
-  (`TMS_MOOMOO_TRADE_PASSWORD`). Missing/wrong ⇒ **412**.
-- **Risk gate:** an **opening** order runs `Portfolio.check` (allocator budget +
-  concentration + daily-loss-halt). A violation ⇒ **422 `risk_violation`** and the
-  order is rejected **unless** `override: true` is set (an audited operator
-  decision → `risk_events` + `audit_log`). A **closing** order bypasses the budget
-  (closes always proceed), but a **live** close still requires `confirm_token`.
-  The order is priced for the gate from the explicit `limit_price`, else the
-  broker/market-data quote, else the manual book's last fill price. An order the
-  gate **cannot price at all** (no limit, no quote) **fails closed** (422
-  `risk_violation`, rule `risk.unpriced_symbol`) rather than passing at 0 notional;
-  supply a `limit_price` or `override`.
-- **Broker rejection:** if the order passes the risk gate but the **broker/venue**
-  rejects it for a business reason (insufficient buying power, market closed,
-  unknown symbol), the response is **422 `order_rejected`** carrying the venue's
-  reason — never a 500. No order is placed.
-- **Idempotent:** `idempotency_key` makes the client-order-id deterministic; a
-  retried request never double-submits at the broker.
-- **Audited:** every place / cancel / close writes a `tms.audit_log` row
-  (operator, action, symbol, side, qty, override?, live?, ts).
-
-### `POST /api/v1/trade/order`
-
-Place a manual order. Body:
-
-```json
-{ "idempotency_key": "op-1712", "symbol": "AAPL", "side": "BUY",
-  "qty": 100, "type": "MARKET", "limit_price": 0,
-  "override": false, "confirm_token": "…", "reason": "discretionary add" }
-```
-
-`side` ∈ `BUY|SELL`; `type` ∈ `MARKET|LIMIT` (LIMIT requires `limit_price > 0`).
-Responses: **200** `{ client_order_id, submitted, status:"submitted" }` ·
-**400** validation · **412** `confirmation_required` (live confirm / paper
-password) · **422** `risk_violation` (gate rejected without `override`) · **422**
-`order_rejected` (broker business rejection — buying power / market closed /
-unknown symbol; no order placed) · **503** no desk connected.
-
-### `POST /api/v1/trade/order/{coid}/cancel`
-
-Cancel a working manual order by client-order-id. Idempotent (cancelling an
-unknown / already-terminal order is a no-op success). The cancel confirms via the
-normal order-update push (`CANCELLED_ALL`). **200**
-`{ client_order_id, status:"cancel_requested" }` · **501 `cancel_unsupported`**
-on a wire build without the modify-order proto (the operator is **never** falsely
-told a working real order was cancelled).
-
-### `POST /api/v1/trade/position/{symbol}/close`
-
-Close (flatten) the `MANUAL` position in one symbol. Body
-`{ "qty": 0, "confirm_token": "…", "idempotency_key": "…" }` — `qty` omitted/`0` ⇒
-full close; a positive `qty` partial-closes (clamped to the open size). Bypasses the
-budget (a close), but a **live** close requires `confirm_token` (412 without it).
-**Idempotent (no real-money oversell):** the close client-order-id is derived from
-the optional `idempotency_key` (when supplied) or otherwise from `(symbol, current
-net)` — **never** from a wall clock — so a double-click / client retry / two
-operators acting on the same symbol re-derive the **same** coid and dedupe at the
-broker (exactly **one** SELL). **200**
-`{ client_order_id, submitted, symbol, status:"close_submitted" }`. Closing an
-already-flat symbol is an idempotent no-op (`submitted:false`).
+Served by the broker-connected `tms trade run` node (it holds the broker
+connection); the sync endpoint returns **503** when no node is attached. There is
+NO order-entry surface and NO reverse proxy: the former `POST /trade/order`,
+`/trade/order/{coid}/cancel` and `/trade/position/{symbol}/close` (the hand-typed
+order ticket) were REMOVED — place discretionary orders at the broker and `sync`.
 
 ### `GET /api/v1/trade/status`
 
@@ -1183,7 +1096,7 @@ in the moomoo app** (no order placed via TMS); they then come back to TMS and ca
 this to pull the account's **actual** state (`Trd_GetPositionList` +
 `Trd_GetOrderList` + `Trd_GetOrderFillList` + `Trd_GetFunds`) and **reflect** it
 into TMS, so externally-placed trades show up in the positions/orders/fills/account
-views. The synced broker truth is reflected under the **`MANUAL`/EXTERNAL** book
+views. The synced broker truth is reflected under the **`EXTERNAL`** book
 (so the auto-strategy books are not corrupted) and then **reconciled** vs the
 strategy books (P6 reconciliation → `reconciliation_reports`) so drift is reported.
 
@@ -1192,7 +1105,7 @@ strategy books (P6 reconciliation → `reconciliation_reports`) so drift is repo
   manage what they actually hold) — no per-order confirm or risk gate applies
   because nothing crosses the wire to the venue.
 - **Idempotent:** the broker net is reflected as the **delta** vs the current
-  `MANUAL` book net per symbol, so **re-syncing the same broker state reflects
+  `EXTERNAL` book net per symbol, so **re-syncing the same broker state reflects
   nothing** (no duplicated rows / no double-counted positions). A symbol the book
   holds but the broker no longer reports is driven back to flat (an external close).
 - **Audited:** writes a `tms.audit_log` row (operator, action `sync`, ts).
@@ -1211,21 +1124,18 @@ Account / buying-power + day-PnL view (alias of `GET /api/v1/trade/account`).
 `tms eod --as-of <YYYY-MM-DD> [...]` runs (or enqueues) the idempotent EOD
 engine-replay refresh. `tms trade run --mode signal|paper|live --trader-id <id>
 [--strategy ... --tickers ... --moomoo-addr ... --bar-seconds 86400]` runs the
-live node (paper/live require the broker creds in `secrets/moomoo.env`). Add
-`--manual-mode paper|live [--manual-api-addr 127.0.0.1:18091]` to attach the
-operator MANUAL trade desk (serves `POST /api/v1/trade/*`, bearer-guarded by
-`TMS_API_TOKEN`); a `live` desk re-runs the full 4-factor activation at connect.
+live node (paper/live require the broker creds in `secrets/moomoo.env`). A
+broker-connected (paper/live) run also serves the READ-ONLY broker-sync surface
+(`/api/v1/trade/sync`, `/status`) folded into the node — there is NO separate
+manual listener and NO reverse proxy.
 `tms ctl <reconcile|flatten|emergency-kill|halt|resume|stop|kill|set-mode>
 [--confirm]` enqueues an audited control command (the CLI twin of
 `POST /api/v1/trade/commands`).
 
-`tms trade <place|cancel|close|sync> [--addr http://127.0.0.1:18091]` is the HTTP
-client for the manual desk (bearer-guarded by `TMS_API_TOKEN`): `tms trade place
---symbol AAPL --side buy --qty 10 [--type limit --limit 195] [--override]
-[--confirm <phrase|trade-pw>] [--key <idem>]`, `tms trade cancel <coid>`, `tms
-trade close --symbol AAPL [--qty N] [--confirm …]`, and **`tms trade sync`** — the
-one-shot **broker → TMS** sync (read-only pull + reflect + reconcile; places no
-orders; safe in all modes incl signal).
+`tms trade sync` is the HTTP client for the one-shot **broker → TMS** sync
+(bearer-guarded by `TMS_API_TOKEN`): read-only pull + reflect into the EXTERNAL
+book + reconcile; places no orders. The former `tms trade place|cancel|close`
+order-ticket client commands were REMOVED.
 
 ---
 

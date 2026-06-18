@@ -42,28 +42,28 @@ import { postAuthed } from "../lib/api";
 import { withDb, latestSession } from "../lib/db";
 import { liveReaderAvailable } from "../lib/live";
 
-/** Navigate to the unified trade module and report whether it rendered. In the
- * 4-top IA there is no `/live` page: the former /live 301-redirects to the single
- * /trade surface, whose paper-vs-live treatment follows the account chosen in the
- * top-right selector (docs/concept-alignment.md §3.4). The module's ready signal
- * is the `trade-header` testid (ui/src/components/portfolio/trade-module.tsx).
- * Returns false when the app-shell or the trade header never appears (not built).
+/** Navigate to the SESSION module (runtime control) and report whether it
+ * rendered. In the 5-top IA the EXEC-POLICY arm + halt/kill SAFETY controls live
+ * in SessionControls on /session (the former single /trade surface was split into
+ * /session for runtime control and /account for the book; /live and /trade
+ * 301-redirect onto /session, docs/concept-alignment.md §3.4). The module's ready
+ * signal is the `session-header` testid (ui/src/components/portfolio/session-module.tsx).
+ * Returns false when the app-shell or the session header never appears (not built).
  *
  * NOTE: the LIVE arm flow below is gated on the `control-exec-auto` AUTO control
  * being ENABLED; it self-skips when AUTO isn't actionable (no real account
- * selected / activation hidden), so this stays a safe live-guard probe without a
- * dedicated /live page. */
+ * selected / activation hidden), so this stays a safe live-guard probe. */
 async function liveModuleReady(
   page: import("@playwright/test").Page,
 ): Promise<boolean> {
-  await page.goto("/trade", { waitUntil: "domcontentloaded" });
+  await page.goto("/session", { waitUntil: "domcontentloaded" });
   const shell = page.getByTestId("app-shell");
   try {
     await shell.waitFor({ state: "visible", timeout: 15_000 });
   } catch {
     return false;
   }
-  const header = page.getByTestId("trade-header");
+  const header = page.getByTestId("session-header");
   try {
     await header.waitFor({ state: "visible", timeout: 15_000 });
     return true;
@@ -122,11 +122,11 @@ test.describe("LIVE safety — real money is never armed without the full gate",
       return;
     }
 
-    await expect(page.getByTestId("trade-header")).toBeVisible();
+    await expect(page.getByTestId("session-header")).toBeVisible();
 
     const before = await withDb((c) => latestSession(c));
 
-    // On the trade module, arming AUTO is the "go live" action (env=real). The
+    // On the session module, arming AUTO is the "go live" action (env=real). The
     // button for the already-active policy is disabled; in the gate the session is
     // signal/paper so AUTO is actionable. If it is not enabled (already auto / no
     // reader), there is nothing to arm — skip.
@@ -198,7 +198,7 @@ test.describe("LIVE safety — real money is never armed without the full gate",
     ).not.toBe("live");
   });
 
-  test("the trade module exposes no control that places to a live account", async ({
+  test("the session module exposes no control that places to a live account", async ({
     page,
   }) => {
     if (!(await liveModuleReady(page))) {
@@ -210,11 +210,11 @@ test.describe("LIVE safety — real money is never armed without the full gate",
       return;
     }
 
-    // The unified trade module defaults to the simulate-bound (paper) account when
+    // The session module defaults to the simulate-bound (paper) account when
     // no real account is selected — it must never reach a real account from here.
     // Load it and assert there is no direct-to-live affordance.
-    await page.goto("/trade", { waitUntil: "domcontentloaded" });
-    await expect(page.getByTestId("trade-header")).toBeVisible();
+    await page.goto("/session", { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("session-header")).toBeVisible();
 
     const session = await withDb((c) => latestSession(c));
     // This invariant matters most when NOT already in live mode (signal/paper):

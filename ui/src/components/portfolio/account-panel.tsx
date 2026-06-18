@@ -288,9 +288,9 @@ function DeskAccountPanel() {
         <CardContent>
           {noReader ? (
             <EmptyState
-              title="No manual trade desk connected"
-              hint="Account / buying-power appears once a paper/live manual desk is attached."
-              data-testid="manual-account-no-reader"
+              title="No broker connection"
+              hint="Account / buying-power appears once a paper/live trading session (tms trade run) is connected to the broker."
+              data-testid="account-no-reader"
             />
           ) : (
             <p className="py-2 text-xs text-destructive">

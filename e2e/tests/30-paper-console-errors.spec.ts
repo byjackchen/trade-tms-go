@@ -28,11 +28,13 @@ async function settle(page: import("@playwright/test").Page): Promise<void> {
 }
 
 test.describe("no severe console errors on the paper-trading cockpit", () => {
-  test("the /trade cockpit renders the trading surface without severe console errors", async ({
+  test("the /account cockpit renders the trading surface without severe console errors", async ({
     page,
     consoleErrors,
   }) => {
-    await page.goto("/trade", { waitUntil: "domcontentloaded" });
+    // The paper account BOOK (blotter / positions / account / reconciliation
+    // panels) lives on /account (the book half of the Trade split).
+    await page.goto("/account", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("app-shell")).toBeVisible();
 
     // Mounted once either the real cockpit root or the coming-soon placeholder is
@@ -40,7 +42,7 @@ test.describe("no severe console errors on the paper-trading cockpit", () => {
     await expect
       .poll(
         async () => {
-          for (const id of ["trade-header"]) {
+          for (const id of ["account-header"]) {
             if (await page.getByTestId(id).first().isVisible()) return true;
           }
           return false;
@@ -65,10 +67,10 @@ test.describe("no severe console errors on the paper-trading cockpit", () => {
     page,
     consoleErrors,
   }) => {
-    await page.goto("/trade", { waitUntil: "domcontentloaded" });
+    await page.goto("/account", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("app-shell")).toBeVisible();
 
-    const realCockpit = page.getByTestId("trade-header");
+    const realCockpit = page.getByTestId("account-header");
     await expect
       .poll(async () => (await realCockpit.count()) > 0, { timeout: 15_000 })
       .toBeDefined();

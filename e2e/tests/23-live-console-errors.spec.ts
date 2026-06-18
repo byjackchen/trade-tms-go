@@ -1,17 +1,17 @@
 /**
- * (6) Zero severe console errors on the /trade cockpit pages.
+ * (6) Zero severe console errors on the /session cockpit pages.
  *
- * The /trade cockpit opens long-lived WS connections (signal /
- * portfolio_health / watchlist frames bridged from Redis) and polls the live
- * read endpoints. None of that may produce a severe browser console error or an
- * uncaught page error — only genuine React/JS defects fail here (network-
- * surfaced errors and a documented framework allowlist are excluded by the
- * `consoleErrors` fixture, fixtures/test.ts).
+ * The /session cockpit opens long-lived WS connections (signal /
+ * portfolio_health / watchlist frames bridged from Redis, plus the live tick-
+ * tape) and polls the live read endpoints. None of that may produce a severe
+ * browser console error or an uncaught page error — only genuine React/JS
+ * defects fail here (network-surfaced errors and a documented framework
+ * allowlist are excluded by the `consoleErrors` fixture, fixtures/test.ts).
  *
  * Like spec 06, we navigate with waitUntil "domcontentloaded" (the app shell's
  * persistent SSE stream + the cockpit's WS defer the `load` event past the test
  * budget) and prove the content mounted via testid visibility before asserting
- * the console is clean. This runs whether /trade is still the coming-soon
+ * the console is clean. This runs whether /session is still the coming-soon
  * placeholder OR the real cockpit — both must be console-clean.
  */
 
@@ -46,19 +46,19 @@ async function waitReady(
     .toBe(true);
 }
 
-test.describe("no severe console errors on /trade", () => {
-  test("/trade renders without severe console errors", async ({
+test.describe("no severe console errors on /session", () => {
+  test("/session renders without severe console errors", async ({
     page,
     consoleErrors,
   }) => {
     // domcontentloaded, not the default "load": the app shell's SSE stream and
     // the cockpit's live WS defer the load event past the test budget.
-    await page.goto("/trade", { waitUntil: "domcontentloaded" });
+    await page.goto("/session", { waitUntil: "domcontentloaded" });
 
     await expect(page.getByTestId("app-shell")).toBeVisible();
     // The page is "mounted" once EITHER the real cockpit root or the coming-soon
     // placeholder is visible (the cockpit ships after the earlier workspaces).
-    await waitReady(page, ["trade-header"]);
+    await waitReady(page, ["session-header"]);
 
     // Let the live WS open + the first frames / REST snapshots flush so any late
     // render error fires. The cockpit subscribes to multiple streams on mount.
@@ -67,7 +67,27 @@ test.describe("no severe console errors on /trade", () => {
 
     expect(
       consoleErrors,
-      `severe console/page errors on /trade:\n` +
+      `severe console/page errors on /session:\n` +
+        consoleErrors.map((e) => `  [${e.kind}] ${e.text}`).join("\n"),
+    ).toHaveLength(0);
+  });
+
+  test("/account renders without severe console errors", async ({
+    page,
+    consoleErrors,
+  }) => {
+    // The book half of the split: positions / account panel live on /account.
+    await page.goto("/account", { waitUntil: "domcontentloaded" });
+
+    await expect(page.getByTestId("app-shell")).toBeVisible();
+    await waitReady(page, ["account-header"]);
+
+    await settle(page);
+    await page.waitForTimeout(2_500);
+
+    expect(
+      consoleErrors,
+      `severe console/page errors on /account:\n` +
         consoleErrors.map((e) => `  [${e.kind}] ${e.text}`).join("\n"),
     ).toHaveLength(0);
   });
@@ -77,11 +97,12 @@ test.describe("no severe console errors on /trade", () => {
     consoleErrors,
   }) => {
     // Only meaningful once the real cockpit + live reader are present; otherwise
-    // this is redundant with the page-load check above.
-    await page.goto("/trade", { waitUntil: "domcontentloaded" });
+    // this is redundant with the page-load check above. The kill-switch /
+    // session controls live on /session.
+    await page.goto("/session", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("app-shell")).toBeVisible();
 
-    const realCockpit = page.getByTestId("trade-header");
+    const realCockpit = page.getByTestId("session-header");
     await expect
       .poll(async () => (await realCockpit.count()) > 0, { timeout: 15_000 })
       .toBeDefined();
@@ -116,7 +137,7 @@ test.describe("no severe console errors on /trade", () => {
     await page.waitForTimeout(1_500);
     expect(
       consoleErrors,
-      `severe console/page errors during /trade interaction:\n` +
+      `severe console/page errors during /session interaction:\n` +
         consoleErrors.map((e) => `  [${e.kind}] ${e.text}`).join("\n"),
     ).toHaveLength(0);
   });
