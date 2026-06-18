@@ -75,6 +75,25 @@ TMS_LIVE_TRADER_ID=TMS-LIVE-REAL-001
 > successful OpenD UnlockTrade + the `TMS-LIVE-REAL-001` trader id. Without them
 > the node runs signal/paper only. Keep these out of git, the image, and any dump.
 
+### Host data directories — chown BEFORE the first `up`
+
+The worker mounts `TMS_RUNS_DIR → /data/runs` (read-write) and
+`TMS_SHARADAR_CACHE_DIR → /data/sharadar` (read-only), and it runs as the
+distroless **`nonroot` user (uid/gid 65532)**. If you let Docker auto-create the
+bind-mount source dirs they are owned by `root`, and the worker then can't write
+them — e.g. a `hyperopt.run` job dies with
+`mkdir /data/runs/hyperopt: permission denied` (data/eod refresh don't write
+`runs/`, so the gap only surfaces on hyperopt / backtest-artifact writes).
+Pre-create the runs dir and hand it to uid 65532 first:
+
+```bash
+sudo mkdir -p /srv/tms/runs /srv/tms/sharadar     # = TMS_RUNS_DIR / TMS_SHARADAR_CACHE_DIR
+sudo chown -R 65532:65532 /srv/tms/runs           # worker writes runs/hyperopt/* + backtest artifacts
+# TMS_SHARADAR_CACHE_DIR is mounted READ-ONLY, so root-owned 755 is fine for it.
+# Already deployed and hit the error? Fix the existing dir without sudo via a root container:
+#   docker run --rm -v /srv/tms/runs:/r alpine chown -R 65532:65532 /r
+```
+
 ## 4. Bring up the stack
 
 ```bash
