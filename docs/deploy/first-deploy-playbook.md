@@ -1,4 +1,4 @@
-# Production deployment (Ubuntu + Docker Compose)
+# First-deploy playbook (Ubuntu + Docker Compose)
 
 Target prd: a single **Ubuntu** host, code pulled from **GitHub**, the **full
 stack run via `docker compose`**, **moomoo OpenD already installed on the host**.
