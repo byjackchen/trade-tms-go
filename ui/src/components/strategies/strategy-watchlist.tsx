@@ -19,8 +19,8 @@ export type WatchlistStrategy = "sepa" | "sector" | "pairs";
  *
  * Account-agnostic by design: watchlist signals are computed from market data +
  * strategy logic, NOT per-account — so there is NO account selector here (account
- * lives only in /trade). A "trade this" deep-link to /trade lets the operator
- * pick the account there.
+ * selection lives in the Account top-level, /account). These tables are read-only
+ * trade plans; orders are placed at the broker directly (TMS has no order ticket).
  *
  * Keeps the `live-watchlist` root + `watchlist-search` testid contract the e2e
  * suite depends on.

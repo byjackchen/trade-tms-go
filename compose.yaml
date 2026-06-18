@@ -117,13 +117,11 @@ services:
       TMS_REDIS_ADDR: redis:6379
       TMS_API_ADDR: ":8080"
       TMS_API_CORS_ORIGINS: ${TMS_API_CORS_ORIGINS:-http://localhost:13000,http://127.0.0.1:13000}
-      # MANUAL trade desk surface: the desk lives in the broker-connected live node
-      # (tmsgo-live-manual:18091), so the API reverse-proxies /api/v1/trade/* onto it
-      # — the UI + e2e suite hit ONE host (18080). When the `manual` profile is NOT
-      # up the upstream is unreachable and /trade/* returns 503 (the desk is simply
-      # not connected), so a plain `app` stack is unaffected. Override the upstream
-      # via TMS_MANUAL_TRADE_URL for a different live-node host.
-      TMS_MANUAL_TRADE_URL: ${TMS_MANUAL_TRADE_URL:-http://tmsgo-live-manual:18091}
+      # The READ-ONLY broker SYNC surface (DIRECTION 2) is now folded onto the
+      # broker-connected trade node's own listener (tmsgo-paper / tmsgo-live, host
+      # 18090) — there is no reverse proxy here. The UI session controls reach the
+      # node directly over that listener; the API serves only the persistent book
+      # reads (positions/cash/pnl) from Postgres.
       TMS_LOG_LEVEL: ${TMS_LOG_LEVEL:-info}
       TMS_LOG_FORMAT: json
     depends_on:
@@ -382,37 +380,36 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
-  # MANUAL trading desk stack (profile `manual`): the runnable end-to-end path
-  # for the operator-driven desk over the MOCK trading venue, in PAPER mode.
-  # Bring it up ALONGSIDE the `app` profile:
-  #   docker compose --profile app --profile manual up -d --build --wait
-  # The API (app profile) reverse-proxies /api/v1/trade/* onto tmsgo-live-manual,
-  # so the UI + the manual-desk e2e specs exercise the full DIRECTION-1 (place /
-  # cancel / close) and DIRECTION-2 (sync) lifecycle against a real listener — not
-  # in-process. SAFETY: it is PAPER over a MOCK venue — no real broker, no real
-  # money; live is never auto-activated here.
+  # PAPER trading node (profile `paper`): an auto-submit session bound to a
+  # SIMULATE account, the everyday "go paper" runtime. It runs the strategy
+  # session in AUTO mode (--exec-policy auto --env simulate) AND folds the
+  # READ-ONLY broker SYNC surface (DIRECTION 2) onto its own health listener
+  # (host 18090) so an operator can pull externally-placed positions into the
+  # EXTERNAL book + reconcile. By default it dials the HOST's REAL OpenD
+  # (host.docker.internal:11111) using the SIMULATE/paper account — paper money,
+  # real venue. In CI point TMS_MOOMOO_ADDR at the mock venue below.
+  #   docker compose --profile app --profile paper up -d --build --wait
   # ---------------------------------------------------------------------------
 
-  # Standalone protocol-faithful MOCK OpenD trading venue (PG-driven bars). The
-  # live node + its manual desk dial this over TMS_MOOMOO_ADDR; it simulates
-  # accept->fill, maintains positions/funds and serves the Trd_Get* reads (so
-  # DIRECTION-2 sync works). Reserved host port 11111 -> container 11111.
+  # Standalone protocol-faithful MOCK OpenD trading venue (PG-driven bars), kept
+  # available for CI (the paper node defaults to host OpenD, but CI points
+  # TMS_MOOMOO_ADDR at this). It simulates accept->fill, maintains positions/funds
+  # and serves the Trd_Get* reads (so DIRECTION-2 sync works against it). Reserved
+  # host port 11111 -> container 11111. Profile `mock` so it never starts by
+  # accident; bring it up explicitly in CI alongside `paper`.
   tmsgo-mock-opend:
     build:
       context: .
       dockerfile: Dockerfile
     image: tms:dev
     container_name: tmsgo-mock-opend
-    profiles: ["manual"]
+    profiles: ["mock"]
     command:
       - "mock-opend"
       - "--listen"
       - "0.0.0.0:11111"
-      # Generous paper buying power so an OPERATOR-OVERRIDDEN over-budget order (the
-      # explicit audited risk-gate escape) can still fill at the venue in paper — the
-      # over-limit risk-override e2e (spec 35) overrides a deliberately huge qty, which
-      # the manual book's NAV-budget gate rejects but the operator can override; the
-      # venue must then be able to afford it (it is paper / fake money). The budget gate
+      # Generous paper buying power so a large auto-submit order can still fill at
+      # the venue in paper (it is paper / fake money). The accounting NAV budget gate
       # is unaffected (it reads the accounting NAV, not this venue power).
       - "--starting-power"
       - "${TMS_MOCK_OPEND_STARTING_POWER:-100000000000}"
@@ -428,9 +425,9 @@ services:
       TMS_PG_PASSWORD: ${TMS_PG_PASSWORD:-tms}
       TMS_PG_DATABASE: ${TMS_PG_DATABASE:-tms}
       TMS_PG_SSLMODE: disable
-      # The SIMULATE (paper) account id the venue enables + the manual desk binds.
-      # Seed one value (TMS_MOOMOO_PAPER_ACC_ID) for BOTH this venue and the live
-      # node below; defaulted to a deterministic test account for the gate.
+      # The SIMULATE (paper) account id the venue enables + the paper node binds.
+      # Seed one value (TMS_MOOMOO_PAPER_ACC_ID) for BOTH this venue and the paper
+      # node below; defaulted to a deterministic test account for CI.
       TMS_MOOMOO_PAPER_ACC_ID: ${TMS_MOOMOO_PAPER_ACC_ID:-700001}
       TMS_LOG_LEVEL: ${TMS_LOG_LEVEL:-info}
       TMS_LOG_FORMAT: json
@@ -441,37 +438,34 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
-  # PAPER live node with the operator MANUAL trade desk attached. It runs the
-  # strategy session in signal mode (no auto orders) AND connects a PAPER manual
-  # desk (--manual-mode paper) over the mock venue, serving /api/v1/trade/* on its
-  # bearer-guarded manual listener (:18091). The API fronts it (TMS_MANUAL_TRADE_URL
-  # above). The paper desk requires the trade password (TMS_MOOMOO_TRADE_PASSWORD)
-  # in confirm_token; the gate seeds a known value the e2e suite uses.
-  tmsgo-live-manual:
+  # PAPER trading node: an AUTO session bound to a SIMULATE account, with the
+  # READ-ONLY broker SYNC surface folded onto its health listener (host 18090,
+  # bearer-guarded by TMS_API_TOKEN). It shares the SAME trader id the API's
+  # live-stream bridge tails (TMS_LIVE_TRADER_ID, default SIGNAL-001) so the UI's
+  # session controls + tape reach it. By default it dials the HOST's REAL OpenD
+  # with the SIMULATE/paper account (paper money, real venue); CI overrides
+  # TMS_MOOMOO_ADDR to the mock venue.
+  tmsgo-paper:
     build:
       context: .
       dockerfile: Dockerfile
     image: tms:dev
-    container_name: tmsgo-live-manual
-    profiles: ["manual"]
+    container_name: tmsgo-paper
+    profiles: ["paper"]
     command:
       - "trade"
       - "run"
       - "--exec-policy"
-      - "signal"
+      - "auto"
+      - "--env"
+      - "simulate"
       - "--strategy"
       - "${TMS_LIVE_STRATEGY:-sector_rotation}"
       - "--trader-id"
-      - "MANUAL-DESK-001"
-      - "--manual-mode"
-      - "paper"
-      - "--manual-api-addr"
-      - "0.0.0.0:18091"
+      - "${TMS_LIVE_TRADER_ID:-SIGNAL-001}"
       - "--skip-preflight"
     ports:
-      # Manual listener also published to host 18092 for direct e2e access /
-      # debugging (the suite normally reaches it via the API proxy on 18080).
-      - "${TMS_MANUAL_DESK_HOST_PORT:-18092}:18091"
+      - "${TMS_PAPER_HOST_PORT:-18090}:18090"
     env_file:
       - path: .env
         required: false
@@ -485,18 +479,25 @@ services:
       TMS_PG_DATABASE: ${TMS_PG_DATABASE:-tms}
       TMS_PG_SSLMODE: disable
       TMS_REDIS_ADDR: redis:6379
-      # Dial the mock venue (NOT real OpenD) for the manual lifecycle.
-      TMS_MOOMOO_ADDR: ${TMS_MANUAL_MOOMOO_ADDR:-tmsgo-mock-opend:11111}
+      # Default targets the host's REAL OpenD with the SIMULATE/paper account;
+      # override to tmsgo-mock-opend:11111 in CI.
+      TMS_MOOMOO_ADDR: ${TMS_MOOMOO_ADDR:-host.docker.internal:11111}
+      # The SAME trader id the API's live-stream bridge tails, so UI session
+      # controls + the live tape reach this node.
+      TMS_LIVE_TRADER_ID: ${TMS_LIVE_TRADER_ID:-SIGNAL-001}
       TMS_WORKER_HEALTH_ADDR: 0.0.0.0:18090
-      # The paper desk binds this SIMULATE account (same id the mock venue enables).
+      # The paper node binds this SIMULATE account (same id the mock venue enables).
       TMS_MOOMOO_PAPER_ACC_ID: ${TMS_MOOMOO_PAPER_ACC_ID:-700001}
-      # The per-order paper gate: confirm_token must equal this trade password.
-      TMS_MOOMOO_TRADE_PASSWORD: ${TMS_MOOMOO_TRADE_PASSWORD:-paper-trade-password}
-      # Bearer-guards the manual listener (same token as the API so the proxy +
-      # the e2e suite authenticate with one value).
+      # Bearer-guards the folded /api/v1/trade/* sync surface (same token as the API
+      # so the UI + e2e suite authenticate with one value).
       TMS_API_TOKEN: ${TMS_API_TOKEN:-local-e2e-token}
+      TMS_RECONCILE_INTERVAL: ${TMS_RECONCILE_INTERVAL:-5m}
       TMS_LOG_LEVEL: ${TMS_LOG_LEVEL:-info}
       TMS_LOG_FORMAT: json
+    extra_hosts:
+      # Reach the host's OpenD (127.0.0.1:11111 on the host) from inside the
+      # container as host.docker.internal:11111 (real-OpenD path).
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
@@ -504,8 +505,6 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-      tmsgo-mock-opend:
-        condition: service_started
     healthcheck:
       test: ["CMD", "/usr/local/bin/tms", "trade", "run", "--health", "--health-addr", "127.0.0.1:18090"]
       interval: 30s

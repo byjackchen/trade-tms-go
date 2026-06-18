@@ -1,13 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import {
   ResponsiveTable,
   type ColumnDef,
 } from "@/components/ui/responsive-table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState } from "@/components/shell/states";
 import { cn } from "@/lib/utils";
 import { formatNum, formatMoney } from "@/lib/format";
@@ -47,19 +46,10 @@ function inBuyZone(prox: number | null): boolean {
   return prox != null && prox >= 0 && prox <= 2;
 }
 
-// Suggested side for the Trade prefill: SEPA is long-only; an exit-ish state
-// suggests SELL, everything else BUY.
-function suggestedSide(state: string): "BUY" | "SELL" {
-  const s = state.toLowerCase();
-  return s === "exit" || s === "sell" ? "SELL" : "BUY";
-}
-
 export function SepaTable({
   symbolFilter,
-  accountId,
 }: {
   symbolFilter: string;
-  accountId?: string;
 }) {
   const { rows, isLoading, error, noReader, refetch } = useStrategySignals(
     "sepa",
@@ -350,24 +340,6 @@ export function SepaTable({
           </span>
         );
       },
-    },
-    {
-      key: "trade",
-      header: <span className="sr-only">Trade</span>,
-      labelMobile: "Action",
-      align: "right",
-      primary: true,
-      render: (r) => (
-        <Link
-          href={`/trade?view=desk&symbol=${encodeURIComponent(r.symbol)}&side=${suggestedSide(r.state)}${accountId ? `&account=${encodeURIComponent(accountId)}` : ""}`}
-          data-testid="manual-trade-from-signal"
-          data-symbol={r.symbol}
-          data-side={suggestedSide(r.state)}
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-        >
-          Trade
-        </Link>
-      ),
     },
   ];
 

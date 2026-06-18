@@ -205,38 +205,29 @@ func (p *LivePersist) RecordRiskEvent(ctx context.Context, strategyID, symbol, r
 	return p.insertRiskEvent(ctx, false, rule, strategyID, symbol, domain.SideFlat, 0, 0, detail)
 }
 
-// RecordManualAction appends a manual-desk action to tms.audit_log (the
-// livetrade.AuditSink seam): operator, action (place/cancel/close), symbol, side,
-// qty, override?, live?, ts. Append-only (never updated/deleted). EVERY manual
-// action audits — this is a hard safety requirement (the desk can place real
-// orders), so an audit-write failure is returned to the caller (the desk logs it)
-// rather than silently dropped.
-func (p *LivePersist) RecordManualAction(ctx context.Context, a livetrade.ManualAuditRecord) error {
+// RecordSyncAction appends a broker-sync/connect action to tms.audit_log (the
+// livetrade.AuditSink seam): operator, action (sync/connect), reflected-symbol count,
+// live?, ts. Append-only (never updated/deleted). EVERY sync action audits, so an
+// audit-write failure is returned to the caller (the desk logs it) rather than
+// silently dropped.
+func (p *LivePersist) RecordSyncAction(ctx context.Context, a livetrade.SyncAuditRecord) error {
 	if p.pool == nil {
 		return nil
 	}
 	details := map[string]any{
-		"action":          a.Action,
-		"symbol":          a.Symbol,
-		"side":            a.Side,
-		"qty":             a.Qty,
-		"order_type":      a.OrderType,
-		"client_order_id": a.ClientOrderID,
-		"override":        a.Override,
-		"live":            a.Live,
-		"session_id":      p.sessionID,
-		"trader_id":       p.traderID,
-	}
-	if a.RiskRule != "" {
-		details["risk_rule_overridden"] = a.RiskRule
+		"action":     a.Action,
+		"reflected":  a.Qty,
+		"live":       a.Live,
+		"session_id": p.sessionID,
+		"trader_id":  p.traderID,
 	}
 	detBytes, _ := json.Marshal(details)
 	if _, err := p.pool.Exec(ctx,
 		`INSERT INTO tms.audit_log (actor, action, entity, entity_id, details, ts)
-		 VALUES ($1, $2, 'manual_trade', $3, $4::jsonb, $5)`,
-		actorOr(a.Operator), "trade.manual."+a.Action, nullStr(a.ClientOrderID),
+		 VALUES ($1, $2, 'broker_sync', NULL, $3::jsonb, $4)`,
+		actorOr(a.Operator), "trade.sync."+a.Action,
 		string(detBytes), a.TS.UTC()); err != nil {
-		return fmt.Errorf("record manual action %s: %w", a.Action, err)
+		return fmt.Errorf("record sync action %s: %w", a.Action, err)
 	}
 	return nil
 }

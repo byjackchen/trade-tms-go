@@ -5,7 +5,7 @@ package moomoo
 // return to TMS and ask the desk to pull the account's ACTUAL state and REFLECT it
 // into the TMS books so the externally-placed trades show up. This file holds the
 // execution primitive (SyncBrokerInto); the operator-facing SyncFromBroker (audit
-// + reconciliation) lives in the manualtrade controller.
+// + reconciliation) lives in the livetrade broker-sync controller.
 //
 // SAFETY (paramount): this is READ-ONLY from the broker. It calls ONLY the GET
 // methods (Trd_GetPositionList / Trd_GetOrderList / Trd_GetOrderFillList /

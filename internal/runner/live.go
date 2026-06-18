@@ -179,13 +179,14 @@ type Live struct {
 	// in signal mode). nil before Run connects. Guarded by mu.
 	client MoomooClient
 
-	// manual is the operator-driven manual trade desk (the discretionary order
-	// surface), independent of the strategy execution mode. nil until
-	// ConnectManualSession binds it. Guarded by manualMu so a connect + an in-flight
-	// place never race. Its executor holds an INDEPENDENT accounting book attributed
-	// to the MANUAL pseudo-strategy so manual fills never mingle with the auto books.
-	manualMu sync.Mutex
-	manual   *livetrade.ManualController
+	// brokerSync is the READ-ONLY broker-sync desk (DIRECTION 2: pull externally-
+	// placed broker state back into TMS), independent of the strategy execution mode
+	// and usable in signal AND auto sessions. nil until ConnectBrokerSync binds it.
+	// Guarded by brokerSyncMu so a connect + an in-flight sync never race. Its executor
+	// holds an INDEPENDENT accounting book attributed to the EXTERNAL pseudo-strategy
+	// so synced positions never mingle with the auto books.
+	brokerSyncMu sync.Mutex
+	brokerSync   *livetrade.BrokerSyncController
 }
 
 // NewLive builds a live node. rdb may be nil (Redis-less: no streams, no command

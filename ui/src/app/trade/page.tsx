@@ -1,14 +1,10 @@
-"use client";
-
-import { TradeModule } from "@/components/portfolio/trade-module";
+import { redirect } from "next/navigation";
 
 /**
- * Trade (#4) — the UNIFIED former Paper + Live surface. ONE `<TradeModule/>` with
- * NO fixed env: the bound account is chosen by the top-right account selector
- * (which lists ALL accounts, each badged paper|live). The selected account's env
- * drives the LIVE-red treatment + SIGNAL/AUTO arm-confirm + the 4-factor/confirm
- * gate (docs/concept-alignment.md §3.4).
+ * Legacy `/trade` route. The unified "Trade" top-level was SPLIT into "Session"
+ * (runtime control) and "Account" (the persistent book). Redirect to /session so
+ * any bookmarked /trade link lands on the runtime surface.
  */
-export default function TradePage() {
-  return <TradeModule />;
+export default function TradeRedirect() {
+  redirect("/session");
 }

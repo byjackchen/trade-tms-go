@@ -56,12 +56,7 @@ import type {
   PreflightReport,
   AuditResponse,
   JobRetryResponse,
-  ManualOrderRequest,
-  ManualOrderResponse,
-  ManualCancelResponse,
-  ManualCloseRequest,
-  ManualCloseResponse,
-  ManualSyncResponse,
+  BrokerSyncResponse,
 } from "./types";
 import { ApiError } from "./client";
 
@@ -923,88 +918,41 @@ export function useLiveCommand() {
   });
 }
 
-// ---- Manual trading desk (P6, operator-driven mutations) ----
+// ---- Broker sync (DIRECTION 2: broker → TMS, read-only) ----
 //
-// The ONLY broker-mutation surface in the HTTP API. SAFETY is paramount: the
-// server is the authoritative gate (412 confirmation_required / 422 risk_violation
-// / 503 no-desk). These mutations are NEVER retried — a retry on a partial /
-// unknown outcome must never silently double-submit (idempotency_key already
-// prevents a true duplicate, but a retry here would also re-surface the safety
-// dialog, which must be an explicit operator action). On success we invalidate the
-// live orders / positions / account queries so the blotter + book reconcile to the
-// durable PG truth immediately (the WS push layers on top).
+// The operator places orders DIRECTLY at the broker (TMS no longer offers an order
+// ticket). The ONLY TMS-side broker call is the READ-ONLY sync below: it pulls the
+// account's actual positions/orders/fills/account and reflects them into the
+// EXTERNAL book, then reconciles vs the strategy books. Because it places NO orders
+// it is SAFE in EVERY mode (signal + auto, paper + live) — no confirm token, no
+// risk gate. The mutation is NOT retried: a retry could re-surface a transient 503.
 
-/** Bust the live trading read snapshots after a successful manual mutation. */
+/** Bust the live trading read snapshots after a successful broker sync. */
 function invalidateTradingReads(qc: ReturnType<typeof useQueryClient>) {
   void qc.invalidateQueries({ queryKey: ["live", "orders"] });
   void qc.invalidateQueries({ queryKey: ["live", "fills"] });
   void qc.invalidateQueries({ queryKey: ["live", "positions"] });
   void qc.invalidateQueries({ queryKey: ["live", "account"] });
-}
-
-/**
- * Place a manual order (POST /api/v1/trade/order). The caller inspects the
- * thrown `ApiError` for the gate codes: 412 (`confirmation_required` — needs the
- * per-order confirm phrase / trade password) and 422 (`risk_violation` — the gate
- * rejected an opening order; the operator may re-submit with `override: true`).
- */
-export function useManualOrder() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: ManualOrderRequest) =>
-      apiPost<ManualOrderResponse>("trade/order", body),
-    retry: false,
-    onSuccess: () => invalidateTradingReads(qc),
-  });
-}
-
-/** Cancel a working manual order by client-order-id (idempotent on the server). */
-export function useCancelManualOrder() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (coid: string) =>
-      apiPost<ManualCancelResponse>(
-        `trade/order/${encodeURIComponent(coid)}/cancel`,
-        {},
-      ),
-    retry: false,
-    onSuccess: () => invalidateTradingReads(qc),
-  });
-}
-
-/**
- * Close (flatten) the MANUAL position in one symbol. A LIVE close still requires a
- * `confirm_token` (412 without it); a close bypasses the allocator budget. An
- * already-flat symbol is an idempotent no-op (`submitted: false`).
- */
-export function useCloseManualPosition() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (args: { symbol: string; body: ManualCloseRequest }) =>
-      apiPost<ManualCloseResponse>(
-        `trade/position/${encodeURIComponent(args.symbol)}/close`,
-        args.body,
-      ),
-    retry: false,
-    onSuccess: () => invalidateTradingReads(qc),
-  });
+  void qc.invalidateQueries({ queryKey: ["trade", "orders"] });
+  void qc.invalidateQueries({ queryKey: ["trade", "fills"] });
+  void qc.invalidateQueries({ queryKey: ["trade", "positions"] });
+  void qc.invalidateQueries({ queryKey: ["trade", "portfolio"] });
 }
 
 /**
  * Sync from broker (POST /api/v1/trade/sync) — DIRECTION 2 (broker → TMS, the
- * operator's primary case). The operator traded DIRECTLY in moomoo; this pulls the
- * account's ACTUAL positions/orders/fills/account and reflects them into the
- * MANUAL/EXTERNAL book, then reconciles vs the strategy books. READ-ONLY at the
- * broker (places NO orders) and therefore safe in ALL modes incl signal — no
- * confirm token or risk gate applies. Idempotent: re-syncing the same broker state
- * reflects nothing. On success we invalidate the trading reads so the
- * positions/blotter/account panels reflect broker truth immediately. Also busts the
- * reconciliation read so its panel converges.
+ * operator's primary case). The operator traded DIRECTLY at the broker; this pulls
+ * the account's ACTUAL positions/orders/fills/account and reflects them into the
+ * EXTERNAL book, then reconciles vs the strategy books. READ-ONLY at the broker
+ * (places NO orders) and therefore safe in ALL modes incl signal. Idempotent:
+ * re-syncing the same broker state reflects nothing. On success we invalidate the
+ * trading reads so the positions/blotter/account panels reflect broker truth
+ * immediately. Also busts the reconciliation read so its panel converges.
  */
-export function useManualSync() {
+export function useBrokerSync() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => apiPost<ManualSyncResponse>("trade/sync", {}),
+    mutationFn: () => apiPost<BrokerSyncResponse>("trade/sync", {}),
     retry: false,
     onSuccess: () => {
       invalidateTradingReads(qc);

@@ -166,11 +166,11 @@ func TestUpsertOrderPersistsTypeAndLimitPx(t *testing.T) {
 	sessionID := openTestSession(t, pool, "PAPER-LIMIT-001")
 	p := runner.NewLivePersist(pool, nil, sessionID, "", "PAPER-LIMIT-001", "MOOMOO", zerolog.Nop())
 
-	// A LIMIT BUY (MSFT @ 100.00). Build the order exactly as the executor's
-	// SubmitManual does for a LIMIT spec: Type=LIMIT with a positive LimitPrice.
+	// A LIMIT BUY (MSFT @ 100.00) attributed to the EXTERNAL book: Type=LIMIT with a
+	// positive LimitPrice.
 	lp := domain.MustPrice("100.00")
 	o := domain.Order{
-		ClientOrderID: "MANUAL-PAPER-lim-1", StrategyID: livetrade.ManualStrategyID,
+		ClientOrderID: "MANUAL-PAPER-lim-1", StrategyID: livetrade.ExternalStrategyID,
 		Symbol: "MSFT", Side: domain.OrderSideBuy, Type: domain.OrderTypeLimit,
 		TIF: domain.TIFGTC, Qty: 5, LimitPrice: &lp,
 		Status: domain.OrderStatusSubmitted, TS: time.Now().UTC(),
@@ -187,7 +187,7 @@ func TestUpsertOrderPersistsTypeAndLimitPx(t *testing.T) {
 	assert.Equal(t, int64(1000000), limitPx, "limit_px persists on the 1e-4 grid ($100.00 -> 1_000_000)")
 
 	// A MARKET order persists order_type='MARKET' with a NULL limit_px (no ceiling).
-	m := domain.NewMarketOrder("MANUAL-PAPER-mkt-1", livetrade.ManualStrategyID, "AAPL", domain.OrderSideBuy, 10, "open", time.Now().UTC())
+	m := domain.NewMarketOrder("MANUAL-PAPER-mkt-1", livetrade.ExternalStrategyID, "AAPL", domain.OrderSideBuy, 10, "open", time.Now().UTC())
 	m.Status = domain.OrderStatusSubmitted
 	require.NoError(t, p.UpsertOrder(ctx, m))
 	var mType string

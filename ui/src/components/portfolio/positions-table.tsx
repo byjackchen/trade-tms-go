@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useLivePositions, useCloseManualPosition } from "@/lib/api/hooks";
+import { useLivePositions } from "@/lib/api/hooks";
 import { useLiveStream } from "@/lib/api/use-live-stream";
 import { ApiError } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,21 +10,13 @@ import {
   type ColumnDef,
 } from "@/components/ui/responsive-table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Sheet } from "@/components/ui/sheet";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EmptyState, ErrorState } from "@/components/shell/states";
 import { DisconnectedBanner } from "./disconnected-banner";
 import { SideBadge } from "./live-badges";
-import { useTradeDesk } from "./desk/trade-desk-context";
 import {
-  MANUAL_LIVE_CONFIRM_PHRASE,
-  MANUAL_STRATEGY_ID,
+  EXTERNAL_STRATEGY_ID,
   type LiveTradePosition,
-  type ManualSide,
   type WsLivePosition,
   type WsLivePositionRow,
 } from "@/lib/api/types";
@@ -79,33 +71,22 @@ function pnlTone(v: number): string {
 }
 
 /**
- * THE shared positions table — one component for both the Portfolio view (read-only)
- * and the manual desk (acting).
+ * The Account view's read-only positions table — the account's open book.
  *
- * `withActions=false` (Portfolio view): a read-only open-book view — the portfolio
- * OVERVIEW. Emits the `live-positions` / `live-position-row` testid contract.
- *
- * `withActions=true` (desk): adds the per-row Trade (pre-fills the order ticket
- * with a flattening side) + Close (flattens the MANUAL position behind a typed
- * confirmation) actions, the MANUAL/auto book column, and totals. Emits the
- * `manual-positions` / `manual-position-row` contract. `liveArmed` raises the
- * close confirmation to the exact live phrase.
+ * It surfaces every strategy book PLUS the EXTERNAL book (positions placed
+ * directly at the broker and pulled back in by "Sync from broker"). EXTERNAL rows
+ * are badged so the operator can tell the synced external book from the auto
+ * strategies'. There is NO order ENTRY here — orders are placed at the broker.
  *
  * Hydrates from PG (GET /api/v1/trade/positions), then the `live_position` WS
  * frame replaces the book wholesale (a full snapshot, not a delta).
  */
 export function PositionsTable({
-  withActions = false,
-  liveArmed = false,
   accountId,
 }: {
-  withActions?: boolean;
-  liveArmed?: boolean;
   accountId?: string;
 } = {}) {
   const q = useLivePositions(accountId);
-  const close = useCloseManualPosition();
-  const desk = useTradeDesk();
 
   // The latest full book pushed over WS (replace semantics), or null until one
   // arrives — then it supersedes the poll snapshot.
@@ -122,11 +103,6 @@ export function PositionsTable({
       });
     },
   });
-
-  // Close dialog state (desk only).
-  const [closeSym, setCloseSym] = useState<string | null>(null);
-  const [closeQty, setCloseQty] = useState("");
-  const [confirmToken, setConfirmToken] = useState("");
 
   const rows = useMemo<Row[]>(() => {
     // The WS book, once present, is authoritative (it is the live full snapshot).
@@ -152,49 +128,6 @@ export function PositionsTable({
 
   const noReader = q.error instanceof ApiError && q.error.status === 503;
 
-  function openClose(symbol: string) {
-    setCloseSym(symbol);
-    setCloseQty("");
-    setConfirmToken("");
-    close.reset();
-  }
-  function closeDialog() {
-    setCloseSym(null);
-  }
-  function submitClose() {
-    if (!closeSym) return;
-    const qtyNum = Number(closeQty);
-    const partial =
-      closeQty.trim() !== "" && Number.isFinite(qtyNum) && qtyNum > 0;
-    close.mutate(
-      {
-        symbol: closeSym,
-        body: {
-          ...(partial ? { qty: Math.floor(qtyNum) } : {}),
-          confirm_token: confirmToken.trim(),
-        },
-      },
-      { onSuccess: () => closeDialog() },
-    );
-  }
-
-  // Side that REDUCES a position (for the Trade prefill): long → SELL, short → BUY.
-  const flatteningSide = (signed: number): ManualSide =>
-    signed >= 0 ? "SELL" : "BUY";
-
-  const tokenPresent = confirmToken.trim().length > 0;
-  const tokenOk = liveArmed
-    ? confirmToken.trim() === MANUAL_LIVE_CONFIRM_PHRASE
-    : tokenPresent;
-  const canClose = tokenOk && !close.isPending;
-
-  // Testid prefix keeps the e2e contract: Portfolio view `live-positions`, desk
-  // `manual-positions`.
-  const rootId = withActions ? "manual-positions" : "live-positions";
-  const rowId = withActions ? "manual-position-row" : "live-position-row";
-  const countId = withActions ? "manual-positions-count" : "positions-count";
-  const panelId = withActions ? "manual-positions" : "positions-panel";
-
   // Column definitions drive both the desktop table and the mobile card list
   // (full feature set — every column ports). Symbol + Side are `primary` so each
   // mobile card leads with the at-a-glance line; the rest fold under "More".
@@ -207,11 +140,11 @@ export function PositionsTable({
     },
     {
       key: "book",
-      header: withActions ? "Book" : "Strategy",
+      header: "Book",
       render: (r) =>
-        withActions && r.strategy_id === MANUAL_STRATEGY_ID ? (
-          <Badge variant="secondary" data-testid="position-manual-badge">
-            MANUAL
+        r.strategy_id === EXTERNAL_STRATEGY_ID ? (
+          <Badge variant="secondary" data-testid="position-external-badge">
+            EXTERNAL
           </Badge>
         ) : (
           <span className="font-mono text-xs text-muted-foreground">
@@ -254,65 +187,24 @@ export function PositionsTable({
       render: (r) => (
         <span
           className={`font-mono ${pnlTone(r.realized_pnl)}`}
-          data-testid={withActions ? undefined : "position-realized-pnl"}
+          data-testid="position-realized-pnl"
         >
           {formatMoney(r.realized_pnl)}
         </span>
       ),
     },
-    ...(withActions
-      ? [
-          {
-            key: "actions",
-            header: "Actions",
-            align: "right" as const,
-            render: (r: Row) => {
-              const isManual = r.strategy_id === MANUAL_STRATEGY_ID;
-              return (
-                <span className="flex justify-end gap-1.5">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      desk.requestTrade(r.symbol, flatteningSide(r.signed_qty))
-                    }
-                    data-testid="position-trade-button"
-                  >
-                    Trade
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => openClose(r.symbol)}
-                    disabled={!isManual || r.signed_qty === 0}
-                    title={
-                      isManual
-                        ? "Close the MANUAL position in this symbol"
-                        : "Only MANUAL positions are closable here"
-                    }
-                    data-testid="manual-position-close"
-                    data-symbol={r.symbol}
-                  >
-                    Close
-                  </Button>
-                </span>
-              );
-            },
-          },
-        ]
-      : []),
   ];
 
   return (
     <Card
-      data-testid={rootId}
-      data-panel={panelId}
+      data-testid="live-positions"
+      data-panel="positions-panel"
       data-position-count={rows.length}
       data-connected={state === "open" ? "true" : "false"}
     >
       <CardHeader>
         <CardTitle className="text-sm">Positions</CardTitle>
-        <span className="text-xs text-muted-foreground" data-testid={countId}>
+        <span className="text-xs text-muted-foreground" data-testid="positions-count">
           {rows.length} open {rows.length === 1 ? "position" : "positions"}
         </span>
       </CardHeader>
@@ -320,10 +212,7 @@ export function PositionsTable({
         <DisconnectedBanner state={state} />
 
         {q.isLoading && !pushed ? (
-          <div
-            className="space-y-2"
-            data-testid={withActions ? "manual-positions-loading" : "positions-loading"}
-          >
+          <div className="space-y-2" data-testid="positions-loading">
             <Skeleton className="h-8 w-full" />
             <Skeleton className="h-8 w-full" />
             <Skeleton className="h-8 w-full" />
@@ -331,24 +220,20 @@ export function PositionsTable({
         ) : noReader ? (
           <EmptyState
             title="Live trading reader not configured"
-            hint="Positions appear once a paper/live session is running. In signal mode there are no positions."
-            data-testid={withActions ? "manual-positions-no-reader" : "positions-no-reader"}
+            hint="Positions appear once a paper/live session is running, or after a broker sync. In signal mode there are no auto positions."
+            data-testid="positions-no-reader"
           />
         ) : q.error ? (
           <ErrorState
             error={q.error}
             onRetry={() => q.refetch()}
-            data-testid={withActions ? "manual-positions-error" : "positions-error"}
+            data-testid="positions-error"
           />
         ) : rows.length === 0 ? (
           <EmptyState
             title="No open positions"
-            hint={
-              withActions
-                ? "The book is flat. Place an order in the ticket to open one."
-                : "The book is flat. Positions appear here as paper/live orders fill."
-            }
-            data-testid={withActions ? "manual-positions-empty" : "positions-empty"}
+            hint="The book is flat. Positions appear here as paper/live orders fill, or after you sync externally-placed positions from the broker."
+            data-testid="positions-empty"
           />
         ) : (
           <>
@@ -356,16 +241,13 @@ export function PositionsTable({
               columns={columns}
               rows={rows}
               rowKey={(r) => r.key}
-              rowTestId={() => rowId}
+              rowTestId={() => "live-position-row"}
               rowAttrs={(r) => ({
                 "data-strategy-id": r.strategy_id,
                 "data-symbol": r.symbol,
                 "data-signed-qty": String(r.signed_qty),
-                "data-manual": withActions
-                  ? r.strategy_id === MANUAL_STRATEGY_ID
-                    ? "true"
-                    : "false"
-                  : undefined,
+                "data-external":
+                  r.strategy_id === EXTERNAL_STRATEGY_ID ? "true" : "false",
               })}
               data-testid="positions-responsive-table"
             />
@@ -373,7 +255,7 @@ export function PositionsTable({
                 BOTH surfaces (desktop table + mobile card list) and preserves the
                 `…-totals` e2e contract with the MV / realized-P&L values. */}
             <div
-              data-testid={withActions ? "manual-positions-totals" : "positions-totals"}
+              data-testid="positions-totals"
               className="flex items-center justify-between gap-3 border-t pt-2 text-sm"
             >
               <span className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -399,102 +281,6 @@ export function PositionsTable({
           </>
         )}
       </CardContent>
-
-      {/* ---- Close confirmation dialog (desk only) ---- */}
-      {withActions ? (
-        <Sheet
-          open={closeSym !== null}
-          onClose={closeDialog}
-          data-testid="manual-close-confirm"
-          title={
-            <span>
-              Close MANUAL position —{" "}
-              <span className="font-mono">{closeSym}</span>
-            </span>
-          }
-          description={
-            liveArmed ? (
-              <span className="block font-medium text-destructive">
-                LIVE (real-money) close — type the confirmation phrase. A close
-                bypasses the allocator budget and is allowed even under a halt.
-              </span>
-            ) : (
-              "Submits a market order that flattens the MANUAL net in this symbol. Leave quantity blank for a full close; a positive quantity partial-closes (clamped to the open size). Enter the trade password to authorize."
-            )
-          }
-          footer={
-            <>
-              <Button
-                variant="outline"
-                onClick={closeDialog}
-                disabled={close.isPending}
-                data-testid="manual-close-confirm-cancel"
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                disabled={!canClose}
-                aria-disabled={!canClose}
-                onClick={submitClose}
-                data-testid="manual-close-confirm-submit"
-              >
-                {close.isPending ? "Closing…" : "Close position"}
-              </Button>
-            </>
-          }
-        >
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="close-qty">Quantity (blank = full close)</Label>
-              <Input
-                id="close-qty"
-                type="number"
-                min={1}
-                step={1}
-                inputMode="numeric"
-                value={closeQty}
-                onChange={(e) => setCloseQty(e.target.value)}
-                placeholder="full close"
-                className="font-mono"
-                data-testid="manual-close-qty"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="close-confirm">
-                {liveArmed ? (
-                  <>
-                    Confirm phrase —{" "}
-                    <span className="rounded bg-muted px-1 font-mono text-foreground">
-                      {MANUAL_LIVE_CONFIRM_PHRASE}
-                    </span>
-                  </>
-                ) : (
-                  "Trade password (confirm_token)"
-                )}
-              </Label>
-              <Input
-                id="close-confirm"
-                type={liveArmed ? "text" : "password"}
-                value={confirmToken}
-                onChange={(e) => setConfirmToken(e.target.value)}
-                placeholder={
-                  liveArmed ? MANUAL_LIVE_CONFIRM_PHRASE : "paper trade password"
-                }
-                autoComplete="off"
-                data-testid="manual-close-confirm-input"
-              />
-            </div>
-
-            {close.error instanceof ApiError ? (
-              <Alert variant="destructive" data-testid="manual-close-error">
-                <AlertDescription>{close.error.message}</AlertDescription>
-              </Alert>
-            ) : null}
-          </div>
-        </Sheet>
-      ) : null}
     </Card>
   );
 }

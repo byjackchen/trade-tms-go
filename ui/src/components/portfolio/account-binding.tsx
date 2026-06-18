@@ -104,7 +104,7 @@ function KindBadge({ env }: { env: TradeEnv }) {
  * The unified /trade bound-account selector. It lists ALL accounts (no env
  * filter) and badges each one paper|live from its server-derived `kind`, so the
  * operator picks any account and the page reconfigures around it. Selecting a
- * REAL (live) account makes the whole page loud-red (see TradeModule). Collapses
+ * REAL (live) account makes the whole page loud-red (see AccountView). Collapses
  * to a disabled single entry when there are no accounts / the reader is
  * unconfigured.
  */

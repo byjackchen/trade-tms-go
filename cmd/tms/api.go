@@ -151,21 +151,6 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		Log:       log,
 	}))
 
-	// MANUAL trade desk proxy: the desk physically lives in the broker-connected
-	// LIVE NODE (not this API process). When TMS_MANUAL_TRADE_URL points at the live
-	// node's manual listener (compose: http://tmsgo-live:18091), the API reverse-
-	// proxies /api/v1/trade/* onto it so the UI + e2e suite hit one host. Unset (the
-	// signal-only `app` stack with no live node) leaves /trade/* at 503.
-	var manualProxy *api.ManualTradeProxy
-	if mu := strings.TrimSpace(os.Getenv("TMS_MANUAL_TRADE_URL")); mu != "" {
-		mp, perr := api.NewManualTradeProxy(mu, log)
-		if perr != nil {
-			return fmt.Errorf("api: invalid TMS_MANUAL_TRADE_URL %q: %w", mu, perr)
-		}
-		manualProxy = mp
-		log.Warn().Str("upstream", mu).Msg("manual trade surface reverse-proxied to the live node's manual listener")
-	}
-
 	pgStore := apistore.NewPGStore(pool)
 	srv, err := api.NewServer(api.Deps{
 		Log:         log,
@@ -206,9 +191,6 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		// Preflight backs GET /api/v1/live/preflight (the go-live precondition
 		// report the UI System page renders).
 		Preflight: preflightRunner,
-		// ManualProxy reverse-proxies /api/v1/trade/* onto the live node's manual
-		// listener (the broker-connected process). nil leaves /trade/* at 503.
-		ManualProxy: manualProxy,
 	})
 	if err != nil {
 		return err

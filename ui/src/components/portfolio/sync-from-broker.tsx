@@ -7,13 +7,13 @@ import {
   CloudDownload,
   RefreshCw,
 } from "lucide-react";
-import { useManualSync } from "@/lib/api/hooks";
+import { useBrokerSync } from "@/lib/api/hooks";
 import { ApiError } from "@/lib/api/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import type { ManualSyncResponse } from "@/lib/api/types";
+import type { BrokerSyncResponse } from "@/lib/api/types";
 import { formatInt, formatRelative } from "@/lib/format";
 
 /**
@@ -36,8 +36,8 @@ import { formatInt, formatRelative } from "@/lib/format";
  * reconciliation drift) plus a "last synced" timestamp.
  */
 export function SyncFromBroker() {
-  const sync = useManualSync();
-  const [result, setResult] = useState<ManualSyncResponse | null>(null);
+  const sync = useBrokerSync();
+  const [result, setResult] = useState<BrokerSyncResponse | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -56,7 +56,7 @@ export function SyncFromBroker() {
   const errorMsg =
     sync.error instanceof ApiError
       ? noDesk
-        ? "No manual trade desk connected — start the live node with --manual-mode paper|live to enable broker sync."
+        ? "No broker connection — start a paper/live trade node (the sync surface binds a broker account) to enable broker sync."
         : `${sync.error.code}: ${sync.error.message}`
       : sync.error
         ? "Sync failed; see the UI server logs."
@@ -178,8 +178,8 @@ export function SyncFromBroker() {
                   Reconciliation drift vs strategy books:{" "}
                   {recon?.summary ??
                     `${recon?.mismatches.length ?? 0} mismatch(es)`}
-                  . The node halts on a mismatch — review the reconciliation panel on
-                  the Portfolio view. Drift is never auto-corrected by trading.
+                  . The node halts on a mismatch — review the reconciliation panel
+                  below. Drift is never auto-corrected by trading.
                 </p>
               ) : (
                 <p

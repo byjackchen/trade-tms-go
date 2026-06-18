@@ -1,13 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import {
   ResponsiveTable,
   type ColumnDef,
 } from "@/components/ui/responsive-table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { EmptyState, ErrorState } from "@/components/shell/states";
 import { IntentStateBadge } from "@/components/portfolio/live-badges";
 import { cn } from "@/lib/utils";
@@ -31,17 +30,10 @@ import { SortButton, csvCell, downloadCsv } from "./shared";
 
 type SectorSortKey = "rank" | "symbol" | "momentum" | "target" | "current" | "drift";
 
-function suggestedSide(state: string): "BUY" | "SELL" {
-  const s = state.toLowerCase();
-  return s === "exit" || s === "sell" || s === "short" ? "SELL" : "BUY";
-}
-
 export function SectorTable({
   symbolFilter,
-  accountId,
 }: {
   symbolFilter: string;
-  accountId?: string;
 }) {
   const { rows, isLoading, error, noReader, refetch } = useStrategySignals(
     "sector_rotation",
@@ -245,24 +237,6 @@ export function SectorTable({
           </span>
         );
       },
-    },
-    {
-      key: "trade",
-      header: <span className="sr-only">Trade</span>,
-      labelMobile: "Action",
-      align: "right",
-      primary: true,
-      render: (r) => (
-        <Link
-          href={`/trade?view=desk&symbol=${encodeURIComponent(r.symbol)}&side=${suggestedSide(r.state)}${accountId ? `&account=${encodeURIComponent(accountId)}` : ""}`}
-          data-testid="manual-trade-from-signal"
-          data-symbol={r.symbol}
-          data-side={suggestedSide(r.state)}
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-        >
-          Trade
-        </Link>
-      ),
     },
   ];
 

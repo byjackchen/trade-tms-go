@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useLiveOrders, useCancelManualOrder } from "@/lib/api/hooks";
+import { useLiveOrders } from "@/lib/api/hooks";
 import { useLiveStream } from "@/lib/api/use-live-stream";
 import { ApiError } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,14 +10,12 @@ import {
   type ColumnDef,
 } from "@/components/ui/responsive-table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EmptyState, ErrorState } from "@/components/shell/states";
 import { DisconnectedBanner } from "./disconnected-banner";
 import { OrderStatusBadge, SideBadge } from "./live-badges";
 import {
-  MANUAL_STRATEGY_ID,
+  EXTERNAL_STRATEGY_ID,
   type LiveOrder,
   type LiveOrderStatus,
   type WsOrderUpdate,
@@ -78,48 +76,23 @@ function fromPush(p: WsOrderUpdate): Row {
   };
 }
 
-/** Working = the order is live at the venue and can still be cancelled. */
-const WORKING: ReadonlySet<string> = new Set([
-  "SUBMITTED",
-  "ACCEPTED",
-  "WORKING",
-  "PARTIALLY_FILLED",
-]);
-
-function isWorking(status: LiveOrderStatus): boolean {
-  return WORKING.has(String(status).toUpperCase());
-}
-
 /**
- * THE shared order blotter — one component for both the Portfolio view (read-only) and
- * the manual desk (acting).
- *
- * `withActions=false` (Portfolio view): a read-only blotter — the recent-activity
- * OVERVIEW. Emits the `live-blotter` / `live-blotter-order-row` contract.
- *
- * `withActions=true` (desk): a MANUAL/auto book column + per-row CANCEL on
- * WORKING manual orders (POST /api/v1/trade/order/{coid}/cancel). A wire build
- * without the modify-order proto returns 501; we surface that truthfully and
- * NEVER imply the working order was cancelled. Emits the `manual-blotter` /
- * `manual-blotter-order-row` contract.
+ * The Account view's read-only order blotter — the account's recent order
+ * activity across every strategy book PLUS the EXTERNAL book (orders placed
+ * directly at the broker and pulled back in by "Sync from broker"). EXTERNAL rows
+ * are badged. There is NO cancel here — orders are managed at the broker.
  *
  * Hydrates from PG (GET /api/v1/trade/orders, newest-first), then `order_update`
  * frames advance each order in place — keyed by client_order_id (idempotent).
  */
 export function Blotter({
-  withActions = false,
   accountId,
 }: {
-  withActions?: boolean;
   accountId?: string;
 } = {}) {
   const q = useLiveOrders(undefined, accountId);
-  const cancel = useCancelManualOrder();
   const [pushed, setPushed] = useState<Map<string, Row>>(new Map());
   const [now, setNow] = useState(() => Date.now());
-  const [cancelling, setCancelling] = useState<string | null>(null);
-  // Sticky "cancel not supported on this build" banner (501) — truthful messaging.
-  const [unsupported, setUnsupported] = useState<string | null>(null);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 5000);
@@ -157,36 +130,8 @@ export function Blotter({
 
   const noReader = q.error instanceof ApiError && q.error.status === 503;
 
-  // A non-501 cancel failure (e.g. 400) surfaces inline; 501 has its own banner.
-  const cancelError =
-    cancel.error instanceof ApiError && cancel.error.status !== 501
-      ? `${cancel.error.code}: ${cancel.error.message}`
-      : null;
-
-  function onCancel(coid: string) {
-    setCancelling(coid);
-    setUnsupported(null);
-    cancel.mutate(coid, {
-      onError: (err) => {
-        if (err instanceof ApiError && err.status === 501) {
-          setUnsupported(
-            `${coid}: ${err.message || "cancel is not supported on this broker build"}`,
-          );
-        }
-      },
-      onSettled: () => setCancelling(null),
-    });
-  }
-
-  // Testid prefix keeps the e2e contract: Portfolio view `live-blotter`, desk
-  // `manual-blotter`.
-  const rootId = withActions ? "manual-blotter" : "live-blotter";
-  const rowId = withActions ? "manual-blotter-order-row" : "live-blotter-order-row";
-  const countId = withActions ? "manual-orders-count" : "orders-count";
-
   // Column defs drive desktop table + mobile card list (full feature set). Symbol +
-  // Status lead each mobile card; the cancel Action (desk only) stays primary so
-  // it is a tap away without expanding "More".
+  // Status lead each mobile card.
   const columns: ColumnDef<Row>[] = [
     {
       key: "symbol",
@@ -196,11 +141,11 @@ export function Blotter({
     },
     {
       key: "book",
-      header: withActions ? "Book" : "Strategy",
+      header: "Book",
       render: (r) =>
-        withActions && r.strategy_id === MANUAL_STRATEGY_ID ? (
-          <Badge variant="secondary" data-testid="order-manual-badge">
-            MANUAL
+        r.strategy_id === EXTERNAL_STRATEGY_ID ? (
+          <Badge variant="secondary" data-testid="order-external-badge">
+            EXTERNAL
           </Badge>
         ) : (
           <span className="font-mono text-xs text-muted-foreground">
@@ -264,75 +209,27 @@ export function Blotter({
         </span>
       ),
     },
-    ...(withActions
-      ? [
-          {
-            key: "action",
-            header: "Action",
-            align: "right" as const,
-            primary: true,
-            render: (r: Row) => {
-              const manual = r.strategy_id === MANUAL_STRATEGY_ID;
-              const working = isWorking(r.status);
-              const pending = cancelling === r.client_order_id;
-              return manual && working ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={pending}
-                  onClick={() => onCancel(r.client_order_id)}
-                  data-testid="manual-order-cancel"
-                  data-client-order-id={r.client_order_id}
-                >
-                  {pending ? "Cancelling…" : "Cancel"}
-                </Button>
-              ) : (
-                <span className="text-xs text-muted-foreground">—</span>
-              );
-            },
-          },
-        ]
-      : []),
   ];
 
   return (
     <Card
-      data-testid={rootId}
-      data-orders={withActions ? undefined : "live-orders"}
-      data-panel={withActions ? "manual-blotter" : "order-blotter"}
+      data-testid="live-blotter"
+      data-orders="live-orders"
+      data-panel="order-blotter"
       data-order-count={rows.length}
       data-connected={state === "open" ? "true" : "false"}
     >
       <CardHeader>
         <CardTitle className="text-sm">Order blotter</CardTitle>
-        <span className="text-xs text-muted-foreground" data-testid={countId}>
+        <span className="text-xs text-muted-foreground" data-testid="orders-count">
           {rows.length} {rows.length === 1 ? "order" : "orders"}
-          {withActions ? " (manual + auto)" : ""}
         </span>
       </CardHeader>
       <CardContent className="space-y-3">
         <DisconnectedBanner state={state} />
 
-        {withActions && unsupported ? (
-          <Alert variant="warning" data-testid="manual-cancel-unsupported">
-            <AlertDescription>
-              Cancel is not supported on this broker build — the working order was
-              NOT cancelled. {unsupported}
-            </AlertDescription>
-          </Alert>
-        ) : null}
-
-        {withActions && cancelError ? (
-          <Alert variant="destructive" data-testid="manual-cancel-error">
-            <AlertDescription>{cancelError}</AlertDescription>
-          </Alert>
-        ) : null}
-
         {q.isLoading ? (
-          <div
-            className="space-y-2"
-            data-testid={withActions ? "manual-orders-loading" : "orders-loading"}
-          >
+          <div className="space-y-2" data-testid="orders-loading">
             <Skeleton className="h-8 w-full" />
             <Skeleton className="h-8 w-full" />
             <Skeleton className="h-8 w-full" />
@@ -340,41 +237,34 @@ export function Blotter({
         ) : noReader ? (
           <EmptyState
             title="Live trading reader not configured"
-            hint="Orders appear once a paper/live session submits them. In signal mode no orders are ever sent."
-            data-testid={withActions ? "manual-orders-no-reader" : "orders-no-reader"}
+            hint="Orders appear once a paper/live session submits them, or after a broker sync. In signal mode no orders are ever sent."
+            data-testid="orders-no-reader"
           />
         ) : q.error ? (
           <ErrorState
             error={q.error}
             onRetry={() => q.refetch()}
-            data-testid={withActions ? "manual-orders-error" : "orders-error"}
+            data-testid="orders-error"
           />
         ) : rows.length === 0 ? (
           <EmptyState
             title="No orders yet"
-            hint={
-              withActions
-                ? "Submitted manual + auto orders appear here with their live status."
-                : "Submitted orders appear here with their live state-machine status."
-            }
-            data-testid={withActions ? "manual-orders-empty" : "orders-empty"}
+            hint="Submitted orders appear here with their live state-machine status. Externally-placed orders appear after a broker sync."
+            data-testid="orders-empty"
           />
         ) : (
           <ResponsiveTable<Row>
             columns={columns}
             rows={rows}
             rowKey={(r) => r.client_order_id}
-            rowTestId={() => rowId}
+            rowTestId={() => "live-blotter-order-row"}
             rowAttrs={(r) => ({
               "data-client-order-id": r.client_order_id,
               "data-symbol": r.symbol,
               "data-status": String(r.status).toUpperCase(),
               "data-filled-qty": String(r.filled_qty),
-              "data-manual": withActions
-                ? r.strategy_id === MANUAL_STRATEGY_ID
-                  ? "true"
-                  : "false"
-                : undefined,
+              "data-external":
+                r.strategy_id === EXTERNAL_STRATEGY_ID ? "true" : "false",
             })}
             data-testid="blotter-responsive-table"
           />

@@ -79,8 +79,6 @@ func newTradeRunCmd(env *runtimeEnv) *cobra.Command {
 		drainTimeout  time.Duration
 		skipPreflight bool
 		maxStaleDays  int
-		manualMode    string
-		manualAPIAddr string
 	)
 
 	cmd := &cobra.Command{
@@ -115,8 +113,6 @@ func newTradeRunCmd(env *runtimeEnv) *cobra.Command {
 				drainTimeout:  drainTimeout,
 				skipPreflight: skipPreflight,
 				maxStaleDays:  maxStaleDays,
-				manualMode:    strings.TrimSpace(manualMode),
-				manualAPIAddr: strings.TrimSpace(manualAPIAddr),
 			})
 		},
 	}
@@ -135,8 +131,6 @@ func newTradeRunCmd(env *runtimeEnv) *cobra.Command {
 	cmd.Flags().DurationVar(&drainTimeout, "drain-timeout", 10*time.Second, "max wait for in-flight work on shutdown")
 	cmd.Flags().BoolVar(&skipPreflight, "skip-preflight", false, "DANGER: start without the go-live preflight gate (signal/paper only; REFUSED for live = exec-policy auto + env real)")
 	cmd.Flags().IntVar(&maxStaleDays, "max-stale-days", 1, "DATA_CURRENT tolerance: max trading days the data frontier may lag T-1")
-	cmd.Flags().StringVar(&manualMode, "manual-mode", "", "connect an operator MANUAL trade desk: paper | live (independent of --mode; live requires the full 4-factor activation). Serves /api/v1/trade/* on --manual-api-addr")
-	cmd.Flags().StringVar(&manualAPIAddr, "manual-api-addr", "127.0.0.1:18091", "MANUAL trade desk HTTP listen address (bearer-guarded by TMS_API_TOKEN)")
 
 	return cmd
 }
@@ -206,8 +200,6 @@ type tradeRunArgs struct {
 	drainTimeout  time.Duration
 	skipPreflight bool
 	maxStaleDays  int
-	manualMode    string
-	manualAPIAddr string
 }
 
 // runTradeRun assembles and runs the live signal-mode trading node (P5): the native
@@ -372,40 +364,33 @@ func runTradeRun(parent context.Context, env *runtimeEnv, a tradeRunArgs) error 
 		return err
 	}
 
-	// Liveness HTTP server (compose healthcheck on :18090 via host port).
-	healthSrv, err := startTradeHealthServer(a.healthAddr, node, log)
+	// Liveness HTTP server (compose healthcheck on :18090 via host port). It ALSO
+	// serves the READ-ONLY broker-SYNC surface (/api/v1/trade/sync,/status,/account)
+	// off the same listener, bearer-guarded by TMS_API_TOKEN — the trade node holds
+	// the broker connection, so there is no separate manual listener / reverse proxy.
+	healthSrv, err := startTradeHealthServer(a.healthAddr, node, env.cfg.APIToken, log)
 	if err != nil {
 		return err
 	}
 
-	// Optional MANUAL trade desk: connect an operator-driven desk (paper/live) and
-	// serve the /api/v1/trade/* mutation surface, independent of the strategy mode.
-	// It runs in this process because it holds the broker connection.
-	var manualSrv *manualTradeServer
-	if a.manualMode != "" {
-		manualSrv, err = startManualTradeServer(ctx, manualTradeServerArgs{
-			node:    node,
-			mode:    a.manualMode,
-			apiAddr: a.manualAPIAddr,
-			token:   env.cfg.APIToken,
-			log:     log,
-		})
-		if err != nil {
-			return err
-		}
+	// DIRECTION 2 (broker -> TMS): in a broker-connected run (paper/live) connect the
+	// READ-ONLY broker-sync desk in the background once the moomoo client is ready, so
+	// the operator can "Sync from broker" — pull externally-placed positions into the
+	// EXTERNAL book + reconcile — over the folded /api/v1/trade/sync surface. Signal
+	// mode binds no broker account, so there is nothing to sync (the routes stay 503).
+	if mode == "paper" || mode == "live" {
+		go connectBrokerSyncDesk(ctx, node, mode, log)
 	}
 
 	log.Info().
 		Str("moomoo_addr", moomooAddr).
 		Str("run", mode).
-		Str("manual_mode", a.manualMode).
 		Float64("health_nav", a.startBalance).
 		Msg("live node starting")
 
 	runErr := node.Run(ctx)
 
 	shutdownErr := app.GracefulShutdown(log, a.drainTimeout,
-		app.ShutdownFunc{Name: "manual-trade-api", Fn: manualShutdown(manualSrv)},
 		app.ShutdownFunc{Name: "live-health", Fn: healthSrv.Shutdown},
 		app.ShutdownFunc{Name: "live-node", Fn: func(context.Context) error {
 			log.Info().Msg("live node stopped")
@@ -523,14 +508,20 @@ type tradeHealthServer struct {
 func (s *tradeHealthServer) Shutdown(ctx context.Context) error { return s.srv.Shutdown(ctx) }
 
 // startTradeHealthServer serves GET /healthz with the node's mode + halt state
-// on addr (the compose healthcheck targets the internal :18090 via host port).
-func startTradeHealthServer(addr string, node *runner.Live, log zerolog.Logger) (*tradeHealthServer, error) {
+// on addr (the compose healthcheck targets the internal :18090 via host port). It
+// ALSO folds the READ-ONLY broker-SYNC surface (DIRECTION 2: /api/v1/trade/sync,
+// /status, /account) onto the same listener, bearer-guarded by syncToken — the
+// trade node holds the broker connection, so there is no separate manual listener
+// and no reverse proxy. An empty syncToken leaves the sync routes unmounted.
+func startTradeHealthServer(addr string, node *runner.Live, syncToken string, log zerolog.Logger) (*tradeHealthServer, error) {
 	hlog := log.With().Str("component", "trade-health").Logger()
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("trade: health listener on %s: %w", addr, err)
 	}
 	mux := http.NewServeMux()
+	// DIRECTION 2 (broker -> TMS): READ-ONLY sync surface, bearer-guarded.
+	registerBrokerSyncRoutes(mux, node, syncToken, hlog)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		snap := node.HaltState().Snapshot()

@@ -16,11 +16,11 @@ import { ModeToggle } from "@/components/shell/mode-toggle";
  *
  * Two fixed bars frame a scrolling content column:
  *   - TOP APP BAR — the current page title (derived from the active top-level
- *     route), the global account selector (top-right, as the design has it — it
- *     drives the unified /trade surface's paper|live binding) and the
- *     desktop/mobile/auto <ModeToggle> + theme toggle.
- *   - BOTTOM TAB BAR — the four top-levels (Systems & Data / Strategies /
- *     Compositions / Trade) as icon+label tabs; the active route is highlighted.
+ *     route) and the desktop/mobile/auto <ModeToggle> + theme toggle. Account
+ *     selection is NOT global — it lives in the Account top-level (/account).
+ *   - BOTTOM TAB BAR — the five top-levels (Systems & Data / Strategies /
+ *     Compositions / Session / Account) as icon+label tabs; the active route is
+ *     highlighted. Five tabs share the row width, so labels stay compact.
  *
  * Every tap target is ≥44px (Apple HIG / WCAG 2.5.5). The content area is padded
  * top + bottom to clear the two fixed bars, and bottom-inset-safe for notched
@@ -59,8 +59,8 @@ function MobileAppBar() {
         <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" data-testid="mobile-title">
           {title}
         </h1>
-        {/* Account selection is NOT global — it lives only inside /trade (bound to
-            the running session there). The app bar carries just the display-mode +
+        {/* Account selection is NOT global — it lives only inside the Account
+            top-level (/account). The app bar carries just the display-mode +
             theme toggles. */}
         {/* `iconOnly` keeps the toggle compact even when a desktop is forced into
             the mobile shell (sm: would otherwise reveal labels). */}
@@ -94,9 +94,10 @@ function MobileTabBar() {
               key={s.href}
               {...navLinkProps(item)}
               className={cn(
-                // flex-1 splits the row four ways; min-h-11 (44px) guarantees the
-                // touch target even before the row's own h-16.
-                "flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 px-1 text-[11px] font-medium transition-colors",
+                // flex-1 splits the row five ways; min-h-11 (44px) guarantees the
+                // touch target even before the row's own h-16. Tighter horizontal
+                // padding + a slightly smaller label keep all five labels legible.
+                "flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 px-0.5 text-[10px] font-medium transition-colors",
                 active
                   ? "text-foreground"
                   : "text-muted-foreground hover:text-foreground",
