@@ -602,7 +602,7 @@ function liveRetry(count: number, err: Error): boolean {
 export function useLiveSession(): UseQueryResult<LiveSessionResponse, Error> {
   return useQuery({
     queryKey: ["live", "session"],
-    queryFn: () => apiGet<LiveSessionResponse>("live/session"),
+    queryFn: () => apiGet<LiveSessionResponse>("trade/session"),
     // Session state changes via commands; a short poll keeps mode/halt/status
     // current even if a WS frame is missed (the WS carries deltas, not session).
     refetchInterval: 5000,
@@ -630,7 +630,7 @@ export function useLiveSignals(
 export function useLiveHealth(): UseQueryResult<LiveHealth, Error> {
   return useQuery({
     queryKey: ["live", "health"],
-    queryFn: () => apiGet<LiveHealth>("live/health"),
+    queryFn: () => apiGet<LiveHealth>("trade/health"),
     // Minute cadence on the producer; poll at 20s so the strip stays fresh
     // between WS pushes without hammering.
     refetchInterval: 20000,
@@ -651,7 +651,7 @@ export function useLivePreflight(
   return useQuery({
     queryKey: ["live", "preflight", mode, strategy, params.check_opend ?? false],
     queryFn: () =>
-      apiGet<PreflightReport>("live/preflight", {
+      apiGet<PreflightReport>("trade/preflight", {
         mode,
         strategy,
         check_opend: params.check_opend ? "1" : undefined,
@@ -744,7 +744,7 @@ export function useLiveAccount(
     // account_id is threaded through for forward-compat; the strategy-session
     // account read ignores unknown query params today.
     queryFn: () =>
-      apiGet<LiveAccount>("live/account", { account_id: accountId }),
+      apiGet<LiveAccount>("trade/account", { account_id: accountId }),
     // account_update rides the Redis stream; poll keeps day-PnL fresh.
     refetchInterval: 15000,
     retry: liveRetry,
@@ -840,7 +840,7 @@ export function useLiveReconciliation(): UseQueryResult<
   return useQuery({
     queryKey: ["live", "reconciliation"],
     queryFn: () =>
-      apiGet<LiveReconciliationResponse>("live/reconciliation"),
+      apiGet<LiveReconciliationResponse>("trade/reconciliation"),
     // Reconciliation runs periodically + on demand; poll at 20s so a fresh
     // report (or a mismatch-triggered halt) surfaces without a reload.
     refetchInterval: 20000,
@@ -915,7 +915,7 @@ export function useLiveCommand() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: LiveCommandRequest) =>
-      apiPost<LiveCommandResponse>("live/commands", body),
+      apiPost<LiveCommandResponse>("trade/commands", body),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["live", "session"] });
       void qc.invalidateQueries({ queryKey: ["live", "health"] });

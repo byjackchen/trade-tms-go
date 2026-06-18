@@ -274,8 +274,9 @@ func TestTradeEndpointsUnconfigured(t *testing.T) {
 }
 
 // TestLegacyLiveRedirects locks the back-compat aliases: the old /live/* read/control
-// paths 301-redirect to their /trade/* equivalents (query string preserved) so a
-// not-yet-updated UI keeps working through the rename.
+// paths 308-redirect to their /trade/* equivalents (query string AND method preserved)
+// so a not-yet-updated UI keeps working through the rename — including the POST-only
+// /commands control surface, which a 301 would have downgraded to GET → 404.
 func TestLegacyLiveRedirects(t *testing.T) {
 	ts := newTradeTestServer(t, &stubTradeReader{}, &stubEnqueuer{})
 	cases := []struct {
@@ -295,7 +296,7 @@ func TestLegacyLiveRedirects(t *testing.T) {
 	}
 	for _, c := range cases {
 		rec := ts.do(t, c.method, c.path, nil, true)
-		assert.Equal(t, http.StatusMovedPermanently, rec.Code, c.path)
+		assert.Equal(t, http.StatusPermanentRedirect, rec.Code, c.path)
 		assert.Equal(t, c.wantLocation, rec.Header().Get("Location"), c.path)
 	}
 }

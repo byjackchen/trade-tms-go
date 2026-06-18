@@ -332,16 +332,19 @@ func (s *Server) Routes() *chi.Mux {
 	return r
 }
 
-// redirectTo returns a handler that 301-redirects to target, preserving the
-// query string. It backs the old /live/* → /trade/* back-compat aliases so a
-// not-yet-updated UI keeps working through the rename.
+// redirectTo returns a handler that 308-redirects to target, preserving the
+// query string AND the HTTP method. It backs the old /live/* → /trade/* back-
+// compat aliases so a not-yet-updated client keeps working through the rename.
+// 308 (not 301): a 301 makes clients downgrade a POST to GET on follow, which
+// turned POST /live/commands into GET /trade/commands → 404 (the control surface
+// is POST-only). 308 preserves the method so the alias works for mutations too.
 func redirectTo(target string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dst := target
 		if r.URL.RawQuery != "" {
 			dst += "?" + r.URL.RawQuery
 		}
-		http.Redirect(w, r, dst, http.StatusMovedPermanently)
+		http.Redirect(w, r, dst, http.StatusPermanentRedirect)
 	}
 }
 
