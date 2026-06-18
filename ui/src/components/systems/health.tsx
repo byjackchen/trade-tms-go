@@ -23,7 +23,6 @@ import { useJobStream } from "@/lib/api/use-job-stream";
 import { hasSession } from "@/lib/api/types";
 import { ApiError } from "@/lib/api/client";
 import { formatRelative, formatTs } from "@/lib/format";
-import type { SystemComponent } from "@/lib/api/types";
 
 type Dot = "green" | "yellow" | "red" | "gray";
 
@@ -41,51 +40,6 @@ function statusToDot(status: string | undefined): Dot {
       // idle / not_configured / missing
       return "gray";
   }
-}
-
-/** The component rows the health grid renders, in a stable display order. The
- * `scheduler` row is rendered only when the API exposes it (the scheduler is a
- * separate node; this surfaces its last-run/next-run when present). */
-const COMPONENT_ORDER: { key: string; label: string }[] = [
-  { key: "postgres", label: "Postgres" },
-  { key: "redis", label: "Redis" },
-  { key: "moomoo_feed", label: "moomoo feed" },
-  { key: "jobs", label: "Job queue" },
-  { key: "data", label: "Data freshness" },
-  { key: "sessions", label: "Live sessions" },
-  { key: "scheduler", label: "Scheduler" },
-];
-
-function HealthCard({
-  label,
-  comp,
-  testid,
-}: {
-  label: string;
-  comp: SystemComponent | undefined;
-  testid: string;
-}) {
-  const dot = statusToDot(comp?.status);
-  return (
-    <div
-      className="rounded-lg border border-border px-3 py-3"
-      data-testid={testid}
-      data-status={comp?.status ?? "missing"}
-      data-dot={dot}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium">{label}</span>
-        <StatusDot color={dot} pulse={dot === "green"} />
-      </div>
-      <div
-        className="mt-1 truncate text-xs text-muted-foreground"
-        title={comp?.detail}
-        data-testid={`${testid}-detail`}
-      >
-        {comp?.detail ?? comp?.status ?? "—"}
-      </div>
-    </div>
-  );
 }
 
 function ConnRow({
@@ -141,20 +95,20 @@ function Metric({
  * System health — the single, merged control-plane status view (replaces the
  * former duplicate `ops/system-health` grid and `trade/system-panel` connection
  * panel). It is driven by GET /api/v1/system (the bearer-guarded aggregate:
- * component grid + structured metrics + overall rollup) cross-checked against
- * the public /healthz proxy (Postgres / Redis reachability + API build version)
- * and the live WS bridge connection state.
+ * components + structured metrics + overall rollup) cross-checked against the
+ * public /healthz proxy (Postgres / Redis reachability + API build version) and
+ * the live WS bridge connection state.
  *
- * Layout:
- *   - Component grid       — postgres / redis / moomoo feed / job queue / data
- *     freshness / live sessions (+ scheduler when exposed), with the rollup dot.
- *   - Connections          — dependency reachability from /healthz, the inferred
- *     moomoo data-feed freshness, and the live event bridge (WS) state.
+ * Each fact appears EXACTLY ONCE (the old component grid duplicated everything
+ * below it, so it was dropped — leaving just the rollup status line):
+ *   - System health header — the overall rollup dot (ok / degraded).
+ *   - Connections          — reachability: Postgres, Redis, the inferred moomoo
+ *     data-feed freshness, and the live event bridge (WS) state.
  *   - Metrics & transport  — queued/running jobs, active sessions, latest bar,
- *     last sync, live mode and API version.
+ *     last sync, live mode, API version, scheduler (when exposed), event bridge.
  *
  * The aggregate /api/v1/system endpoint is always HTTP 200 (degradation is in
- * the body), so the grid renders red/yellow/green dots rather than throwing.
+ * the body), so the dots render red/yellow/green rather than throwing.
  */
 export function SystemHealth() {
   const system = useSystem();
@@ -261,8 +215,11 @@ export function SystemHealth() {
           ) : null}
         </CardHeader>
         <CardContent>
+          {/* The rollup dot (header) is the at-a-glance status; the per-component
+              detail lives once each in Connections + Metrics below — the old
+              component grid duplicated all of it, so it was removed. */}
           {system.isLoading ? (
-            <LoadingRows rows={4} data-testid="system-health-loading" />
+            <LoadingRows rows={1} data-testid="system-health-loading" />
           ) : system.error ? (
             <ErrorState
               error={system.error}
@@ -270,24 +227,14 @@ export function SystemHealth() {
               data-testid="system-health-error"
             />
           ) : (
-            <div
-              className={cn(
-                "grid grid-cols-1 gap-3",
-                !mobile && "sm:grid-cols-2 lg:grid-cols-3",
-              )}
-              data-testid="system-health-grid"
+            <p
+              className="text-xs text-muted-foreground"
+              data-testid="system-rollup-note"
             >
-              {COMPONENT_ORDER.filter((c) =>
-                c.key === "scheduler" ? comps?.[c.key] : true,
-              ).map((c) => (
-                <HealthCard
-                  key={c.key}
-                  label={c.label}
-                  comp={comps?.[c.key]}
-                  testid={`health-${c.key}`}
-                />
-              ))}
-            </div>
+              {rollup === "ok"
+                ? "All components operational — see Connections and Metrics for detail."
+                : "Degraded — see Connections and Metrics below for the affected component."}
+            </p>
           )}
         </CardContent>
       </Card>
@@ -407,6 +354,16 @@ export function SystemHealth() {
               testid="metric-live-mode"
             />
             <Metric label="API version" value={version} testid="metric-version" />
+            {/* Scheduler is a separate node — surfaced here (when the API exposes
+                it) since it was the only non-duplicated cell of the removed grid. */}
+            {comps?.scheduler ? (
+              <Metric
+                label="Scheduler"
+                value={comps.scheduler.detail ?? comps.scheduler.status}
+                title={comps.scheduler.detail}
+                testid="metric-scheduler"
+              />
+            ) : null}
             <div
               className="rounded-lg border border-border px-3 py-2"
               data-testid="metric-ws-bridge"
