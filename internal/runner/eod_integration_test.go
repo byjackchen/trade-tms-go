@@ -117,6 +117,69 @@ func TestEODIdempotency(t *testing.T) {
 	assert.Equal(t, len(sectorETFs), rowsAfter2, "one upserted row per ETF")
 }
 
+// TestEODBatchReplaceDropsStaleRows is the regression for the "double EOD"
+// bug: a first refresh on incomplete data emits rows for symbols the corrected
+// re-run no longer emits; the per-row UPSERT alone leaves those orphans behind,
+// where they crowd the watchlist's bounded max(ts) query. The batch-replace step
+// must clear this refresh's (strategy_id, as_of) slice so a re-run fully
+// supersedes the prior snapshot — while leaving OTHER strategies' rows intact.
+func TestEODBatchReplaceDropsStaleRows(t *testing.T) {
+	pool := requirePG(t)
+	ctx := testCtx(t)
+
+	asOfDate := time.Date(2024, time.May, 20, 0, 0, 0, 0, time.UTC)
+	seedDailyBars(t, pool, sectorETFs, tradingDates(asOfDate, 40))
+	asOf := calendar.NewDate(2024, time.May, 20)
+	asOfTime := asOfDate
+	eod := runner.NewEOD(pool, "", zerolog.Nop())
+	cfg := runner.EODConfig{
+		AsOf:               asOf,
+		Strategy:           "sector_rotation",
+		StartingBalance:    100000,
+		WindowCalendarDays: 60,
+	}
+
+	// First refresh: the real sector universe (11 ETFs).
+	_, err := eod.RunRefresh(ctx, cfg, nil)
+	require.NoError(t, err)
+	require.Equal(t, len(sectorETFs), countSignalRows(t, pool, "2024-05-20"))
+
+	// Simulate a PRIOR bad run: inject stale sector_rotation rows for symbols the
+	// real run never emits, plus one row for a DIFFERENT strategy (sepa) that must
+	// SURVIVE (batch-replace is scoped per strategy). Columns mirror the writer's
+	// upsert set so all NOT-NULL / CHECK constraints are satisfied.
+	insertStale := func(strat, sym string) {
+		_, e := pool.Exec(ctx,
+			`INSERT INTO tms.signals
+			   (session_id, strategy_id, symbol, state, strength, proximity_to_trigger_pct,
+			    generation, signal, ts_event_ns, ts, as_of)
+			 VALUES (NULL, $1, $2, 'no_setup', 0, NULL, 0, '{}'::jsonb, $3, $4::timestamptz, $5::date)`,
+			strat, sym, asOfTime.UnixNano(), asOfTime, asOfTime)
+		require.NoError(t, e)
+	}
+	insertStale("sector_rotation", "STALE_A")
+	insertStale("sector_rotation", "STALE_B")
+	insertStale("sepa", "AAPL") // different strategy — must survive
+	require.Equal(t, len(sectorETFs)+3, countSignalRows(t, pool, "2024-05-20"))
+
+	// Re-run sector_rotation: the batch-replace must drop the 2 stale sector rows
+	// (and re-write the 11 real ones) but leave the sepa row untouched.
+	_, err = eod.RunRefresh(ctx, cfg, nil)
+	require.NoError(t, err)
+
+	var sectorRows, staleRows, sepaRows int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM tms.signals WHERE as_of='2024-05-20' AND strategy_id='sector_rotation'`).Scan(&sectorRows))
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM tms.signals WHERE as_of='2024-05-20' AND symbol IN ('STALE_A','STALE_B')`).Scan(&staleRows))
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM tms.signals WHERE as_of='2024-05-20' AND strategy_id='sepa'`).Scan(&sepaRows))
+
+	assert.Equal(t, 0, staleRows, "BATCH-REPLACE: stale sector rows the re-run did not emit must be gone")
+	assert.Equal(t, len(sectorETFs), sectorRows, "exactly the real sector universe remains")
+	assert.Equal(t, 1, sepaRows, "SCOPED: a different strategy's rows for the same as_of must survive")
+}
+
 // TestEODDeterministicContent proves the upserted intent JSON is byte-identical
 // across re-runs (idempotency is content-stable, not just count-stable).
 func TestEODDeterministicContent(t *testing.T) {

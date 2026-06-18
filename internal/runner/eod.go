@@ -15,8 +15,12 @@ package runner
 //  5. a RefreshReport summarizes the run.
 //
 // Idempotency is the contract: RunRefresh twice for the same as_of yields the
-// SAME tms.signals rows (no dupes) — guaranteed by the UPSERT on the
-// partial-unique (strategy_id, symbol, as_of) index (migration 000010).
+// SAME tms.signals rows — no dupes AND no orphans. The per-row UPSERT (partial-
+// unique (strategy_id, symbol, as_of) index, migration 000010) keeps re-emitted
+// rows dupe-free; a BATCH-REPLACE step (delete this refresh's (strategy_id,
+// as_of) slice before re-writing) drops rows a prior run wrote for symbols this
+// run no longer emits, so a re-run on corrected data fully supersedes the old
+// snapshot rather than layering on top of it.
 
 import (
 	"context"
@@ -172,6 +176,44 @@ func (e *EOD) RunRefresh(ctx context.Context, cfg EODConfig, publisher *publish.
 	})
 	if err != nil {
 		return nil, fmt.Errorf("eod: building live session: %w", err)
+	}
+
+	// (3.5) BATCH-REPLACE idempotency. The per-row UPSERT on
+	// (strategy_id, symbol, as_of) keeps re-emitted rows dupe-free, but it does
+	// NOT remove rows a *prior* refresh wrote for symbols THIS refresh no longer
+	// emits — e.g. a first run on incomplete data emits `no_setup` rows for
+	// thousands of symbols, then the corrected re-run emits only the handful with
+	// a real setup; the orphaned `no_setup` rows linger and crowd the watchlist's
+	// bounded `max(ts)` query (forming rows fall outside the limit -> "No setups").
+	// So this refresh is the authority for its (strategy_id, as_of) snapshot:
+	// clear that exact slice before re-writing it. Scoped to the strategies this
+	// refresh's Composition carries (NOT all of as_of), so a partial per-strategy
+	// refresh leaves other strategies' rows intact. Member.StrategyID is the
+	// LOGICAL id ("sepa"/"sector_rotation"/...) that is actually persisted — NOT
+	// engine.Strategy.ID() (the allocator key, e.g. "SectorRotation-001").
+	if e.pool != nil {
+		comp, cerr := seedCompositionForStrategy(strategy)
+		if cerr != nil {
+			return nil, fmt.Errorf("eod: resolving composition for batch-replace: %w", cerr)
+		}
+		stratIDs := make([]string, 0, len(comp.Members))
+		seen := make(map[string]bool, len(comp.Members))
+		for _, m := range comp.Members {
+			if m.StrategyID != "" && !seen[m.StrategyID] {
+				seen[m.StrategyID] = true
+				stratIDs = append(stratIDs, m.StrategyID)
+			}
+		}
+		if len(stratIDs) > 0 {
+			// Compare the DATE column against the YYYY-MM-DD string (cast to date)
+			// rather than a timestamptz instant — avoids any session-timezone skew
+			// in the implicit date/timestamptz coercion.
+			if _, derr := e.pool.Exec(ctx,
+				`DELETE FROM tms.signals WHERE as_of = $1::date AND strategy_id = ANY($2)`,
+				cfg.AsOf.String(), stratIDs); derr != nil {
+				return nil, fmt.Errorf("eod: clearing prior as_of batch: %w", derr)
+			}
+		}
 	}
 
 	// (4) Prime warmup, then Replay the window through the SAME bar-handling
