@@ -3,9 +3,6 @@
 import { Suspense } from "react";
 import { PageHeader } from "@/components/shell/page-header";
 import { cn } from "@/lib/utils";
-import { LiveIndicator } from "./live-indicator";
-import { ExecBanner } from "./exec-banner";
-import { HealthStrip } from "./health-strip";
 import { AccountPanel } from "./account-panel";
 import { PositionsTable } from "./positions-table";
 import { Blotter } from "./blotter";
@@ -62,19 +59,15 @@ function AccountViewInner() {
         data-testid="portfolio-view"
         data-env={env}
       >
-        {/* Loud exec + env banner (PAPER amber / LIVE-REAL destructive). */}
-        <ExecBanner env={env} />
-
         {/* SYNC FROM BROKER (DIRECTION 2). Account-scoped, READ-ONLY, no session
             needed — pulls externally-placed positions into the EXTERNAL book.
-            Prominent, above the book. */}
+            Prominent, above the book. (Runtime/session state — exec policy, the
+            trader, the live tape, portfolio-health — lives on the Sessions page,
+            NOT here: this top-level is the persistent account book.) */}
         <SyncFromBroker />
 
-        {/* ACCOUNT — the bound account's summary + portfolio health. */}
-        <div className="grid grid-cols-1 gap-4">
-          <AccountPanel accountId={accountId} variant="portfolio" />
-          <HealthStrip />
-        </div>
+        {/* ACCOUNT — the bound account's funds / buying-power / day-pnl. */}
+        <AccountPanel accountId={accountId} variant="portfolio" />
 
         {/* POSITIONS — the account's read-only book (strategy + EXTERNAL). */}
         <div className="space-y-4">
@@ -114,12 +107,7 @@ function AccountHeader({
       title={copy.title}
       subtitle={copy.subtitle}
       data-testid="account-header"
-      actions={
-        <div className="flex items-center gap-3">
-          {selector}
-          <LiveIndicator />
-        </div>
-      }
+      actions={selector}
     />
   );
 }

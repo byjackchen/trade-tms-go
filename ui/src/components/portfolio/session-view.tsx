@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { LiveIndicator } from "./live-indicator";
 import { ExecBanner } from "./exec-banner";
 import { SessionPanel } from "./session-panel";
+import { HealthStrip } from "./health-strip";
 import { useLiveSession } from "@/lib/api/hooks";
 import { hasSession } from "@/lib/api/types";
 import type { TradeEnv } from "./trade-env";
@@ -59,6 +60,10 @@ function SessionViewInner() {
         {/* The apex runtime control: session status + its Composition + Account +
             lifecycle/exec controls + the live tape. */}
         <SessionPanel env={env} />
+
+        {/* Portfolio health (daily P&L, daily-loss-halt headroom, concentration) —
+            session-runtime risk, so it lives here, not on the Account book. */}
+        <HealthStrip />
       </main>
     </div>
   );
