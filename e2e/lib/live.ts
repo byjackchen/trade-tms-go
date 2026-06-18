@@ -65,7 +65,7 @@ export const INTENT_STATES = [
  * testid (ui/src/components/portfolio/session-view.tsx). The old `/trade` route
  * 301-redirects to /session. Returns false when the app-shell or the header never
  * appears (route not built / not implemented). Specs that need the account BOOK
- * use a local /account gate (see 39-account-selector.spec.ts).
+ * use a local /account gate.
  */
 export async function liveUiReady(page: Page): Promise<boolean> {
   await page.goto("/session", { waitUntil: "domcontentloaded" });

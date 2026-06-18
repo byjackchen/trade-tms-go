@@ -26,6 +26,7 @@ LiveAccID : PaperAccID` (runner/live.go ~700). The DB has no account dimension.
 - **Account** (`domain.Account`): `{ id, venue, env, broker_acc_id, label }`,
   where `env ∈ {sim, simulate, real}`. "paper vs real" is `account.env`, not a
   mode. The manual desk binds to any account independent of execution policy.
+  <!-- SUPERSEDED: env is now `{paper, real}` (the synthetic simu env was retired). -->
 
 Legacy `Mode` maps as: `signal → (Signal, no/informational acct)`,
 `paper → (Auto, Simulate acct)`, `live → (Auto, Real acct)`. The 5 unified
@@ -46,11 +47,15 @@ runtimes (backtest/hyperopt/signal/paper/live) become points in (policy × accou
    surface (consolidate with mutations); `/live/*` → 301. DONE.
 5. **UI** — `/live` → `/trade`; account selector; per-account position/blotter
    views; exec-policy + account pickers replace the mode switch. DONE.
+   <!-- SUPERSEDED: the account-selector dropdown was replaced by the `/account`
+   tabbed surface (Accounts Management + one tab per account). -->
 6. **Cleanup** — cosmetic renames (`cmd/tms/live.go` → `trade_run.go` + its
    `live*` helpers → `trade*`; residual `TestLive*` → `TestTrade*`, keeping the
    `/live` alias test as `TestLegacyLiveRedirects`); e2e specs/helpers/README
    moved to `/trade` + `trade/*` with a new account-selector spec; docs/README +
    compose `tms trade run` and `/trade/*`; runbook `live-smoke.md` → `trade-smoke.md`.
+   <!-- SUPERSEDED: the account-selector spec (39-account-selector) was deleted when
+   the selector was replaced by the `/account` tabs. -->
    DONE. (The runtime node type `internal/runner.Live`/`NewLive`/`LiveConfig` is
    intentionally NOT renamed — out of scope.)
 

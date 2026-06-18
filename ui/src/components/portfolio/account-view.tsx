@@ -26,12 +26,11 @@ import { accountEnv, type TradeEnv } from "./trade-env";
  * following tab is ONE account (generated from the registry). The ACTIVE TAB
  * selects the account — there is NO selector dropdown anymore. The active tab
  * lives in `?tab=` and its account id is threaded directly into the per-account
- * book panels (AccountPanel / PositionsTable / Blotter / FillsList), while the
- * account-agnostic Reconciliation + Sync-from-broker panels render as-is.
+ * book panels (AccountPanel / PositionsTable / Blotter / FillsList).
  *
- * The "Sync from broker" control lives on each account tab (account-scoped,
- * READ-ONLY, no session needed) and works in every mode (paper/live, signal/
- * auto). Reconciliation is the panel below it.
+ * Broker-sync + reconciliation (DIRECTION 2) act on the live trade node's bound
+ * account, NOT an arbitrary registry account, so they render ONCE on the Accounts
+ * Management tab — not duplicated (misleadingly) under every account tab.
  *
  * The loud LIVE-RED treatment (the red page ring) wraps a REAL account's tab so
  * it is UNMISTAKABLE that real money is in play.
@@ -80,7 +79,7 @@ function AccountViewInner() {
 const MANAGEMENT_COPY = {
   title: "Accounts",
   subtitle:
-    "The persistent account registry. Create, edit, delete, or set the default account per environment. Pick an account tab to open its book.",
+    "The persistent account registry. Create, edit, delete, or set the default account per environment; sync + reconcile the live trade node below. Pick an account tab to open its book.",
 } as const;
 
 const ENV_COPY: Record<TradeEnv, { title: (label: string) => string; subtitle: string }> =
@@ -88,12 +87,12 @@ const ENV_COPY: Record<TradeEnv, { title: (label: string) => string; subtitle: s
     paper: {
       title: (label) => `Accounts — ${label}`,
       subtitle:
-        "This account's persistent book: positions, cash/PnL, the synced EXTERNAL book, reconciliation, and Sync-from-broker. No session required.",
+        "This account's persistent book: positions, cash/PnL, and the synced EXTERNAL book. No session required.",
     },
     live: {
       title: (label) => `Accounts — ${label} (LIVE / REAL MONEY)`,
       subtitle:
-        "A REAL-money account. This is its persistent book: positions, cash/PnL, the EXTERNAL book, and reconciliation. Switch tabs to leave live.",
+        "A REAL-money account. This is its persistent book: positions, cash/PnL, and the EXTERNAL book. Switch tabs to leave live.",
     },
   };
 
@@ -142,9 +141,14 @@ function AccountShell({
       >
         {account === null ? (
           /* MANAGE ACCOUNTS — the registry CRUD surface (create / edit / delete /
-             set-default). The account tabs read the same registry, so changes
-             here refresh them immediately. */
-          <AccountManager />
+             set-default), plus the NODE-LEVEL broker-sync + reconciliation (they
+             act on the live trade node's bound account — DIRECTION 2 — not a
+             specific registry account, so they belong here, not per-account-tab). */
+          <div className="space-y-4">
+            <AccountManager />
+            <SyncFromBroker />
+            <ReconciliationPanel />
+          </div>
         ) : (
           <AccountBook account={account} />
         )}
@@ -162,18 +166,16 @@ function accountTabLabel(a: TradeAccountInfo): string {
 }
 
 /**
- * One account's whole ledger, scoped to its id. The account-filtered panels
- * (AccountPanel / PositionsTable / Blotter / FillsList) take the id as a prop;
- * Reconciliation + Sync-from-broker are account-agnostic reads and render as-is.
+ * One account's book, scoped to its id via the account-filtered panels
+ * (AccountPanel / PositionsTable / Blotter / FillsList all take the id as a prop).
+ * Broker-sync + reconciliation are NOT here: they act on the live trade node's
+ * bound account (not an arbitrary registry account), so they live once on the
+ * Accounts Management tab rather than misleadingly under every account tab.
  */
 function AccountBook({ account }: { account: TradeAccountInfo }) {
   const env = accountEnv(account);
   return (
     <div className="space-y-4" data-testid="account-book" data-env={env}>
-      {/* SYNC FROM BROKER (DIRECTION 2). Account-scoped, READ-ONLY, no session
-          needed — pulls externally-placed positions into the EXTERNAL book. */}
-      <SyncFromBroker />
-
       {/* ACCOUNT — funds / buying-power / day-pnl for this account. */}
       <AccountPanel accountId={account.id} variant="portfolio" />
 
@@ -182,7 +184,6 @@ function AccountBook({ account }: { account: TradeAccountInfo }) {
         <PositionsTable accountId={account.id} />
         <Blotter accountId={account.id} />
         <FillsList accountId={account.id} />
-        <ReconciliationPanel />
       </div>
     </div>
   );

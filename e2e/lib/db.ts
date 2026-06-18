@@ -424,11 +424,11 @@ export async function storedStrategyCount(c: Client): Promise<number> {
  *
  * POST-RESTRUCTURE (migration 000016): the `mode` column was DROPPED. A session
  * now carries `exec_policy` (signal|auto) plus a bound account whose `env`
- * (sim|simulate|real) lives in tms.accounts (sessions.account_id). The legacy
+ * (paper|real) lives in tms.accounts (sessions.account_id). The legacy
  * "mode" label is DERIVED for existing consumers:
- *   - exec_policy = signal                      => "signal"
- *   - exec_policy = auto  AND env = real        => "live"
- *   - exec_policy = auto  AND env = sim|simulate => "paper"
+ *   - exec_policy = signal                => "signal"
+ *   - exec_policy = auto  AND env = real   => "live"
+ *   - exec_policy = auto  AND env = paper  => "paper"
  * `execPolicy` and `env` are also exposed for consumers reading the new shape. */
 export type LiveSessionTruth = {
   id: number;
@@ -439,14 +439,14 @@ export type LiveSessionTruth = {
   /** The session's raw execution policy (tms.sessions.exec_policy). */
   execPolicy: "signal" | "auto";
   /** The bound account's env (tms.accounts.env), or null when no account bound. */
-  env: "sim" | "simulate" | "real" | null;
+  env: "paper" | "real" | null;
   status: "RUNNING" | "STOPPED" | "CRASHED";
 };
 
 /** Derive the legacy "mode" label from the post-restructure (exec_policy, env)
- * pair: signal => "signal"; auto+real => "live"; auto+(sim|simulate) => "paper".
+ * pair: signal => "signal"; auto+real => "live"; auto+paper => "paper".
  * Falls back to "signal" when exec_policy is signal regardless of env, and to
- * "paper" for an auto session whose env is unknown (the gate's sim default). */
+ * "paper" for an auto session whose env is unknown (the gate's safe default). */
 function deriveSessionMode(
   execPolicy: string,
   env: string | null,
@@ -454,7 +454,7 @@ function deriveSessionMode(
   if (execPolicy === "signal") return "signal";
   // exec_policy = auto
   if (env === "real") return "live";
-  return "paper"; // sim | simulate (or unknown auto) => paper book
+  return "paper"; // paper (or unknown auto) => paper book
 }
 
 export async function latestSession(
@@ -1215,20 +1215,19 @@ export async function openManualPositionSymbols(
 }
 
 /** A registered trading account from the `tms.accounts` registry — the rows the
- * cockpit/desk account selector lists. Mirrors GET /api/v1/trade/accounts
+ * /account tabbed surface lists. Mirrors GET /api/v1/trade/accounts
  * (handleTradeAccounts): the first-class account dimension added in the
  * live→trade refactor (migration 000014_accounts). */
 export type AccountTruth = {
   id: string;
   venue: string;
-  env: "sim" | "simulate" | "real";
+  env: "paper" | "real";
   brokerAccId: number;
   label: string;
 };
 
 /** The full `tms.accounts` registry, ordered by id — the ground truth the
- * account selector's dropdown options must match (one <option> per row plus the
- * sentinel "All accounts"). */
+ * /account tabbed surface must match (one tab per row). */
 export async function tradingAccounts(c: Client): Promise<AccountTruth[]> {
   const { rows } = await c.query<{
     id: string;

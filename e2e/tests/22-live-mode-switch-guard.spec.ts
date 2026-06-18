@@ -32,11 +32,11 @@ test.describe("trade module — arm-AUTO confirmation guard", () => {
     }
 
     // set_mode -> exec_policy=auto WITHOUT confirm_token must be rejected at the
-    // boundary. Use env=simulate (paper) so the check never touches real money.
+    // boundary. Use env=paper so the check never touches real money.
     const res = await postAuthed("trade/commands", {
       name: "set_mode",
       exec_policy: "auto",
-      env: "simulate",
+      env: "paper",
     });
     expect(
       res.status,

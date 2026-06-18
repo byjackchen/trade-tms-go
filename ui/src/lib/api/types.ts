@@ -845,7 +845,7 @@ export type LiveHalt = {
 /**
  * Execution policy — the execution axis of the 2D session model that REPLACED
  * the legacy three-valued `mode` (docs/concept-alignment.md §1.3, C6): "signal"
- * (emit-only) | "auto" (auto-submit). The environment axis (simu/paper/real)
+ * (emit-only) | "auto" (auto-submit). The environment axis (paper/real)
  * comes from the bound account's `account_env`.
  */
 export type ExecPolicy = "signal" | "auto" | string;
@@ -858,7 +858,8 @@ export type LiveSession = {
    * TradeSession now exposes INSTEAD of `mode` (internal/api/trade.go).
    */
   exec_policy: ExecPolicy;
-  /** Bound account's env: simu|paper|real (empty when no account is bound). */
+  /** Bound account's env: paper|real (empty when no account is bound; a legacy
+   * row may still read simu). */
   account_env: string;
   /**
    * The Composition this session runs (its strategies + weights + risk) and its
@@ -1013,7 +1014,7 @@ export type CommandName =
 export type LiveCommandRequest = {
   name: CommandName;
   // set_mode takes the 2D control input (§1.3, C6): exec_policy (signal|auto) on
-  // the execution axis + the bound account env (simu|paper|real) for
+  // the execution axis + the bound account env (paper|real) for
   // exec_policy=auto. The legacy 3-valued `mode` is gone server-side.
   exec_policy?: ExecPolicy;
   env?: string;
@@ -1165,18 +1166,22 @@ export type LiveAccount = {
 
 // ---- Account registry (GET /api/v1/trade/accounts) ----
 //
-// The tms.accounts registry that backs the cockpit/desk account selector. Mirrors
+// The tms.accounts registry that backs the /account tabbed surface (Accounts
+// Management + one tab per account; the legacy dropdown selector is gone). Mirrors
 // the Go wire type `api.TradeAccountInfo` (distinct from the funds snapshot above).
-// `id` is the selector value (e.g. "moomoo:real:123", "simu:signal"); the
-// positions/blotter/account reads pass it back as `?account_id=`.
+// `id` is the account value (e.g. "moomoo:real:123"); the positions/blotter/
+// account reads pass it back as `?account_id=`.
 
 /**
- * The three account environments. `simu` is a synthetic book with no broker
- * (broker_acc_id 0 allowed); `paper` is a broker PAPER account; `real` is the
- * broker's REAL-money account. `env` is the SOURCE OF TRUTH — `kind` is derived
- * from it (real => live, else paper).
+ * The account environments accepted on WRITE. Every account is broker-backed now
+ * (a non-zero broker account number is required): `paper` is a broker PAPER
+ * account; `real` is the broker's REAL-money account. `env` is the SOURCE OF
+ * TRUTH — `kind` is derived from it (real => live, else paper). The synthetic
+ * `simu` env (broker_acc_id 0 allowed) is LEGACY-only — it was retired
+ * backend-side and can no longer be created; only `TradeAccountInfo.env` (a read)
+ * may still surface a legacy `simu` value.
  */
-export type AccountEnv = "simu" | "paper" | "real";
+export type AccountEnv = "paper" | "real";
 
 /** One registered broker/sim account (GET /api/v1/trade/accounts). */
 export type TradeAccountInfo = {
@@ -1210,10 +1215,11 @@ export type TradeAccountsResponse = { accounts: TradeAccountInfo[] };
 
 /**
  * Body for create (POST /api/v1/trade/accounts) and full-replace update (PATCH
- * /api/v1/trade/accounts/{id}). `env` is the source of truth; `broker_acc_id` is
- * the broker's account number (0 allowed for env=simu; paper/real need a real
- * number to be bindable). Setting `is_default` true auto-unsets the previous
- * default for the same (venue, env).
+ * /api/v1/trade/accounts/{id}). `env` is the source of truth (paper|real);
+ * `broker_acc_id` is the broker's account number — every account is broker-backed
+ * now, so it needs a non-zero number to be bindable (the legacy synthetic `simu`
+ * env that allowed 0 is retired and can no longer be created). Setting
+ * `is_default` true auto-unsets the previous default for the same (venue, env).
  */
 export type AccountWriteRequest = {
   venue: string;

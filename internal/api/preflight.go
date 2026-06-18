@@ -33,7 +33,7 @@ type PreflightResult struct {
 type PreflightReport struct {
 	// ExecPolicy is the execution policy validated (signal|auto).
 	ExecPolicy string `json:"exec_policy"`
-	// Env is the bound account env validated (simu|paper|real; empty when none).
+	// Env is the bound account env validated (paper|real; empty when none).
 	Env string `json:"env"`
 	// RunWord is the derived convenience label (signal|paper|live), always
 	// derived from (exec_policy, env) — display-only, never an input.
@@ -85,7 +85,7 @@ func (s *Server) handleTradePreflight(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_exec_policy", "exec_policy must be signal|auto")
 		return
 	}
-	// Env selects WHERE auto orders settle (a "go paper" = auto on a simu/paper
+	// Env selects WHERE auto orders settle (a "go paper" = auto on a paper
 	// account; "go live" = auto on a real account). Either pass env= directly or
 	// account_id= to resolve it from the accounts registry. Signal has no account.
 	env, ok := s.resolvePreflightEnv(w, r, q, execPolicy)

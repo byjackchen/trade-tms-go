@@ -36,15 +36,16 @@ refactor, phases 1–6):
 - **Execution policy** (`domain.ExecutionPolicy`): `signal` (emit intents, no auto
   orders — the operator executes by hand) vs `auto` (auto-submit orders).
 - **Account** (`domain.Account` = `{id, venue, env, broker_acc_id, label}`, the
-  `tms.accounts` registry): "paper vs real" is `account.env ∈ {sim, simulate,
-  real}`, not a mode. Sessions / orders / positions / fills / reconciliation carry
+  `tms.accounts` registry): "paper vs real" is `account.env ∈ {paper, real}`,
+  not a mode. Sessions / orders / positions / fills / reconciliation carry
   an `account_id` FK, and positions key on `(account_id, strategy_id, symbol)`.
 
 So the old runtimes are just points in (policy × account): `signal → (signal, no
-acct)`, `paper → (auto, simulate acct)`, `live → (auto, real acct)`. The CLI is
+acct)`, `paper → (auto, paper acct)`, `live → (auto, real acct)`. The CLI is
 `tms trade run --mode … ` / `tms trade preflight`, the read+control surface is
 `/api/v1/trade/*` (the old `/api/v1/live/*` paths 301-redirect for back-compat),
-and the cockpit (`/trade`) carries an **account selector** that filters the
+and the `/account` top-level is a **tabbed** surface (Accounts Management + one
+tab per registered account — the old account-selector dropdown is gone) over the
 per-account position/blotter/account views. Each trade node still binds exactly
 ONE account; multi-account is a read/aggregation concern.
 
@@ -53,7 +54,7 @@ ONE account; multi-account is a read/aggregation concern.
 | backtest | SimClock | historical (Postgres) | SimExecutor + FillModel | reproducible simulation |
 | hyperopt | SimClock ×N | historical | SimExecutor | NSGA-II walk-forward search |
 | signal | WallClock | moomoo OpenD stream | NoopExecutor | signals, no orders (signal policy) |
-| paper | WallClock | moomoo OpenD stream | MoomooExecutor | simulated fills, real venue (auto × simulate acct) |
+| paper | WallClock | moomoo OpenD stream | MoomooExecutor | simulated fills, real venue (auto × paper acct) |
 | live | WallClock | moomoo OpenD stream | MoomooExecutor (gated) | REAL money, 4-factor gate (auto × real acct) |
 
 ---
@@ -73,7 +74,8 @@ Three hard requirements the system meets:
 3. **UI fully visual + controllable.** Every datum is observable AND every
    control is actionable from the UI (Data / Backtests / Strategies / Hyperopt /
    Trade-cockpit), including kill / halt / flatten / mode-switch with confirmation,
-   plus a first-class account selector that filters the per-account book.
+   plus a first-class `/account` tabbed surface (Accounts Management + one tab per
+   account) over the per-account book.
 
 ---
 

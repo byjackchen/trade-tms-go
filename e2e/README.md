@@ -104,12 +104,11 @@ e2e/
                           mismatch is VISUALLY FLAGGED; clean report is not flagged
     30-paper-console      zero severe console errors on the paper cockpit (trading
                           panels render clean; opening+dismissing flatten stays clean)
-    39-account-selector   the account selector lists GET /api/v1/trade/accounts (==
-                          the tms.accounts registry) + an "All accounts" sentinel;
-                          selecting one sets ?account=<id> and threads account_id=<id>
-                          into the positions read (per-account filter); clearing to
-                          "All accounts" drops both (DB- + request-checked)
 ```
+
+(The `39-account-selector` spec was DELETED: the account-selector dropdown was
+removed and replaced by the `/account` tabbed surface — Accounts Management + one
+tab per account — so the old `?account=` selector contract no longer exists.)
 
 ### Strategies specs and build order
 
@@ -164,10 +163,10 @@ The real-OpenD smoke is deferred to market hours (`docs/runbooks/trade-smoke.md`
 Conventional `data-testid`s the cockpit must expose:
 - cockpit root `live-page` (placeholder is `live-placeholder`, the ComingSoon
   testid the suite skips on);
-- account selector `account-selector` with the `account-selector-input`
-  `<select>` (one `account-option` per `GET /api/v1/trade/accounts` row + an
-  "All accounts" sentinel); selecting writes `?account=<id>` which the positions
-  panel / blotter / account panel read back as their `account_id` filter;
+- (the old `account-selector` / `account-selector-input` / `account-option`
+  dropdown contract was REMOVED — the account dimension now lives on the
+  `/account` tabbed surface, one tab per `GET /api/v1/trade/accounts` row, not a
+  per-cockpit `?account=` selector);
 - session strip `live-session` [`data-mode` / `data-status` / `data-halted`];
   connection indicator `live-connection` [`data-connected`];
 - health strip `live-health` [`data-daily-loss-halt`], optional

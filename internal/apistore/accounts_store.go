@@ -48,7 +48,7 @@ func validateWrite(req api.AccountWriteRequest) (venue, env string, err error) {
 		return "", "", fmt.Errorf("%w: venue required", api.ErrInvalidAccount)
 	}
 	if !domain.BrokerEnv(env).IsValid() {
-		return "", "", fmt.Errorf("%w: env %q invalid (want simu|paper|real)", api.ErrInvalidAccount, env)
+		return "", "", fmt.Errorf("%w: env %q invalid (want paper|real)", api.ErrInvalidAccount, env)
 	}
 	if req.BrokerAccID < 0 {
 		return "", "", fmt.Errorf("%w: broker_acc_id must be >= 0", api.ErrInvalidAccount)
@@ -57,8 +57,15 @@ func validateWrite(req api.AccountWriteRequest) (venue, env string, err error) {
 }
 
 // clearDefault unsets is_default on every OTHER account in the (venue, env) group
-// so the partial-unique accounts_one_default_per_env index is never violated.
+// so the partial-unique accounts_one_default_per_env index is never violated. It
+// first takes a transaction-scoped advisory lock keyed on (venue, env) so that two
+// concurrent default-setters for the SAME group serialize — otherwise both could
+// clear the other's default in their own snapshot and then collide on the unique
+// index (a 23505 surfaced as a confusing 500).
 func clearDefault(ctx context.Context, tx pgx.Tx, venue, env, exceptID string) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1 || ':' || $2))`, venue, env); err != nil {
+		return err
+	}
 	_, err := tx.Exec(ctx,
 		`UPDATE tms.accounts SET is_default = false, updated_at = now()
 		  WHERE venue = $1 AND env = $2 AND is_default AND id <> $3`,
@@ -100,35 +107,70 @@ func (s *TradeStore) CreateAccount(ctx context.Context, req api.AccountWriteRequ
 	return a, nil
 }
 
-// UpdateAccount replaces the mutable columns of an existing account. Returns a
-// not-found error when id does not exist.
-func (s *TradeStore) UpdateAccount(ctx context.Context, id string, req api.AccountWriteRequest) (api.TradeAccountInfo, error) {
-	venue, env, err := validateWrite(req)
-	if err != nil {
-		return api.TradeAccountInfo{}, err
-	}
+// UpdateAccount applies a PARTIAL patch (only the non-nil fields) to an existing
+// account. The current row is read FOR UPDATE inside the tx and the patch is merged
+// onto it, so an omitted field is preserved (never blanked) and a concurrent writer
+// can't clobber the merge. Returns ErrAccountNotFound when id is unknown.
+func (s *TradeStore) UpdateAccount(ctx context.Context, id string, patch api.AccountPatchRequest) (api.TradeAccountInfo, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return api.TradeAccountInfo{}, err
 	}
 	defer tx.Rollback(ctx)
 
-	if req.IsDefault {
+	cur, err := scanAccount(tx.QueryRow(ctx,
+		`SELECT `+accountCols+` FROM tms.accounts WHERE id = $1 FOR UPDATE`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return api.TradeAccountInfo{}, fmt.Errorf("%w: %q", api.ErrAccountNotFound, id)
+	}
+	if err != nil {
+		return api.TradeAccountInfo{}, err
+	}
+
+	// Merge: only the fields the patch actually sent.
+	venue, env, brokerAccID := cur.Venue, cur.Env, cur.BrokerAccID
+	label, notes, isDefault := cur.Label, cur.Notes, cur.IsDefault
+	if patch.Venue != nil {
+		venue = strings.TrimSpace(*patch.Venue)
+	}
+	if patch.Env != nil {
+		env = strings.TrimSpace(*patch.Env)
+	}
+	if patch.BrokerAccID != nil {
+		brokerAccID = *patch.BrokerAccID
+	}
+	if patch.Label != nil {
+		label = *patch.Label
+	}
+	if patch.Notes != nil {
+		notes = *patch.Notes
+	}
+	if patch.IsDefault != nil {
+		isDefault = *patch.IsDefault
+	}
+
+	if venue == "" {
+		return api.TradeAccountInfo{}, fmt.Errorf("%w: venue required", api.ErrInvalidAccount)
+	}
+	if !domain.BrokerEnv(env).IsValid() {
+		return api.TradeAccountInfo{}, fmt.Errorf("%w: env %q invalid (want paper|real)", api.ErrInvalidAccount, env)
+	}
+	if brokerAccID < 0 {
+		return api.TradeAccountInfo{}, fmt.Errorf("%w: broker_acc_id must be >= 0", api.ErrInvalidAccount)
+	}
+
+	if isDefault {
 		if err := clearDefault(ctx, tx, venue, env, id); err != nil {
 			return api.TradeAccountInfo{}, err
 		}
 	}
-	row := tx.QueryRow(ctx,
+	a, err := scanAccount(tx.QueryRow(ctx,
 		`UPDATE tms.accounts
 		    SET venue = $2, env = $3, broker_acc_id = $4, label = $5,
 		        is_default = $6, notes = $7, updated_at = now()
 		  WHERE id = $1
 		 RETURNING `+accountCols,
-		id, venue, env, req.BrokerAccID, req.Label, req.IsDefault, req.Notes)
-	a, err := scanAccount(row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return api.TradeAccountInfo{}, fmt.Errorf("%w: %q", api.ErrAccountNotFound, id)
-	}
+		id, venue, env, brokerAccID, label, isDefault, notes))
 	if err != nil {
 		return api.TradeAccountInfo{}, err
 	}
@@ -156,10 +198,14 @@ func (s *TradeStore) DeleteAccount(ctx context.Context, id string) error {
 	return nil
 }
 
-// GetAccount returns one account by id, or pgx.ErrNoRows when absent.
+// GetAccount returns one account by id, or api.ErrAccountNotFound when absent.
 func (s *TradeStore) GetAccount(ctx context.Context, id string) (api.TradeAccountInfo, error) {
 	row := s.pool.QueryRow(ctx, `SELECT `+accountCols+` FROM tms.accounts WHERE id = $1`, id)
-	return scanAccount(row)
+	a, err := scanAccount(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return api.TradeAccountInfo{}, fmt.Errorf("%w: %q", api.ErrAccountNotFound, id)
+	}
+	return a, err
 }
 
 // DefaultAccount returns THE default account for (venue, env) — what a

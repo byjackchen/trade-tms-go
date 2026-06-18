@@ -70,9 +70,8 @@ type TradeAccountInfo struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-// AccountWriteRequest is the body of POST (create) and PATCH (update) on
-// /api/v1/trade/accounts. On create venue/env are required; on update every field
-// is applied as given (a full replace of the mutable columns).
+// AccountWriteRequest is the body of POST (create) on /api/v1/trade/accounts.
+// venue/env are required; broker_acc_id must be > 0 for a bindable broker account.
 type AccountWriteRequest struct {
 	Venue       string `json:"venue"`
 	Env         string `json:"env"`
@@ -82,12 +81,27 @@ type AccountWriteRequest struct {
 	IsDefault   bool   `json:"is_default"`
 }
 
+// AccountPatchRequest is the body of PATCH (update) on /api/v1/trade/accounts/{id}.
+// Every field is a POINTER so a partial body only touches the fields it sends — an
+// omitted field is left UNCHANGED (a true PATCH; sending {"is_default":true} must
+// not blank the label/notes or zero the broker_acc_id).
+type AccountPatchRequest struct {
+	Venue       *string `json:"venue"`
+	Env         *string `json:"env"`
+	BrokerAccID *int64  `json:"broker_acc_id"`
+	Label       *string `json:"label"`
+	Notes       *string `json:"notes"`
+	IsDefault   *bool   `json:"is_default"`
+}
+
 // TradeAccountWriter is the CRUD write path for the accounts registry (satisfied
 // by *apistore.TradeStore). Distinct from CommandEnqueuer (the control-command
 // path): these mutate tms.accounts directly, bearer-guarded at the handler.
 type TradeAccountWriter interface {
 	CreateAccount(ctx context.Context, req AccountWriteRequest) (TradeAccountInfo, error)
-	UpdateAccount(ctx context.Context, id string, req AccountWriteRequest) (TradeAccountInfo, error)
+	// UpdateAccount applies a partial patch (only the non-nil fields) to an existing
+	// account; returns ErrAccountNotFound when id is unknown.
+	UpdateAccount(ctx context.Context, id string, patch AccountPatchRequest) (TradeAccountInfo, error)
 	// DeleteAccount removes an account; returns ErrAccountInUse when the account is
 	// still referenced (sessions/orders/positions/fills/reconciliation).
 	DeleteAccount(ctx context.Context, id string) error
@@ -283,7 +297,7 @@ func (s *Server) handleTradeAccounts(w http.ResponseWriter, r *http.Request) {
 
 // tradeCommandBody is the POST /api/v1/trade/commands request shape. The legacy
 // three-valued mode is replaced by the 2D model (docs §1.3): set_mode now takes
-// exec_policy (signal|auto) + an account selector (env: simu|paper|real). "go
+// exec_policy (signal|auto) + an account selector (env: paper|real). "go
 // paper" = exec_policy=auto + env=paper; "go live" = auto + env=real; "signal"
 // = exec_policy=signal (env ignored).
 type tradeCommandBody struct {
@@ -377,7 +391,7 @@ func deriveSetModeWord(w http.ResponseWriter, execPolicy, env string) (string, b
 		return "", false
 	}
 	if !e.IsValid() {
-		writeError(w, http.StatusBadRequest, "bad_env", "env must be simu|paper|real")
+		writeError(w, http.StatusBadRequest, "bad_env", "env must be paper|real")
 		return "", false
 	}
 	return domain.RunWord(exec, e), true

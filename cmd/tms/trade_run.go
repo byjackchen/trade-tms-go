@@ -257,6 +257,13 @@ func resolveSignalPlaceholder(ctx context.Context, pool *pgxpool.Pool, accountID
 	} else if info, err = store.DefaultAccount(ctx, "moomoo", domain.EnvPaper); err != nil {
 		return domain.Account{}
 	}
+	// The placeholder must be a VALID broker account. A paper row with no
+	// broker_acc_id (half-configured) would fail domain.Account.Validate() and abort
+	// the signal node — fall back to NO account (NULL account_id) so signal, which is
+	// never blocked on account setup, still runs.
+	if info.BrokerAccID <= 0 {
+		return domain.Account{}
+	}
 	return domain.Account{
 		ID:          info.ID,
 		Venue:       info.Venue,

@@ -38,11 +38,14 @@ func (s *Server) handleAccountUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimSpace(chi.URLParam(r, "id"))
-	req, ok := decodeAccountBody(w, r)
-	if !ok {
+	var patch AccountPatchRequest
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&patch); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body", "invalid account patch: "+err.Error())
 		return
 	}
-	acct, err := s.accountWriter.UpdateAccount(r.Context(), id, req)
+	acct, err := s.accountWriter.UpdateAccount(r.Context(), id, patch)
 	if mapAccountErr(w, err) {
 		return
 	}

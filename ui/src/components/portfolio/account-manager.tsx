@@ -261,7 +261,9 @@ function toWriteRequest(
   a: Partial<TradeAccountInfo> & { is_default?: boolean },
 ): AccountWriteRequest {
   const env = (a.env || "").toLowerCase();
-  // `simu` was retired backend-side; accounts are broker-only (paper|real).
+  // PRESERVE the account's existing env when it is already paper|real (so e.g.
+  // "Set default" never rewrites it). Only a truly-unknown legacy value (the
+  // retired synthetic `simu`, no longer creatable) falls back to "paper".
   const safeEnv: AccountEnv = env === "real" ? "real" : "paper";
   return {
     venue: a.venue ?? "moomoo",

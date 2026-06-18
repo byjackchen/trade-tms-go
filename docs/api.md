@@ -880,8 +880,8 @@ without a trade reader.
 The account-aware reads (orders / fills / positions / account / reconciliation)
 take an optional **`account_id=<id>`** query param that filters to a single
 registered account (`tms.accounts`); omitted, they return the unfiltered book
-(all accounts, incl. unattributed rows). The cockpit/desk account selector is
-backed by `GET /api/v1/trade/accounts`.
+(all accounts, incl. unattributed rows). The `/account` tabbed surface (Accounts
+Management + one tab per account) is backed by `GET /api/v1/trade/accounts`.
 
 ### `GET /api/v1/trade/session`
 
@@ -1044,10 +1044,11 @@ realized_pnl, status } ] }` — the open (non-flat) position book. Optional
 
 `{ "accounts": [ { id, venue, env, broker_acc_id, label } ] }` — the registered
 trading accounts from the `tms.accounts` registry (the first-class account
-dimension added in the `live`→`trade` refactor). `env ∈ {sim, simulate, real}`
-is the paper-vs-real discriminator. This backs the cockpit/desk **account
-selector**; selecting an account drives the `account_id` filter on the reads
-above. Returns `503` when the API has no trade reader.
+dimension added in the `live`→`trade` refactor). `env ∈ {paper, real}`
+is the paper-vs-real discriminator. This backs the **`/account` tabbed surface**
+(Accounts Management + one tab per account); a tab's account drives the
+`account_id` filter on the reads above. Returns `503` when the API has no trade
+reader.
 
 ### `GET /api/v1/trade/account`
 
