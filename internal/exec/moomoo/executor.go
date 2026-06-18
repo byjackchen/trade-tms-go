@@ -124,10 +124,10 @@ func (wallClock) Now() time.Time { return time.Now().UTC() }
 // Config assembles a MoomooExecutor.
 type Config struct {
 	// Account is the bound broker account (required). Its Env selects the moomoo
-	// TrdEnv (EnvPaper -> paper, EnvReal -> live; EnvSimu is rejected — this
-	// executor never settles synthetic fills) and its BrokerAccID is the broker
-	// account id. A real-money account (Account.IsReal()) triggers the 4-factor
-	// live-activation gate; a simulate account binds paper.
+	// TrdEnv (EnvPaper -> paper, EnvReal -> live; env is paper|real — every account
+	// is broker-backed) and its BrokerAccID is the broker account id. A real-money
+	// account (Account.IsReal()) triggers the 4-factor live-activation gate; a paper
+	// account binds the simulate TrdEnv.
 	Account domain.Account
 	// Client is the native Trd_* trading surface (real *moomoo.Client or the
 	// in-memory mock venue). Required.

@@ -75,8 +75,6 @@ func AccountKind(env BrokerEnv) string {
 type BrokerEnv string
 
 const (
-	// EnvSimu is a SYNTHETIC account with no broker — backtest/hyperopt sim fills.
-	EnvSimu BrokerEnv = "simu"
 	// EnvPaper is a broker PAPER (simulated) account.
 	EnvPaper BrokerEnv = "paper"
 	// EnvReal is a broker REAL-money account.
@@ -86,7 +84,7 @@ const (
 // IsValid reports whether e is a known BrokerEnv.
 func (e BrokerEnv) IsValid() bool {
 	switch e {
-	case EnvSimu, EnvPaper, EnvReal:
+	case EnvPaper, EnvReal:
 		return true
 	}
 	return false
@@ -95,28 +93,28 @@ func (e BrokerEnv) IsValid() bool {
 // IsReal reports whether e is the real-money environment.
 func (e BrokerEnv) IsReal() bool { return e == EnvReal }
 
-// IsBroker reports whether e is a real broker account (paper or real) vs a
-// synthetic simu account.
+// IsBroker reports whether e is a broker account. Every valid env is now
+// broker-backed (the synthetic simu account was removed); kept for call-site clarity.
 func (e BrokerEnv) IsBroker() bool { return e == EnvPaper || e == EnvReal }
 
 // String returns the wire value.
 func (e BrokerEnv) String() string { return string(e) }
 
 // Account is a first-class trading account: a stable TMS identity over a specific
-// broker account (or a synthetic sim account). Orders/positions/fills attribute
-// to an Account, so positions can be managed per account.
+// broker account (always broker-backed). Orders/positions/fills attribute to an
+// Account, so positions can be managed per account.
 type Account struct {
 	// ID is the stable TMS account id, used as the DB key and in attribution. It is
 	// an OPAQUE surrogate (decoupled from venue/env/broker_acc_id so those can be
 	// edited without breaking FK history): user-created broker accounts get
-	// "acct_<uuid>"; the synthetic sim account is "simu:<name>"; legacy broker rows
-	// keep their original "<venue>:<env>:<brokerAccID>" id (still opaque).
+	// "acct_<uuid>"; legacy broker rows keep their original
+	// "<venue>:<env>:<brokerAccID>" id (still opaque).
 	ID string `json:"id"`
-	// Venue is the broker/venue: "moomoo" | "simu".
+	// Venue is the broker/venue: "moomoo".
 	Venue string `json:"venue"`
 	// Env is the account environment.
 	Env BrokerEnv `json:"env"`
-	// BrokerAccID is the broker's account id (0 for simu accounts).
+	// BrokerAccID is the broker's account id.
 	BrokerAccID uint64 `json:"broker_acc_id"`
 	// Label is a human-friendly label (e.g. "保证金账户(3063)"); optional.
 	Label string `json:"label,omitempty"`
@@ -136,14 +134,6 @@ func NewBrokerAccount(venue string, env BrokerEnv, brokerAccID uint64, label str
 		BrokerAccID: brokerAccID,
 		Label:       label,
 	}
-}
-
-// SimAccount builds a synthetic sim Account (backtest/hyperopt) named name.
-func SimAccount(name string) Account {
-	if name == "" {
-		name = "default"
-	}
-	return Account{ID: "simu:" + name, Venue: "simu", Env: EnvSimu}
 }
 
 // IsReal reports whether the account is a real-money account.

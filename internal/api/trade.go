@@ -120,7 +120,7 @@ type TradeSession struct {
 	TraderID string `json:"trader_id"`
 	// ExecPolicy is the execution policy: "signal" (emit-only) | "auto" (auto-submit).
 	ExecPolicy string `json:"exec_policy"`
-	// AccountEnv is the bound account's env: "simu" | "paper" | "real" (empty
+	// AccountEnv is the bound account's env: "paper" | "real" (empty
 	// when the session has no bound account).
 	AccountEnv string `json:"account_env"`
 	// CompositionID is the Composition this session runs (its strategies + weights
@@ -291,7 +291,7 @@ type tradeCommandBody struct {
 	// ExecPolicy is the execution policy for set_mode ("signal" | "auto").
 	ExecPolicy string `json:"exec_policy,omitempty"`
 	// Env is the bound account env for set_mode with exec_policy=auto
-	// ("simu" | "paper" | "real"). Ignored for exec_policy=signal.
+	// ("paper" | "real"). Ignored for exec_policy=signal.
 	Env          string `json:"env,omitempty"`
 	Reason       string `json:"reason,omitempty"`
 	ConfirmToken string `json:"confirm_token,omitempty"`

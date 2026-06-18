@@ -50,7 +50,7 @@ type PreflightReport struct {
 type PreflightParams struct {
 	// ExecPolicy is "signal" | "auto".
 	ExecPolicy string
-	// Env is the bound account env ("simu" | "paper" | "real"; "" when none).
+	// Env is the bound account env ("paper" | "real"; "" when none).
 	Env                 string
 	Strategy            string
 	Tickers             []string
@@ -172,15 +172,12 @@ func (s *Server) resolvePreflightEnv(w http.ResponseWriter, r *http.Request, q u
 	switch env {
 	case "paper", "real":
 		return env, true
-	case "simu":
-		// A synthetic simu account auto-fills against no broker — treat as paper.
-		return env, true
 	case "":
 		writeError(w, http.StatusBadRequest, "missing_account",
 			"exec_policy=auto requires an account selector (account_id or env=paper|real)")
 		return "", false
 	default:
-		writeError(w, http.StatusBadRequest, "bad_env", "env must be simu|paper|real")
+		writeError(w, http.StatusBadRequest, "bad_env", "env must be paper|real")
 		return "", false
 	}
 }

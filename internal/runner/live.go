@@ -47,7 +47,8 @@ import (
 // via graceful session restart"). These are NOT a domain type — they map onto the
 // 2D model (docs/concept-alignment.md §1.3): each value derives an ExecutionPolicy
 // (modeSignal → ExecSignal; modePaper/modeLive → ExecAuto) and a bound Account env
-// (signal → sim, paper → simulate, live → real) via resolveAccount/execPolicyFor.
+// (signal → the paper-default placeholder, paper → simulate, live → real) via
+// resolveAccount/execPolicyFor.
 const (
 	modeSignal = "signal"
 	modePaper  = "paper"
@@ -94,10 +95,11 @@ type LiveConfig struct {
 
 	// BoundAccount is the broker account this run binds, RESOLVED FROM THE DB
 	// (tms.accounts) by the CLI — by --account id or the (venue, env) default — NOT
-	// from .env. It carries the real surrogate id + broker_acc_id + env. Zero-value
-	// in pure signal mode (no broker account; the session binds the synthetic simu
-	// account). paper/live require BrokerAccID != 0; live additionally re-asserts the
-	// 4-factor gate. The same bound account backs the broker-sync desk.
+	// from .env. It carries the real surrogate id + broker_acc_id + env. In pure
+	// signal mode it is the (moomoo, paper) DEFAULT account bound as a nominal
+	// placeholder (NoopExecutor, no orders), or zero-value when no paper default
+	// exists (NULL account_id). paper/live require BrokerAccID != 0; live additionally
+	// re-asserts the 4-factor gate. The same bound account backs the broker-sync desk.
 	BoundAccount domain.Account
 	// UnlockPassword unlocks the REAL account (live mode only; from a secret env).
 	UnlockPassword string
@@ -919,22 +921,15 @@ func execEnv(acct domain.Account) moomoo.TrdEnv {
 	return moomoo.TrdEnvSimulate
 }
 
-// resolveAccount resolves the ONE domain.Account this node binds for the given
-// legacy mode (the back-compat input until the CLI carries the two axes in a
-// later phase): signal -> a synthetic sim account; paper -> the moomoo SIMULATE
-// account (PaperAccID); live -> the moomoo REAL account (LiveAccID). This is the
-// single point where the paper-vs-live account axis is derived; everything
+// resolveAccount resolves the ONE domain.Account this node binds, for EVERY mode:
+// the BoundAccount the CLI resolved from tms.accounts. paper/live got it from
+// --env/--account; signal got the (moomoo, paper) DEFAULT account as a nominal
+// placeholder (NoopExecutor, no orders), or the zero Account when no paper default
+// exists — an empty id then maps to a NULL account_id (ensureAccount handles it).
+// This is the single point where the bound account is surfaced; everything
 // downstream (executor TrdEnv, persistence account_id, reconciler) flows from it.
-func (l *Live) resolveAccount(mode string) domain.Account {
-	switch mode {
-	case modePaper, modeLive:
-		// The bound account was resolved from tms.accounts by the CLI (by --account
-		// id or the (venue, env) default) and carries its real surrogate id +
-		// broker_acc_id + env. Both the auto session and the broker-sync desk bind it.
-		return l.cfg.BoundAccount
-	default:
-		return domain.SimAccount("signal")
-	}
+func (l *Live) resolveAccount(_ string) domain.Account {
+	return l.cfg.BoundAccount
 }
 
 // ensureAccount UPSERTs acct into tms.accounts (idempotent) so the FK from

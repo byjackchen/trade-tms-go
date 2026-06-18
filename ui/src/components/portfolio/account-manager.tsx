@@ -228,16 +228,21 @@ function AccountRow({
   );
 }
 
-/** Friendly env labels; `real` is loud-red so REAL money is unmistakable. */
-const ENV_LABEL: Record<AccountEnv, string> = {
-  simu: "Sim (synthetic)",
+/**
+ * Friendly env labels; `real` is loud-red so REAL money is unmistakable. The
+ * synthetic `simu` env was retired backend-side — accounts are broker-only now
+ * (paper|real) — so it is no longer offered in the form. The map keeps a label
+ * for any legacy `simu` rows still in the registry.
+ */
+const ENV_LABEL: Record<string, string> = {
+  simu: "Sim (legacy)",
   paper: "Paper (broker)",
   real: "Real (LIVE money)",
 };
 
-/** The env badge. `real` (kind=live) is destructive-red; simu/paper are amber. */
+/** The env badge. `real` (kind=live) is destructive-red; paper/legacy are amber. */
 function EnvBadge({ env, kind }: { env: string; kind: "paper" | "live" }) {
-  const label = (ENV_LABEL as Record<string, string>)[env] ?? (env || "—");
+  const label = ENV_LABEL[env] ?? (env || "—");
   return (
     <Badge
       variant={kind === "live" ? "destructive" : "warning"}
@@ -256,8 +261,8 @@ function toWriteRequest(
   a: Partial<TradeAccountInfo> & { is_default?: boolean },
 ): AccountWriteRequest {
   const env = (a.env || "").toLowerCase();
-  const safeEnv: AccountEnv =
-    env === "simu" || env === "paper" || env === "real" ? env : "paper";
+  // `simu` was retired backend-side; accounts are broker-only (paper|real).
+  const safeEnv: AccountEnv = env === "real" ? "real" : "paper";
   return {
     venue: a.venue ?? "moomoo",
     env: safeEnv,
@@ -279,8 +284,9 @@ type FormState = {
 
 /**
  * Create + edit form, in a Sheet (bottom sheet on mobile, centered modal on
- * desktop). Fields: venue, env (simu|paper|real), broker_acc_id, label, notes,
- * is_default. On success it closes (the hook busts the registry query).
+ * desktop). Fields: venue, env (paper|real — `simu` was retired backend-side),
+ * broker_acc_id, label, notes, is_default. On success it closes (the hook busts
+ * the registry query).
  */
 function AccountFormSheet({
   account,
@@ -297,7 +303,9 @@ function AccountFormSheet({
     venue: account?.venue ?? "moomoo",
     env: ((): AccountEnv => {
       const e = (account?.env || "").toLowerCase();
-      return e === "simu" || e === "paper" || e === "real" ? e : "simu";
+      // `simu` was retired — default a new account to `paper`; map legacy simu
+      // rows onto `paper` so the (now broker-only) select has a valid value.
+      return e === "real" ? "real" : "paper";
     })(),
     broker_acc_id:
       account != null ? String(account.broker_acc_id ?? 0) : "",
@@ -315,9 +323,9 @@ function AccountFormSheet({
   const brokerNum = Number(form.broker_acc_id);
   const brokerValid =
     form.broker_acc_id.trim() !== "" && Number.isInteger(brokerNum) && brokerNum >= 0;
-  // paper/real need a real (non-zero) broker account to be bindable; simu can be 0.
-  const brokerOkForEnv =
-    form.env === "simu" || (brokerValid && brokerNum > 0);
+  // Every account is broker-backed now (paper|real), so it needs a real
+  // (non-zero) broker account number to be bindable.
+  const brokerOkForEnv = brokerValid && brokerNum > 0;
   const labelOk = form.label.trim().length > 0;
   const canSubmit = brokerValid && brokerOkForEnv && labelOk && !pending;
 
@@ -395,7 +403,6 @@ function AccountFormSheet({
               disabled={pending}
               data-testid="account-form-env"
             >
-              <option value="simu">{ENV_LABEL.simu}</option>
               <option value="paper">{ENV_LABEL.paper}</option>
               <option value="real">{ENV_LABEL.real}</option>
             </Select>
@@ -420,22 +427,18 @@ function AccountFormSheet({
               inputMode="numeric"
               value={form.broker_acc_id}
               onChange={(e) => set("broker_acc_id", e.target.value)}
-              placeholder={form.env === "simu" ? "0 (synthetic)" : "e.g. 3063"}
+              placeholder="e.g. 3063"
               disabled={pending}
               data-testid="account-form-broker"
               autoComplete="off"
             />
             {!brokerOkForEnv && form.broker_acc_id.trim() !== "" ? (
               <p className="text-xs text-destructive">
-                {form.env === "simu"
-                  ? "Must be a non-negative whole number."
-                  : "Paper/Real accounts need a real (non-zero) broker account number."}
+                Accounts need a real (non-zero) broker account number.
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                {form.env === "simu"
-                  ? "0 is allowed for a synthetic sim book."
-                  : "The broker's account number (required to bind)."}
+                The broker&apos;s account number (required to bind).
               </p>
             )}
           </div>

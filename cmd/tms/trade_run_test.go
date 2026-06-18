@@ -19,7 +19,7 @@ func TestResolveRun(t *testing.T) {
 		wantErr         bool
 	}{
 		{"signal no env", "signal", "", domain.ExecSignal, "", "signal", false},
-		{"signal simu = no sync acct", "signal", "simu", domain.ExecSignal, "", "signal", false},
+		{"signal legacy env value rejected (env is paper|real now)", "signal", "simu", "", "", "", true},
 		{"signal paper = paper sync", "signal", "paper", domain.ExecSignal, domain.EnvPaper, "signal", false},
 		{"signal real = live sync", "signal", "real", domain.ExecSignal, domain.EnvReal, "signal", false},
 		{"signal bogus env", "signal", "bogus", "", "", "", true},
