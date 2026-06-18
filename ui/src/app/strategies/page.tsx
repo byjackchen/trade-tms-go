@@ -3,7 +3,6 @@
 import { Suspense, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FlaskConical, Zap } from "lucide-react";
-import { PageHeader } from "@/components/shell/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -100,12 +99,6 @@ function StrategiesBody() {
 
   return (
     <>
-      <PageHeader
-        title="Strategies"
-        subtitle="The four production strategies — details, watchlist, live status and tuning."
-        data-testid="strategies-header"
-      />
-
       {/* Strategy tab switcher. On mobile this becomes a horizontally-scrollable
           segmented control (no wrap) with >=44px tap targets. */}
       <nav

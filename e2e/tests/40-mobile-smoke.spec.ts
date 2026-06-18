@@ -83,7 +83,7 @@ test.describe("mobile shell smoke", () => {
     );
 
     // The session module itself mounted under the mobile chrome.
-    await expect(page.getByTestId("session-header")).toBeVisible();
+    await expect(page.getByTestId("session-module")).toBeVisible();
 
     // The app bar must NOT overflow horizontally on a narrow (~360px) phone:
     // the account selector + 3-way mode toggle + theme toggle have to fit, with

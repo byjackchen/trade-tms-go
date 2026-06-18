@@ -2,7 +2,6 @@
 
 import { Suspense, useCallback, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { PageHeader } from "@/components/shell/page-header";
 import { cn } from "@/lib/utils";
 import { useAccounts } from "@/lib/api/hooks";
 import type { TradeAccountInfo } from "@/lib/api/types";
@@ -76,26 +75,6 @@ function AccountViewInner() {
   return <AccountShell tab={tab} accounts={accounts} onChange={onChange} />;
 }
 
-const MANAGEMENT_COPY = {
-  title: "Accounts",
-  subtitle:
-    "The persistent account registry. Create, edit, delete, or set the default account per environment; sync + reconcile the live trade node below. Pick an account tab to open its book.",
-} as const;
-
-const ENV_COPY: Record<TradeEnv, { title: (label: string) => string; subtitle: string }> =
-  {
-    paper: {
-      title: (label) => `Accounts — ${label}`,
-      subtitle:
-        "This account's persistent book: positions, cash/PnL, and the synced EXTERNAL book. No session required.",
-    },
-    live: {
-      title: (label) => `Accounts — ${label} (LIVE / REAL MONEY)`,
-      subtitle:
-        "A REAL-money account. This is its persistent book: positions, cash/PnL, and the EXTERNAL book. Switch tabs to leave live.",
-    },
-  };
-
 function AccountShell({
   tab,
   accounts,
@@ -111,13 +90,6 @@ function AccountShell({
       : (accounts.find((a) => a.id === tab) ?? null);
   const env: TradeEnv = account ? accountEnv(account) : "paper";
 
-  const title =
-    account === null
-      ? MANAGEMENT_COPY.title
-      : ENV_COPY[env].title(accountTabLabel(account));
-  const subtitle =
-    account === null ? MANAGEMENT_COPY.subtitle : ENV_COPY[env].subtitle;
-
   return (
     // A REAL (live) account tab wraps the whole module in a loud red ring so it
     // is UNMISTAKABLE that real money is in play.
@@ -131,7 +103,6 @@ function AccountShell({
           "rounded-lg border-2 border-destructive/70 shadow-[0_0_0_1px_var(--color-destructive)]",
       )}
     >
-      <PageHeader title={title} subtitle={subtitle} data-testid="account-header" />
       <AccountTabs accounts={accounts} active={tab} onChange={onChange} />
 
       <main
@@ -155,14 +126,6 @@ function AccountShell({
       </main>
     </div>
   );
-}
-
-/** Tab label for an account: its label, falling back to `env broker#`. */
-function accountTabLabel(a: TradeAccountInfo): string {
-  const label = a.label?.trim();
-  if (label) return label;
-  const env = a.env?.trim() || accountEnv(a);
-  return a.broker_acc_id ? `${env} ${a.broker_acc_id}` : env;
 }
 
 /**

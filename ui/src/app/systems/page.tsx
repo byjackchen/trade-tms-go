@@ -2,7 +2,6 @@
 
 import { Suspense, useCallback } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { PageHeader } from "@/components/shell/page-header";
 import {
   SystemsTabs,
   asSystemsTab,
@@ -13,13 +12,6 @@ import { DataPanel } from "@/components/systems/data-panel";
 import { JobQueue } from "@/components/systems/job-queue";
 import { AuditLog } from "@/components/systems/audit-log";
 import { StreamIndicator } from "@/components/systems/stream-indicator";
-
-const SUBTITLE: Record<SystemsTab, string> = {
-  health: "Component status, connections and control-plane metrics.",
-  data: "Market-data coverage, freshness, gaps and sync.",
-  jobs: "Background job queue — live ops.jobs table with cancel / retry.",
-  audit: "Append-only audit trail of every control-plane action.",
-};
 
 /**
  * Systems & Data (top-level #1) — the operational + data layer of the control
@@ -73,12 +65,6 @@ function SystemsBody({
 }) {
   return (
     <>
-      <PageHeader
-        title="Systems & Data"
-        subtitle={SUBTITLE[tab]}
-        data-testid="systems-header"
-        actions={tab === "data" ? <StreamIndicator /> : undefined}
-      />
       <SystemsTabs active={tab} onChange={onChange} />
 
       <main
@@ -86,6 +72,13 @@ function SystemsBody({
         data-testid="systems-page"
         data-active-tab={tab}
       >
+        {/* The Data tab's live stream indicator, relocated here from the retired
+            page-header bar. */}
+        {tab === "data" ? (
+          <div className="flex justify-end">
+            <StreamIndicator />
+          </div>
+        ) : null}
         {tab === "health" ? <SystemHealth /> : null}
         {tab === "data" ? <DataPanel /> : null}
         {tab === "jobs" ? <JobQueue /> : null}

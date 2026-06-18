@@ -53,8 +53,8 @@ const ROUTES: Route[] = [
   { path: "/systems", ready: ["systems-page"] },
   { path: "/strategies", ready: ["strategies-page"] },
   { path: "/compositions", ready: ["compositions-page"] },
-  { path: "/session", ready: ["session-module", "session-header"] },
-  { path: "/account", ready: ["account-module", "account-header"] },
+  { path: "/session", ready: ["session-module"] },
+  { path: "/account", ready: ["account-module"] },
 ];
 
 /** Wait for the first of the candidate readiness testids to become visible. */

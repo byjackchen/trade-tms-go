@@ -3,7 +3,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { Wallet } from "lucide-react";
-import { PageHeader } from "@/components/shell/page-header";
 import { cn } from "@/lib/utils";
 import { LiveIndicator } from "./live-indicator";
 import { ExecBanner } from "./exec-banner";
@@ -26,7 +25,7 @@ import type { TradeEnv } from "./trade-env";
  */
 export function SessionView() {
   return (
-    <Suspense fallback={<SessionHeader env="paper" accountId={null} />}>
+    <Suspense fallback={<SessionModule env="paper" accountId={null} />}>
       <SessionViewInner />
     </Suspense>
   );
@@ -43,9 +42,18 @@ function SessionViewInner() {
       : "paper";
   const accountId = session?.account_id || null;
 
+  return <SessionModule env={env} accountId={accountId} />;
+}
+
+function SessionModule({
+  env,
+  accountId,
+}: {
+  env: TradeEnv;
+  accountId: string | null;
+}) {
   return (
     <div data-env={env} data-testid="session-module">
-      <SessionHeader env={env} accountId={accountId} />
       <main
         className={cn(
           "mx-auto w-full max-w-7xl flex-1 space-y-4 p-6 ui-mobile:p-4",
@@ -53,52 +61,10 @@ function SessionViewInner() {
         data-testid="session-view"
         data-env={env}
       >
-        {/* A smaller exec + env banner: the loud LIVE-red treatment lives in the
-            Account view (which owns account selection). */}
-        <ExecBanner env={env} />
-
-        {/* The apex runtime control: session status + its Composition + Account +
-            lifecycle/exec controls + the live tape. */}
-        <SessionPanel env={env} />
-
-        {/* Portfolio health (daily P&L, daily-loss-halt headroom, concentration) —
-            session-runtime risk, so it lives here, not on the Account book. */}
-        <HealthStrip />
-      </main>
-    </div>
-  );
-}
-
-const ENV_COPY: Record<TradeEnv, { title: string; subtitle: string }> = {
-  paper: {
-    title: "Sessions",
-    subtitle:
-      "Runtime control — the session lifecycle, the Composition it runs, and the live tape. The session's bound account is shown read-only; manage accounts in the Accounts top-level.",
-  },
-  live: {
-    title: "Sessions — LIVE",
-    subtitle:
-      "Runtime control for a LIVE (real-money) session. Lifecycle + exec policy here; the account itself lives in the Accounts top-level.",
-  },
-};
-
-function SessionHeader({
-  env,
-  accountId,
-}: {
-  env: TradeEnv;
-  accountId: string | null;
-}) {
-  const copy = ENV_COPY[env];
-  return (
-    <PageHeader
-      title={copy.title}
-      subtitle={copy.subtitle}
-      data-testid="session-header"
-      actions={
-        <div className="flex items-center gap-3">
-          {/* Read-only bound-account link to the Account top-level (account
-              selection does NOT happen on the Session page). */}
+        {/* A small right-aligned inline row: the read-only bound-account link to
+            the Account top-level (account selection does NOT happen here) +
+            the live indicator. */}
+        <div className="flex items-center justify-end gap-3">
           <Link
             href={
               accountId
@@ -119,7 +85,19 @@ function SessionHeader({
           </Link>
           <LiveIndicator />
         </div>
-      }
-    />
+
+        {/* A smaller exec + env banner: the loud LIVE-red treatment lives in the
+            Account view (which owns account selection). */}
+        <ExecBanner env={env} />
+
+        {/* The apex runtime control: session status + its Composition + Account +
+            lifecycle/exec controls + the live tape. */}
+        <SessionPanel env={env} />
+
+        {/* Portfolio health (daily P&L, daily-loss-halt headroom, concentration) —
+            session-runtime risk, so it lives here, not on the Account book. */}
+        <HealthStrip />
+      </main>
+    </div>
   );
 }

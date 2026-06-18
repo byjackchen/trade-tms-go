@@ -58,7 +58,7 @@ test.describe("no severe console errors on /session", () => {
     await expect(page.getByTestId("app-shell")).toBeVisible();
     // The page is "mounted" once EITHER the real cockpit root or the coming-soon
     // placeholder is visible (the cockpit ships after the earlier workspaces).
-    await waitReady(page, ["session-header"]);
+    await waitReady(page, ["session-module"]);
 
     // Let the live WS open + the first frames / REST snapshots flush so any late
     // render error fires. The cockpit subscribes to multiple streams on mount.
@@ -80,7 +80,7 @@ test.describe("no severe console errors on /session", () => {
     await page.goto("/account", { waitUntil: "domcontentloaded" });
 
     await expect(page.getByTestId("app-shell")).toBeVisible();
-    await waitReady(page, ["account-header"]);
+    await waitReady(page, ["account-module"]);
 
     await settle(page);
     await page.waitForTimeout(2_500);
@@ -102,7 +102,7 @@ test.describe("no severe console errors on /session", () => {
     await page.goto("/session", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("app-shell")).toBeVisible();
 
-    const realCockpit = page.getByTestId("session-header");
+    const realCockpit = page.getByTestId("session-module");
     await expect
       .poll(async () => (await realCockpit.count()) > 0, { timeout: 15_000 })
       .toBeDefined();

@@ -3,7 +3,6 @@
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Layers } from "lucide-react";
-import { PageHeader } from "@/components/shell/page-header";
 import { StreamIndicator } from "@/components/systems/stream-indicator";
 import { cn } from "@/lib/utils";
 import { CompositionsList } from "@/components/compositions/compositions-list";
@@ -89,15 +88,10 @@ function CompositionsBody() {
 
   return (
     <>
-      <PageHeader
-        title="Compositions"
-        subtitle="Compose named portfolio blueprints from tuned strategies; validate by backtest, then tune weights & risk with Composition Hyperopt."
-        data-testid="compositions-header"
-        actions={<StreamIndicator />}
-      />
-
       {/* tab switcher — horizontally scrollable on mobile, with >=44px tap
-          targets, so additional tabs never overflow off-screen. */}
+          targets, so additional tabs never overflow off-screen. The live stream
+          indicator (relocated from the retired page-header bar) sits right-aligned
+          in the same row. */}
       <nav
         className="flex items-center gap-1 overflow-x-auto border-b border-border px-4 sm:px-6"
         data-testid="compositions-tabs"
@@ -125,6 +119,9 @@ function CompositionsBody() {
             </button>
           );
         })}
+        <div className="ml-auto shrink-0 pl-2">
+          <StreamIndicator />
+        </div>
       </nav>
 
       <main
