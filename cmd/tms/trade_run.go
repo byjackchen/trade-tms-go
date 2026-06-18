@@ -29,7 +29,9 @@ import (
 // bound account env (sim/simulate/real). It returns the parsed axes and the
 // DERIVED convenience word (signal|paper|live) the runtime plumbing still uses
 // internally (runner.Live's restart vocabulary). exec=auto requires an env;
-// exec=signal settles nowhere (env ignored, normalized to "").
+// exec=signal needs none, but MAY carry --env simulate|real to designate a broker
+// account to SYNC READ-ONLY from (DIRECTION 2 — pull hand-placed positions back);
+// signal with no env (or --env sim) keeps the env empty (pure emit-only, no sync).
 //
 // "go paper" = exec=auto on a sim/simulate account; "go live" = exec=auto on a
 // real account; "signal" = exec=signal. Real money (env=real) is gated upstream.
@@ -39,7 +41,19 @@ func resolveRun(execStr, envStr string) (domain.ExecutionPolicy, domain.BrokerEn
 		return "", "", "", fmt.Errorf("--exec-policy %q invalid (want signal|auto)", execStr)
 	}
 	if exec == domain.ExecSignal {
-		return exec, "", domain.RunWord(exec, ""), nil
+		// signal emits only — no auto orders, so the run word stays "signal". BUT
+		// --env may still designate a broker account to SYNC READ-ONLY from
+		// (DIRECTION 2): the operator hand-trades at the broker, then pulls those
+		// positions back into the EXTERNAL book. No --env (or --env sim = the
+		// synthetic no-broker account) means pure signal with no sync account.
+		env := domain.BrokerEnv(strings.TrimSpace(envStr))
+		if env == "" || env == domain.EnvSim {
+			return exec, "", domain.RunWord(exec, ""), nil
+		}
+		if !env.IsValid() {
+			return "", "", "", fmt.Errorf("--env %q invalid (want sim|simulate|real)", envStr)
+		}
+		return exec, env, domain.RunWord(exec, ""), nil
 	}
 	env := domain.BrokerEnv(strings.TrimSpace(envStr))
 	if env == "" {
@@ -118,7 +132,7 @@ func newTradeRunCmd(env *runtimeEnv) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&execPolicy, "exec-policy", "signal", "execution policy: signal (emit-only) | auto (auto-submit). 'go paper' = auto + --env simulate; 'go live' = auto + --env real")
-	cmd.Flags().StringVar(&envStr, "env", "", "bound account env for --exec-policy auto: sim | simulate | real (real requires real acc id + TMS_LIVE_CONFIRM + the TMS-LIVE-REAL-001 trader id)")
+	cmd.Flags().StringVar(&envStr, "env", "", "account env: sim | simulate | real. Required for --exec-policy auto (auto-submit). For --exec-policy signal it is OPTIONAL — simulate|real designates a broker account to SYNC read-only from (real requires real acc id + TMS_LIVE_CONFIRM + the TMS-LIVE-REAL-001 trader id)")
 	cmd.Flags().StringVar(&traderID, "trader-id", "SIGNAL-001", "trader id (Redis namespace + sessions.trader_id)")
 	cmd.Flags().StringVar(&strategy, "strategy", "multi", "strategy: sepa | sector_rotation | pairs | orb | multi")
 	cmd.Flags().StringVar(&tickersCSV, "tickers", "", "comma-separated stock universe (SEPA/multi); strategy derives ETFs/legs/SPY from params")
@@ -373,13 +387,23 @@ func runTradeRun(parent context.Context, env *runtimeEnv, a tradeRunArgs) error 
 		return err
 	}
 
-	// DIRECTION 2 (broker -> TMS): in a broker-connected run (paper/live) connect the
-	// READ-ONLY broker-sync desk in the background once the moomoo client is ready, so
-	// the operator can "Sync from broker" — pull externally-placed positions into the
-	// EXTERNAL book + reconcile — over the folded /api/v1/trade/sync surface. Signal
-	// mode binds no broker account, so there is nothing to sync (the routes stay 503).
-	if mode == "paper" || mode == "live" {
-		go connectBrokerSyncDesk(ctx, node, mode, log)
+	// DIRECTION 2 (broker -> TMS): connect the READ-ONLY broker-sync desk to the
+	// account designated by --env (simulate -> the paper account, real -> the real
+	// account), INDEPENDENT of exec_policy. This makes "Sync from broker" work in
+	// SIGNAL mode too — the operator hand-trades AT the broker, then pulls those
+	// externally-placed positions back into the EXTERNAL book + reconciles — not just
+	// in auto. Signal with no --env (or --env sim) binds no broker account, so there
+	// is nothing to sync and /trade/sync stays 503. The sync is read-only (Trd_Get*
+	// only); a REAL account still passes the full live gate in ConnectBrokerSync.
+	var syncMode string
+	switch acctEnv {
+	case domain.EnvSimulate:
+		syncMode = "paper"
+	case domain.EnvReal:
+		syncMode = "live"
+	}
+	if syncMode != "" {
+		go connectBrokerSyncDesk(ctx, node, syncMode, log)
 	}
 
 	log.Info().
