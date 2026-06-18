@@ -88,7 +88,7 @@ func (r CheckResult) blocking() bool {
 type Report struct {
 	// ExecPolicy is the execution policy the report was evaluated for (signal|auto).
 	ExecPolicy domain.ExecutionPolicy `json:"exec_policy"`
-	// Env is the bound account env the report was evaluated for (sim|simulate|real).
+	// Env is the bound account env the report was evaluated for (simu|paper|real).
 	Env domain.BrokerEnv `json:"env"`
 	// RunWord is the derived convenience label (signal|paper|live) — read-only,
 	// always derived from (exec_policy, env); kept for display/back-compat.
@@ -146,7 +146,7 @@ type Config struct {
 	// DATA_CURRENT + OPEND as advisory; auto (paper/live) requires them. Empty
 	// defaults to ExecSignal.
 	ExecPolicy domain.ExecutionPolicy
-	// Env is the bound account env (sim|simulate|real). Used only to derive the
+	// Env is the bound account env (simu|paper|real). Used only to derive the
 	// report's display RunWord; severity keys off ExecPolicy alone.
 	Env domain.BrokerEnv
 	// Strategy is "sepa" | "sector_rotation" | "pairs" | "orb" | "multi".

@@ -75,9 +75,9 @@ export function SessionControls({ env }: { env: "paper" | "live" }) {
   );
   // The only switchable axis inside a per-env module is the EXECUTION POLICY:
   // SIGNAL (emit-only) <-> AUTO (auto-submit). The account env is fixed by which
-  // module this is (paper -> simulate, live -> real); you never switch env here.
+  // module this is (paper -> paper, live -> real); you never switch env here.
   const execPolicy: ExecPolicy = session?.exec_policy === "auto" ? "auto" : "signal";
-  const accountEnv = env === "live" ? "real" : "simulate";
+  const accountEnv = env === "live" ? "real" : "paper";
   const halted = session?.halt != null;
   const running = status === "RUNNING";
   const traderId = session?.trader_id ?? null;
@@ -220,7 +220,7 @@ export function SessionControls({ env }: { env: "paper" | "live" }) {
         </div>
 
         {/* Execution policy — SIGNAL (emit-only) <-> AUTO (auto-submit). The
-            account env is fixed by the module (paper -> simulate, live -> real);
+            account env is fixed by the module (paper -> paper, live -> real);
             there is no paper/live switch here. */}
         <div className="space-y-2">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -440,7 +440,7 @@ export function SessionControls({ env }: { env: "paper" | "live" }) {
         onConfirm={() => {
           if (dialog?.kind !== "arm") return;
           // The typed phrase is the confirm_token the API requires to arm AUTO.
-          // env is fixed by the module (paper -> simulate, live -> real).
+          // env is fixed by the module (paper -> paper, live -> real).
           send(
             "set_mode",
             { exec_policy: "auto", env: accountEnv, confirm_token: typed.trim() },

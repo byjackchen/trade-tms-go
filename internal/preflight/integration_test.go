@@ -138,7 +138,7 @@ func TestIntegration_Preflight(t *testing.T) {
 		// In PAPER mode the same staleness is a BLOCKER.
 		paper := signalCfg(universe)
 		paper.ExecPolicy = domain.ExecAuto
-		paper.Env = domain.EnvSimulate
+		paper.Env = domain.EnvPaper
 		prep := preflight.Run(ctx, paper, probes)
 		pdc := findCheck(t, prep, preflight.CheckDataCurrent)
 		require.Equal(t, preflight.StatusFail, pdc.Status)

@@ -68,6 +68,11 @@ export async function apiPut<T>(path: string, body: unknown): Promise<T> {
   return apiBody<T>("PUT", path, body);
 }
 
+/** PATCH a JSON body to `<proxy>/<path>` (full-replace of mutable cols, e.g. Account update). */
+export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  return apiBody<T>("PATCH", path, body);
+}
+
 /**
  * DELETE `<proxy>/<path>` (optionally with query params, e.g. ?actor= which the
  * DELETE handlers read in lieu of a JSON body).
@@ -89,12 +94,16 @@ export async function apiDelete<T>(
     headers: { Accept: "application/json" },
   });
   if (!resp.ok) throw await parseError(resp);
-  return (await resp.json()) as T;
+  // A 204 No Content (e.g. account delete) has no JSON body to parse; callers
+  // that don't need a payload type it as `void`.
+  if (resp.status === 204) return undefined as T;
+  const text = await resp.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
-/** Shared body-method (POST/PUT) sender. */
+/** Shared body-method (POST/PUT/PATCH) sender. */
 async function apiBody<T>(
-  method: "POST" | "PUT",
+  method: "POST" | "PUT" | "PATCH",
   path: string,
   body: unknown,
 ): Promise<T> {

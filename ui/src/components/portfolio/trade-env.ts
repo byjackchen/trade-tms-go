@@ -2,7 +2,7 @@ import type { TradeAccountInfo } from "@/lib/api/types";
 
 /**
  * The two Portfolio environments. `paper` is the SIMULATE book (broker env
- * `sim`/`simulate`); `live` is the REAL-money book (broker env `real`). This is
+ * `simu`/`paper`); `live` is the REAL-money book (broker env `real`). This is
  * the ENVIRONMENT axis of the 2D session model (docs/concept-alignment.md §1.3,
  * C6) — distinct from the EXECUTION axis (`exec_policy`).
  *
@@ -16,7 +16,7 @@ export type TradeEnv = "paper" | "live";
 /**
  * The env an account belongs to, derived from its server-computed `kind`
  * ("paper"|"live"), falling back to its raw broker `env` for older API builds
- * (env=real => live, sim/simulate => paper). This is the SINGLE source the
+ * (env=real => live, simu/paper => paper). This is the SINGLE source the
  * unified /trade module reads to decide LIVE-red gating once an account is
  * selected.
  */

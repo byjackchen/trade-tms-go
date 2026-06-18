@@ -51,6 +51,9 @@ type Deps struct {
 	// Commands enqueues audited control commands. Optional: when nil
 	// POST /api/v1/trade/commands returns 503.
 	Commands CommandEnqueuer
+	// AccountWriter is the CRUD write path for the accounts registry (POST/PATCH/
+	// DELETE /api/v1/trade/accounts). Optional: when nil those endpoints return 503.
+	AccountWriter TradeAccountWriter
 	// System supplies the aggregate counts + freshness for GET /api/v1/system.
 	// Optional: when nil those components report "not_configured" (the endpoint
 	// still serves PG/Redis/feed status).
@@ -76,30 +79,31 @@ type Deps struct {
 
 // Server is the HTTP/WebSocket API for the UI (contract: docs/api.md).
 type Server struct {
-	log          zerolog.Logger
-	token        string
-	corsOrigins  []string
-	jobs         JobQueue
-	data         DataStore
-	uni          UniverseReader
-	runs         RunsReader
-	strat        StrategyReader
-	hyperopt     HyperoptReader
-	promoter     HyperoptPromoter
-	compositions CompositionStore
-	auditLog     AuditWriter
-	cal          *calendar.Calendar
-	pingPG       PingFunc
-	pingRedis    PingFunc
-	trade        TradeReader
-	commands     CommandEnqueuer
-	system       SystemReader
-	audit        AuditReader
-	sync         SyncForcer
-	preflight    PreflightRunner
-	brokerSync   BrokerSync
-	hub          *Hub
-	now          func() time.Time
+	log           zerolog.Logger
+	token         string
+	corsOrigins   []string
+	jobs          JobQueue
+	data          DataStore
+	uni           UniverseReader
+	runs          RunsReader
+	strat         StrategyReader
+	hyperopt      HyperoptReader
+	promoter      HyperoptPromoter
+	compositions  CompositionStore
+	auditLog      AuditWriter
+	cal           *calendar.Calendar
+	pingPG        PingFunc
+	pingRedis     PingFunc
+	trade         TradeReader
+	commands      CommandEnqueuer
+	accountWriter TradeAccountWriter
+	system        SystemReader
+	audit         AuditReader
+	sync          SyncForcer
+	preflight     PreflightRunner
+	brokerSync    BrokerSync
+	hub           *Hub
+	now           func() time.Time
 }
 
 // NewServer validates deps and builds the server (including its WS hub).
@@ -126,30 +130,31 @@ func NewServer(d Deps) (*Server, error) {
 	}
 	log := d.Log.With().Str("component", "api").Logger()
 	return &Server{
-		log:          log,
-		token:        d.Token,
-		corsOrigins:  d.CORSOrigins,
-		jobs:         d.Jobs,
-		data:         d.Data,
-		uni:          d.Universe,
-		runs:         d.Runs,
-		strat:        d.Strategies,
-		hyperopt:     d.Hyperopt,
-		promoter:     d.Promoter,
-		compositions: d.Compositions,
-		auditLog:     d.AuditLog,
-		cal:          d.Calendar,
-		pingPG:       d.PingPG,
-		pingRedis:    d.PingRedis,
-		trade:        d.Trade,
-		commands:     d.Commands,
-		system:       d.System,
-		audit:        d.Audit,
-		sync:         d.Sync,
-		preflight:    d.Preflight,
-		brokerSync:   d.BrokerSync,
-		hub:          NewHub(log, d.CORSOrigins),
-		now:          now,
+		log:           log,
+		token:         d.Token,
+		corsOrigins:   d.CORSOrigins,
+		jobs:          d.Jobs,
+		data:          d.Data,
+		uni:           d.Universe,
+		runs:          d.Runs,
+		strat:         d.Strategies,
+		hyperopt:      d.Hyperopt,
+		promoter:      d.Promoter,
+		compositions:  d.Compositions,
+		auditLog:      d.AuditLog,
+		cal:           d.Calendar,
+		pingPG:        d.PingPG,
+		pingRedis:     d.PingRedis,
+		trade:         d.Trade,
+		commands:      d.Commands,
+		accountWriter: d.AccountWriter,
+		system:        d.System,
+		audit:         d.Audit,
+		sync:          d.Sync,
+		preflight:     d.Preflight,
+		brokerSync:    d.BrokerSync,
+		hub:           NewHub(log, d.CORSOrigins),
+		now:           now,
 	}, nil
 }
 
@@ -266,6 +271,11 @@ func (s *Server) Routes() *chi.Mux {
 			// per-account filter. NOTE: distinct from /trade/account (the funds
 			// snapshot served by the mutation block below).
 			r.Get("/trade/accounts", s.handleTradeAccounts)
+			// Account registry CRUD (user-managed; accounts are no longer derived
+			// from .env). Bearer-guarded mutations of tms.accounts.
+			r.Post("/trade/accounts", s.handleAccountCreate)
+			r.Patch("/trade/accounts/{id}", s.handleAccountUpdate)
+			r.Delete("/trade/accounts/{id}", s.handleAccountDelete)
 			r.Post("/trade/commands", s.handleTradeCommand)
 
 			// Back-compat: the old /live/* read/control paths 301-redirect to

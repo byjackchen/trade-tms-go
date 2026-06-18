@@ -323,7 +323,7 @@ services:
       - "--exec-policy"
       - "${TMS_LIVE_EXEC_POLICY:-signal}"
       - "--env"
-      - "${TMS_LIVE_ENV:-sim}"
+      - "${TMS_LIVE_ENV:-simu}"
       - "--strategy"
       - "${TMS_LIVE_STRATEGY:-sector_rotation}"
       - "--trader-id"
@@ -352,13 +352,10 @@ services:
       TMS_WORKER_HEALTH_ADDR: 0.0.0.0:18090
       TMS_LOG_LEVEL: ${TMS_LOG_LEVEL:-info}
       TMS_LOG_FORMAT: json
-      # Paper/live trading config (P6). The broker account ids + the live
-      # activation phrase + unlock password are SECRETS — set them ONLY in
-      # ./secrets/moomoo.env (gitignored, env_file above), never here / in .env.
-      # Defaulted empty so a signal-mode stack needs none; paper/live REQUIRE the
-      # corresponding values and the node refuses to start without them.
-      TMS_MOOMOO_PAPER_ACC_ID: ${TMS_MOOMOO_PAPER_ACC_ID:-}
-      TMS_MOOMOO_LIVE_ACC_ID: ${TMS_MOOMOO_LIVE_ACC_ID:-}
+      # Paper/live trading config (P6). Broker ACCOUNTS are USER-MANAGED in the UI
+      # (tms.accounts) — NO .env account ids. This node binds the (moomoo, env)
+      # DEFAULT account, or pass `--account <id>`. The live-activation phrase +
+      # unlock + trade passwords remain SECRETS in ./secrets/moomoo.env (never here).
       TMS_RECONCILE_INTERVAL: ${TMS_RECONCILE_INTERVAL:-5m}
     extra_hosts:
       # Reach the host's OpenD (127.0.0.1:11111 on the host) from inside the
@@ -382,7 +379,7 @@ services:
   # ---------------------------------------------------------------------------
   # PAPER trading node (profile `paper`): an auto-submit session bound to a
   # SIMULATE account, the everyday "go paper" runtime. It runs the strategy
-  # session in AUTO mode (--exec-policy auto --env simulate) AND folds the
+  # session in AUTO mode (--exec-policy auto --env paper) AND folds the
   # READ-ONLY broker SYNC surface (DIRECTION 2) onto its own health listener
   # (host 18090) so an operator can pull externally-placed positions into the
   # EXTERNAL book + reconcile. By default it dials the HOST's REAL OpenD
@@ -425,9 +422,10 @@ services:
       TMS_PG_PASSWORD: ${TMS_PG_PASSWORD:-tms}
       TMS_PG_DATABASE: ${TMS_PG_DATABASE:-tms}
       TMS_PG_SSLMODE: disable
-      # The SIMULATE (paper) account id the venue enables + the paper node binds.
-      # Seed one value (TMS_MOOMOO_PAPER_ACC_ID) for BOTH this venue and the paper
-      # node below; defaulted to a deterministic test account for CI.
+      # The paper account number this MOCK venue enables. The paper node no longer
+      # reads it (accounts are user-managed in tms.accounts) — to bind this venue,
+      # create a (moomoo, paper) account in the UI with broker_acc_id 700001 and mark
+      # it default. Kept here because the mock venue still needs to enable the account.
       TMS_MOOMOO_PAPER_ACC_ID: ${TMS_MOOMOO_PAPER_ACC_ID:-700001}
       TMS_LOG_LEVEL: ${TMS_LOG_LEVEL:-info}
       TMS_LOG_FORMAT: json
@@ -458,7 +456,7 @@ services:
       - "--exec-policy"
       - "auto"
       - "--env"
-      - "simulate"
+      - "paper"
       - "--strategy"
       - "${TMS_LIVE_STRATEGY:-sector_rotation}"
       - "--trader-id"
@@ -486,8 +484,10 @@ services:
       # controls + the live tape reach this node.
       TMS_LIVE_TRADER_ID: ${TMS_LIVE_TRADER_ID:-SIGNAL-001}
       TMS_WORKER_HEALTH_ADDR: 0.0.0.0:18090
-      # The paper node binds this SIMULATE account (same id the mock venue enables).
-      TMS_MOOMOO_PAPER_ACC_ID: ${TMS_MOOMOO_PAPER_ACC_ID:-700001}
+      # Accounts are USER-MANAGED in the UI now (no .env acc ids). This node binds
+      # the (moomoo, paper) DEFAULT account from tms.accounts, or pass `--account
+      # <id>`. For the mock venue, create a paper account with broker_acc_id 700001
+      # (the id tmsgo-mock-opend enables) and mark it default.
       # Bearer-guards the folded /api/v1/trade/* sync surface (same token as the API
       # so the UI + e2e suite authenticate with one value).
       TMS_API_TOKEN: ${TMS_API_TOKEN:-local-e2e-token}

@@ -230,7 +230,7 @@ func newPaperExecutor(t *testing.T) (*MoomooExecutor, *MockVenue, *fakeAccount, 
 	sink := &recordSink{}
 	persist := &recordPersist{}
 	e, err := New(context.Background(), Config{
-		Account:  domain.NewBrokerAccount("moomoo", domain.EnvSimulate, paperAcc, ""),
+		Account:  domain.NewBrokerAccount("moomoo", domain.EnvPaper, paperAcc, ""),
 		Client:   venue,
 		TraderID: "PAPER-SMOKE-001",
 		Sink:     sink,
@@ -319,7 +319,7 @@ func TestSubmitTimeRejectSurfacesRiskEvent(t *testing.T) {
 	acct := newFakeAccount()
 	risk := &recordRisk{}
 	e, err := New(context.Background(), Config{
-		Account: domain.NewBrokerAccount("moomoo", domain.EnvSimulate, paperAcc, ""), Client: venue, TraderID: "PAPER-SMOKE-001",
+		Account: domain.NewBrokerAccount("moomoo", domain.EnvPaper, paperAcc, ""), Client: venue, TraderID: "PAPER-SMOKE-001",
 		Sink: &recordSink{}, Book: acct, Risk: risk, Clock: fixedClock{t: time.Now().UTC()},
 	})
 	if err != nil {

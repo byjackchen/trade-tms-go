@@ -65,11 +65,11 @@ func TestHandleLivePreflight_NotConfigured(t *testing.T) {
 
 func TestHandleLivePreflight_OK(t *testing.T) {
 	pf := &stubPreflight{report: PreflightReport{
-		ExecPolicy: "auto", Env: "simulate", RunWord: "paper", Strategy: "multi", OK: true,
+		ExecPolicy: "auto", Env: "paper", RunWord: "paper", Strategy: "multi", OK: true,
 		Checks: []PreflightResult{{Check: "DATA_CURRENT", Status: "pass", Severity: "blocker", Detail: "fresh"}},
 	}}
 	srv := newPreflightServer(t, pf)
-	rec := getPreflight(t, srv, "/api/v1/trade/preflight?exec_policy=auto&env=simulate&strategy=multi&tickers=AAPL,MSFT&check_opend=1&max_stale_days=2")
+	rec := getPreflight(t, srv, "/api/v1/trade/preflight?exec_policy=auto&env=paper&strategy=multi&tickers=AAPL,MSFT&check_opend=1&max_stale_days=2")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var body PreflightReport
@@ -81,7 +81,7 @@ func TestHandleLivePreflight_OK(t *testing.T) {
 
 	// The handler parsed the query into params.
 	require.Equal(t, "auto", pf.got.ExecPolicy)
-	require.Equal(t, "simulate", pf.got.Env)
+	require.Equal(t, "paper", pf.got.Env)
 	require.Equal(t, "multi", pf.got.Strategy)
 	require.Equal(t, []string{"AAPL", "MSFT"}, pf.got.Tickers)
 	require.True(t, pf.got.CheckOpenD)

@@ -166,7 +166,7 @@ func TestPrimeSkipsWarmupForRestoredStrategy(t *testing.T) {
 	venue := moexec.NewMockVenue(paperAcc)
 	acct := accounting.NewAccount(domain.MustMoney("100000.00"), nil)
 	account := livetrade.NewAccountAdapter(acct)
-	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvSimulate, paperAcc, "paper")
+	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvPaper, paperAcc, "paper")
 	exec, err := moexec.New(ctx, moexec.Config{
 		Account: paperAcct, Client: venue,
 		TraderID: "PAPER-TEST-001", Sink: &fillSink{}, Book: account,

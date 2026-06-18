@@ -27,7 +27,7 @@ export function SessionStatusBadge({
  * Derive the paper/live/signal label from the 2D session model that REPLACED the
  * legacy three-valued `mode` (docs/concept-alignment.md §1.3, C6): `signal`
  * exec-policy is always "signal" (emit-only); `auto` resolves by the bound
- * account's env — `real` → "live" (real money), `sim`/`simulate` → "paper".
+ * account's env — `real` → "live" (real money), `simu`/`paper` → "paper".
  */
 export function sessionModeLabel(
   execPolicy: string | undefined,

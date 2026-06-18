@@ -136,7 +136,7 @@ func TestSystemEndpointRedisDownIsDegraded(t *testing.T) {
 func TestSystemEndpointStaleFeed(t *testing.T) {
 	sys := &stubSystemReader{active: 1}
 	live := &stubTradeReader{
-		session: &TradeSession{ID: 9, ExecPolicy: "auto", AccountEnv: "simulate", Status: "RUNNING", StartedAt: fixedNow},
+		session: &TradeSession{ID: 9, ExecPolicy: "auto", AccountEnv: "paper", Status: "RUNNING", StartedAt: fixedNow},
 		health:  &TradeHealth{TS: fixedNow.Add(-30 * time.Minute)}, // outside 5m window
 	}
 	ts := newSystemTestServer(t, sys, live, pingOK, pingOK)
@@ -146,7 +146,7 @@ func TestSystemEndpointStaleFeed(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	assert.Equal(t, "degraded", got.Status)
 	assert.Equal(t, "degraded", got.Components["moomoo_feed"].Status)
-	assert.Equal(t, "auto/simulate", got.Metrics.LiveMode)
+	assert.Equal(t, "auto/paper", got.Metrics.LiveMode)
 }
 
 // TestSystemEndpointNoSession: with no live session the feed is "idle" and the

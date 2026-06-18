@@ -38,7 +38,7 @@ func TestPaperExecutorCannotReachLiveAccount(t *testing.T) {
 	venue := liveVenue()
 	// Build a PAPER executor but (mistakenly) point it at the real acc id.
 	e, err := New(context.Background(), Config{
-		Account: domain.NewBrokerAccount("moomoo", domain.EnvSimulate, realAcc, ""), Client: venue, TraderID: "PAPER-SMOKE-001",
+		Account: domain.NewBrokerAccount("moomoo", domain.EnvPaper, realAcc, ""), Client: venue, TraderID: "PAPER-SMOKE-001",
 		Sink: &recordSink{}, Book: newFakeAccount(), Clock: fixedClock{t: time.Now().UTC()},
 	})
 	if err != nil {
@@ -69,7 +69,7 @@ func TestPaperExecutorCannotReachLiveAccount(t *testing.T) {
 func TestPaperWithLiveTraderIDRefused(t *testing.T) {
 	venue := liveVenue()
 	_, err := New(context.Background(), Config{
-		Account: domain.NewBrokerAccount("moomoo", domain.EnvSimulate, paperAcc, ""), Client: venue, TraderID: LiveTraderID,
+		Account: domain.NewBrokerAccount("moomoo", domain.EnvPaper, paperAcc, ""), Client: venue, TraderID: LiveTraderID,
 		Sink: &recordSink{}, Book: newFakeAccount(), Clock: fixedClock{t: time.Now().UTC()},
 	})
 	if err == nil {

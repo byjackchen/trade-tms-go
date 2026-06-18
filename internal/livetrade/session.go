@@ -75,7 +75,7 @@ type statePersister struct {
 // TradeSessionConfig assembles a TradeSession.
 type TradeSessionConfig struct {
 	// Acct is the bound broker account (required). Its Env selects paper vs live:
-	// EnvSimulate => paper, EnvReal => live. The executor MUST be bound to a
+	// EnvPaper => paper, EnvReal => live. The executor MUST be bound to a
 	// matching environment (a real account requires a live-bound executor).
 	Acct domain.Account
 	// Strategies are the engine strategy adapters (same instances backtest uses).

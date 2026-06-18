@@ -60,7 +60,50 @@ type TradeAccountInfo struct {
 	// domain.AccountKind (env=real => "live", else "paper"). It is NOT stored — the
 	// env stays the source of truth; the unified /trade UI badges accounts from it.
 	Kind string `json:"kind"`
+	// IsDefault marks THE default account for its (venue, env) — the one a
+	// `tms trade run --env paper|real` binds when no explicit account is given.
+	IsDefault bool `json:"is_default"`
+	// Notes is a free-text operator note; optional.
+	Notes string `json:"notes"`
+	// CreatedAt / UpdatedAt are RFC3339 timestamps for the management UI.
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
 }
+
+// AccountWriteRequest is the body of POST (create) and PATCH (update) on
+// /api/v1/trade/accounts. On create venue/env are required; on update every field
+// is applied as given (a full replace of the mutable columns).
+type AccountWriteRequest struct {
+	Venue       string `json:"venue"`
+	Env         string `json:"env"`
+	BrokerAccID int64  `json:"broker_acc_id"`
+	Label       string `json:"label"`
+	Notes       string `json:"notes"`
+	IsDefault   bool   `json:"is_default"`
+}
+
+// TradeAccountWriter is the CRUD write path for the accounts registry (satisfied
+// by *apistore.TradeStore). Distinct from CommandEnqueuer (the control-command
+// path): these mutate tms.accounts directly, bearer-guarded at the handler.
+type TradeAccountWriter interface {
+	CreateAccount(ctx context.Context, req AccountWriteRequest) (TradeAccountInfo, error)
+	UpdateAccount(ctx context.Context, id string, req AccountWriteRequest) (TradeAccountInfo, error)
+	// DeleteAccount removes an account; returns ErrAccountInUse when the account is
+	// still referenced (sessions/orders/positions/fills/reconciliation).
+	DeleteAccount(ctx context.Context, id string) error
+}
+
+// ErrAccountInUse is returned by DeleteAccount when FK references block a hard
+// delete; the handler maps it to 409 conflict.
+var ErrAccountInUse = errors.New("account is referenced by sessions/orders and cannot be deleted")
+
+// ErrInvalidAccount is returned by Create/UpdateAccount on a bad body (missing
+// venue, invalid env, negative broker_acc_id); the handler maps it to 400.
+var ErrInvalidAccount = errors.New("invalid account")
+
+// ErrAccountNotFound is returned by Update/DeleteAccount when id does not exist;
+// the handler maps it to 404.
+var ErrAccountNotFound = errors.New("account not found")
 
 // CommandEnqueuer enqueues an audited control command (satisfied by
 // *commands.Enqueuer). It is the ONLY write path of the trade API.
@@ -70,14 +113,14 @@ type CommandEnqueuer interface {
 
 // TradeSession is the wire shape of a trade session. The legacy three-valued
 // "mode" is replaced by the 2D model (docs/concept-alignment.md §1.3): ExecPolicy
-// (signal/auto) on the execution axis + AccountEnv (sim/simulate/real, from the
+// (signal/auto) on the execution axis + AccountEnv (simu/paper/real, from the
 // bound account) on the environment axis.
 type TradeSession struct {
 	ID       int64  `json:"id"`
 	TraderID string `json:"trader_id"`
 	// ExecPolicy is the execution policy: "signal" (emit-only) | "auto" (auto-submit).
 	ExecPolicy string `json:"exec_policy"`
-	// AccountEnv is the bound account's env: "sim" | "simulate" | "real" (empty
+	// AccountEnv is the bound account's env: "simu" | "paper" | "real" (empty
 	// when the session has no bound account).
 	AccountEnv string `json:"account_env"`
 	// CompositionID is the Composition this session runs (its strategies + weights
@@ -88,11 +131,11 @@ type TradeSession struct {
 	// AccountID is the bound broker account id ("<venue>:<env>:<acc>"). Empty in
 	// signal mode (no account bound). The session is the join that ties a
 	// Composition to the Account it executes on.
-	AccountID  string          `json:"account_id"`
-	Status     string          `json:"status"`
-	StartedAt  time.Time       `json:"started_at"`
-	EndedAt    *time.Time      `json:"ended_at"`
-	Config     json.RawMessage `json:"config"`
+	AccountID string          `json:"account_id"`
+	Status    string          `json:"status"`
+	StartedAt time.Time       `json:"started_at"`
+	EndedAt   *time.Time      `json:"ended_at"`
+	Config    json.RawMessage `json:"config"`
 	// Halt is the active halt (nil when none active).
 	Halt *TradeHalt `json:"halt"`
 }
@@ -240,15 +283,15 @@ func (s *Server) handleTradeAccounts(w http.ResponseWriter, r *http.Request) {
 
 // tradeCommandBody is the POST /api/v1/trade/commands request shape. The legacy
 // three-valued mode is replaced by the 2D model (docs §1.3): set_mode now takes
-// exec_policy (signal|auto) + an account selector (env: sim|simulate|real). "go
-// paper" = exec_policy=auto + env=simulate; "go live" = auto + env=real; "signal"
+// exec_policy (signal|auto) + an account selector (env: simu|paper|real). "go
+// paper" = exec_policy=auto + env=paper; "go live" = auto + env=real; "signal"
 // = exec_policy=signal (env ignored).
 type tradeCommandBody struct {
 	Name string `json:"name"`
 	// ExecPolicy is the execution policy for set_mode ("signal" | "auto").
 	ExecPolicy string `json:"exec_policy,omitempty"`
 	// Env is the bound account env for set_mode with exec_policy=auto
-	// ("sim" | "simulate" | "real"). Ignored for exec_policy=signal.
+	// ("simu" | "paper" | "real"). Ignored for exec_policy=signal.
 	Env          string `json:"env,omitempty"`
 	Reason       string `json:"reason,omitempty"`
 	ConfirmToken string `json:"confirm_token,omitempty"`
@@ -330,11 +373,11 @@ func deriveSetModeWord(w http.ResponseWriter, execPolicy, env string) (string, b
 	e := domain.BrokerEnv(strings.TrimSpace(env))
 	if e == "" {
 		writeError(w, http.StatusBadRequest, "missing_account",
-			"set_mode with exec_policy=auto requires env (simulate for paper, real for live)")
+			"set_mode with exec_policy=auto requires env (paper for paper, real for live)")
 		return "", false
 	}
 	if !e.IsValid() {
-		writeError(w, http.StatusBadRequest, "bad_env", "env must be sim|simulate|real")
+		writeError(w, http.StatusBadRequest, "bad_env", "env must be simu|paper|real")
 		return "", false
 	}
 	return domain.RunWord(exec, e), true

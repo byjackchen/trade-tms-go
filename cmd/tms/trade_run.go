@@ -11,12 +11,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
-	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo"
+	"github.com/byjackchen/trade-tms-go/internal/api"
+	"github.com/byjackchen/trade-tms-go/internal/apistore"
 	"github.com/byjackchen/trade-tms-go/internal/app"
+	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/data/calendar"
 	"github.com/byjackchen/trade-tms-go/internal/db"
 	"github.com/byjackchen/trade-tms-go/internal/domain"
@@ -26,14 +29,14 @@ import (
 
 // resolveRun validates the operator-facing run selector — the 2D model
 // (docs/concept-alignment.md §1.3): an ExecutionPolicy (signal vs auto) plus a
-// bound account env (sim/simulate/real). It returns the parsed axes and the
+// bound account env (simu/paper/real). It returns the parsed axes and the
 // DERIVED convenience word (signal|paper|live) the runtime plumbing still uses
 // internally (runner.Live's restart vocabulary). exec=auto requires an env;
-// exec=signal needs none, but MAY carry --env simulate|real to designate a broker
+// exec=signal needs none, but MAY carry --env paper|real to designate a broker
 // account to SYNC READ-ONLY from (DIRECTION 2 — pull hand-placed positions back);
-// signal with no env (or --env sim) keeps the env empty (pure emit-only, no sync).
+// signal with no env (or --env simu) keeps the env empty (pure emit-only, no sync).
 //
-// "go paper" = exec=auto on a sim/simulate account; "go live" = exec=auto on a
+// "go paper" = exec=auto on a simu/paper account; "go live" = exec=auto on a
 // real account; "signal" = exec=signal. Real money (env=real) is gated upstream.
 func resolveRun(execStr, envStr string) (domain.ExecutionPolicy, domain.BrokerEnv, string, error) {
 	exec, err := domain.ParseExecutionPolicy(execStr)
@@ -44,23 +47,23 @@ func resolveRun(execStr, envStr string) (domain.ExecutionPolicy, domain.BrokerEn
 		// signal emits only — no auto orders, so the run word stays "signal". BUT
 		// --env may still designate a broker account to SYNC READ-ONLY from
 		// (DIRECTION 2): the operator hand-trades at the broker, then pulls those
-		// positions back into the EXTERNAL book. No --env (or --env sim = the
+		// positions back into the EXTERNAL book. No --env (or --env simu = the
 		// synthetic no-broker account) means pure signal with no sync account.
 		env := domain.BrokerEnv(strings.TrimSpace(envStr))
-		if env == "" || env == domain.EnvSim {
+		if env == "" || env == domain.EnvSimu {
 			return exec, "", domain.RunWord(exec, ""), nil
 		}
 		if !env.IsValid() {
-			return "", "", "", fmt.Errorf("--env %q invalid (want sim|simulate|real)", envStr)
+			return "", "", "", fmt.Errorf("--env %q invalid (want simu|paper|real)", envStr)
 		}
 		return exec, env, domain.RunWord(exec, ""), nil
 	}
 	env := domain.BrokerEnv(strings.TrimSpace(envStr))
 	if env == "" {
-		return "", "", "", fmt.Errorf("--exec-policy auto requires --env (sim|simulate|real): a 'go paper' is auto on a simulate account, 'go live' is auto on a real account")
+		return "", "", "", fmt.Errorf("--exec-policy auto requires --env (simu|paper|real): a 'go paper' is auto on a paper account, 'go live' is auto on a real account")
 	}
 	if !env.IsValid() {
-		return "", "", "", fmt.Errorf("--env %q invalid (want sim|simulate|real)", envStr)
+		return "", "", "", fmt.Errorf("--env %q invalid (want simu|paper|real)", envStr)
 	}
 	return exec, env, domain.RunWord(exec, env), nil
 }
@@ -81,6 +84,7 @@ func newTradeRunCmd(env *runtimeEnv) *cobra.Command {
 	var (
 		execPolicy    string
 		envStr        string
+		account       string
 		traderID      string
 		strategy      string
 		tickersCSV    string
@@ -116,6 +120,7 @@ func newTradeRunCmd(env *runtimeEnv) *cobra.Command {
 			return runTradeRun(cmd.Context(), env, tradeRunArgs{
 				execPolicy:    strings.TrimSpace(execPolicy),
 				env:           strings.TrimSpace(envStr),
+				account:       strings.TrimSpace(account),
 				traderID:      strings.TrimSpace(traderID),
 				strategy:      strings.TrimSpace(strategy),
 				tickersCSV:    tickersCSV,
@@ -131,8 +136,9 @@ func newTradeRunCmd(env *runtimeEnv) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&execPolicy, "exec-policy", "signal", "execution policy: signal (emit-only) | auto (auto-submit). 'go paper' = auto + --env simulate; 'go live' = auto + --env real")
-	cmd.Flags().StringVar(&envStr, "env", "", "account env: sim | simulate | real. Required for --exec-policy auto (auto-submit). For --exec-policy signal it is OPTIONAL — simulate|real designates a broker account to SYNC read-only from (real requires real acc id + TMS_LIVE_CONFIRM + the TMS-LIVE-REAL-001 trader id)")
+	cmd.Flags().StringVar(&execPolicy, "exec-policy", "signal", "execution policy: signal (emit-only) | auto (auto-submit). 'go paper' = auto + --env paper; 'go live' = auto + --env real")
+	cmd.Flags().StringVar(&envStr, "env", "", "account env: simu | paper | real. Required for --exec-policy auto (auto-submit). For --exec-policy signal it is OPTIONAL — paper|real designates a broker account to SYNC read-only from (real requires real acc id + TMS_LIVE_CONFIRM + the TMS-LIVE-REAL-001 trader id)")
+	cmd.Flags().StringVar(&account, "account", "", "explicit account id (tms.accounts) to bind; default = the (moomoo, env) default account. Accounts are managed in the UI — no longer from .env")
 	cmd.Flags().StringVar(&traderID, "trader-id", "SIGNAL-001", "trader id (Redis namespace + sessions.trader_id)")
 	cmd.Flags().StringVar(&strategy, "strategy", "multi", "strategy: sepa | sector_rotation | pairs | orb | multi")
 	cmd.Flags().StringVar(&tickersCSV, "tickers", "", "comma-separated stock universe (SEPA/multi); strategy derives ETFs/legs/SPY from params")
@@ -189,7 +195,7 @@ func newTradePreflightCmd(env *runtimeEnv) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&execPolicy, "exec-policy", "signal", "execution policy: signal (emit-only) | auto (auto-submit; paper/live)")
-	cmd.Flags().StringVar(&envStr, "env", "", "bound account env for --exec-policy auto: sim | simulate | real")
+	cmd.Flags().StringVar(&envStr, "env", "", "bound account env for --exec-policy auto: simu | paper | real")
 	cmd.Flags().StringVar(&strategy, "strategy", "multi", "strategy: sepa | sector_rotation | pairs | orb | multi")
 	cmd.Flags().StringVar(&tickersCSV, "tickers", "", "comma-separated SEPA stock universe (sepa/multi); empty resolves the default SF1 window universe")
 	cmd.Flags().StringVar(&orbSymbol, "orb-symbol", "", "ORB strategy: the single intraday instrument symbol")
@@ -200,9 +206,41 @@ func newTradePreflightCmd(env *runtimeEnv) *cobra.Command {
 	return cmd
 }
 
+// resolveBoundAccount loads the broker account a run binds from tms.accounts — by
+// explicit id (--account) when given, else the (moomoo, env) default. Accounts are
+// USER-MANAGED in the UI; .env no longer carries account ids. Returns an actionable
+// error when no account / no default exists for the env.
+func resolveBoundAccount(ctx context.Context, pool *pgxpool.Pool, accountID string, env domain.BrokerEnv) (domain.Account, error) {
+	store := apistore.NewTradeStore(pool)
+	var (
+		info api.TradeAccountInfo
+		err  error
+	)
+	if id := strings.TrimSpace(accountID); id != "" {
+		if info, err = store.GetAccount(ctx, id); err != nil {
+			return domain.Account{}, fmt.Errorf("--account %q not found in tms.accounts (create it in the UI): %w", id, err)
+		}
+	} else if info, err = store.DefaultAccount(ctx, "moomoo", env); err != nil {
+		return domain.Account{}, fmt.Errorf("no default %s account in tms.accounts — create one and mark it default in the UI, or pass --account: %w", env, err)
+	}
+	if domain.BrokerEnv(info.Env) != env {
+		return domain.Account{}, fmt.Errorf("account %s env is %q but this run needs %q", info.ID, info.Env, env)
+	}
+	return domain.Account{
+		ID:          info.ID,
+		Venue:       info.Venue,
+		Env:         domain.BrokerEnv(info.Env),
+		BrokerAccID: uint64(info.BrokerAccID),
+		Label:       info.Label,
+		IsDefault:   info.IsDefault,
+		Notes:       info.Notes,
+	}, nil
+}
+
 type tradeRunArgs struct {
 	execPolicy    string
 	env           string
+	account       string
 	traderID      string
 	strategy      string
 	tickersCSV    string
@@ -349,11 +387,17 @@ func runTradeRun(parent context.Context, env *runtimeEnv, a tradeRunArgs) error 
 		log.Info().Int("checks", len(rep.Checks)).Int("warnings", len(rep.Warnings())).Msg("go-live preflight passed")
 	}
 
-	// Paper/live trading config from the secret env (never logged): the broker
-	// account ids + the live-activation material (decision 8). Signal mode ignores
-	// these; paper/live require them (NewLive enforces).
-	paperAccID := parseUintEnv("TMS_MOOMOO_PAPER_ACC_ID")
-	liveAccID := parseUintEnv("TMS_MOOMOO_LIVE_ACC_ID")
+	// The broker account is RESOLVED FROM tms.accounts (user-managed in the UI) — by
+	// --account id, else the (moomoo, env) default — NOT from .env. Needed when the
+	// run designates a broker env (auto paper/live, or signal + --env paper|real for
+	// read-only sync). Pure signal binds the synthetic simu account, no broker.
+	var bound domain.Account
+	if acctEnv == domain.EnvPaper || acctEnv == domain.EnvReal {
+		bound, err = resolveBoundAccount(ctx, pool, a.account, acctEnv)
+		if err != nil {
+			return err
+		}
+	}
 	reconcileEvery := parseDurationEnv("TMS_RECONCILE_INTERVAL", 5*time.Minute)
 
 	node, err := runner.NewLive(pool, redisClient, runner.LiveConfig{
@@ -368,8 +412,7 @@ func runTradeRun(parent context.Context, env *runtimeEnv, a tradeRunArgs) error 
 		BarSeconds:             a.barSeconds,
 		ParamsDir:              env.cfg.StrategyParamsDir,
 		DrainTimeout:           a.drainTimeout,
-		PaperAccID:             paperAccID,
-		LiveAccID:              liveAccID,
+		BoundAccount:           bound,
 		UnlockPassword:         strings.TrimSpace(os.Getenv("TMS_MOOMOO_UNLOCK_PASSWORD")),
 		LiveConfirmationPhrase: strings.TrimSpace(os.Getenv("TMS_LIVE_CONFIRM")),
 		ReconcileInterval:      reconcileEvery,
@@ -392,12 +435,12 @@ func runTradeRun(parent context.Context, env *runtimeEnv, a tradeRunArgs) error 
 	// account), INDEPENDENT of exec_policy. This makes "Sync from broker" work in
 	// SIGNAL mode too — the operator hand-trades AT the broker, then pulls those
 	// externally-placed positions back into the EXTERNAL book + reconciles — not just
-	// in auto. Signal with no --env (or --env sim) binds no broker account, so there
+	// in auto. Signal with no --env (or --env simu) binds no broker account, so there
 	// is nothing to sync and /trade/sync stays 503. The sync is read-only (Trd_Get*
 	// only); a REAL account still passes the full live gate in ConnectBrokerSync.
 	var syncMode string
 	switch acctEnv {
-	case domain.EnvSimulate:
+	case domain.EnvPaper:
 		syncMode = "paper"
 	case domain.EnvReal:
 		syncMode = "live"

@@ -191,7 +191,7 @@ func TestWatchlistEndpoint(t *testing.T) {
 func TestTradeAccountsEndpoint(t *testing.T) {
 	trade := &stubTradeReader{accounts: []TradeAccountInfo{
 		{ID: "moomoo:real:123", Venue: "moomoo", Env: "real", BrokerAccID: 123, Label: "live"},
-		{ID: "sim:signal", Venue: "sim", Env: "sim", BrokerAccID: 0, Label: ""},
+		{ID: "simu:signal", Venue: "simu", Env: "simu", BrokerAccID: 0, Label: ""},
 	}}
 	ts := newTradeTestServer(t, trade, &stubEnqueuer{})
 
@@ -221,9 +221,9 @@ func TestTradeAccountFilter(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "moomoo:real:123", tr.lastOrdersAcct)
 
-	rec = ts.do(t, http.MethodGet, "/api/v1/trade/fills?account_id=sim:signal", nil, true)
+	rec = ts.do(t, http.MethodGet, "/api/v1/trade/fills?account_id=simu:signal", nil, true)
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "sim:signal", tr.lastFillsAcct)
+	assert.Equal(t, "simu:signal", tr.lastFillsAcct)
 
 	rec = ts.do(t, http.MethodGet, "/api/v1/trade/positions?account_id=moomoo:real:123", nil, true)
 	require.Equal(t, http.StatusOK, rec.Code)

@@ -151,7 +151,7 @@ func healthyProbes() *fakeProbes {
 }
 
 func paperCfg() Config {
-	return Config{ExecPolicy: domain.ExecAuto, Env: domain.EnvSimulate, Strategy: "multi", MaxStaleTradingDays: 1, CheckOpenD: true,
+	return Config{ExecPolicy: domain.ExecAuto, Env: domain.EnvPaper, Strategy: "multi", MaxStaleTradingDays: 1, CheckOpenD: true,
 		Now: func() time.Time { return time.Date(2026, time.June, 12, 14, 0, 0, 0, time.UTC) }}
 }
 

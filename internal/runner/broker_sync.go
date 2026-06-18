@@ -41,14 +41,14 @@ import (
 func (l *Live) ConnectBrokerSync(ctx context.Context, mode string) (*livetrade.BrokerSyncController, error) {
 	switch mode {
 	case modePaper:
-		if l.cfg.PaperAccID == 0 {
-			return nil, fmt.Errorf("broker-sync connect: paper desk requires a SIMULATE acc id (TMS_MOOMOO_PAPER_ACC_ID)")
+		if l.cfg.BoundAccount.BrokerAccID == 0 {
+			return nil, fmt.Errorf("broker-sync connect: paper desk requires a bound paper account with a broker acc id (set one default in the UI, or pass --account)")
 		}
 	case modeLive:
 		// SAFETY: identical up-front gate as the strategy live path. The executor
 		// constructor re-asserts the full 4-factor activation below.
-		if l.cfg.LiveAccID == 0 {
-			return nil, fmt.Errorf("broker-sync connect: live desk requires a REAL acc id (TMS_MOOMOO_LIVE_ACC_ID) — refusing to activate")
+		if l.cfg.BoundAccount.BrokerAccID == 0 {
+			return nil, fmt.Errorf("broker-sync connect: live desk requires a bound REAL account with a broker acc id — refusing to activate")
 		}
 		if l.cfg.LiveConfirmationPhrase != moexec.LiveConfirmationPhrase {
 			return nil, fmt.Errorf("broker-sync connect: live desk requires the exact confirmation phrase (TMS_LIVE_CONFIRM) — refusing to activate")
@@ -68,9 +68,9 @@ func (l *Live) ConnectBrokerSync(ctx context.Context, mode string) (*livetrade.B
 		return nil, fmt.Errorf("broker-sync connect: moomoo client not connected yet (node still starting)")
 	}
 
-	// Resolve the ONE broker account this desk binds (paper -> simulate PaperAccID,
-	// live -> real LiveAccID). The executor derives TrdEnv + the live gate from it;
-	// persistence stamps its id.
+	// The ONE broker account this desk binds is the run's DB-resolved BoundAccount
+	// (paper or real). The executor derives TrdEnv + the live gate from it;
+	// persistence stamps its surrogate id.
 	tradeAcct := l.resolveAccount(mode)
 
 	startMoney, err := domain.MoneyFromFloat64(l.startingBalance())

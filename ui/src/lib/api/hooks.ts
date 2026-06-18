@@ -6,7 +6,7 @@ import {
   useQueryClient,
   type UseQueryResult,
 } from "@tanstack/react-query";
-import { apiGet, apiPost, apiPut, apiDelete } from "./client";
+import { apiGet, apiPost, apiPut, apiPatch, apiDelete } from "./client";
 import type {
   CompositionsResponse,
   CompositionResponse,
@@ -51,6 +51,8 @@ import type {
   LivePositionsResponse,
   LiveAccount,
   TradeAccountsResponse,
+  TradeAccountInfo,
+  AccountWriteRequest,
   LiveReconciliationResponse,
   SystemResponse,
   PreflightReport,
@@ -800,6 +802,60 @@ export function useAccounts(): UseQueryResult<TradeAccountsResponse, Error> {
     // account appears without a reload.
     refetchInterval: 60000,
     retry: liveRetry,
+  });
+}
+
+// ---- Account registry CRUD (user-managed; first-class accounts) ----
+//
+// Accounts are now user-managed entities: create/replace/delete + set-default,
+// all on the same tms.accounts registry useAccounts() lists. Each mutation busts
+// the ["trade","accounts"] key (the key useAccounts uses) so the selector +
+// manager list refresh on success. The server error envelope (code+message) is
+// surfaced as an ApiError so the form can show "account_in_use" etc.
+
+/** Create an account — POST /api/v1/trade/accounts -> 201 TradeAccountInfo. */
+export function useCreateAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: AccountWriteRequest) =>
+      apiPost<TradeAccountInfo>("trade/accounts", body),
+    // A retry on a non-idempotent create could double-insert; surface the error.
+    retry: false,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["trade", "accounts"] });
+    },
+  });
+}
+
+/**
+ * Replace an account's mutable cols — PATCH /api/v1/trade/accounts/{id} -> 200
+ * TradeAccountInfo. The body is a full AccountWriteRequest (full replace).
+ */
+export function useUpdateAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: { id: string; body: AccountWriteRequest }) =>
+      apiPatch<TradeAccountInfo>(`trade/accounts/${args.id}`, args.body),
+    retry: false,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["trade", "accounts"] });
+    },
+  });
+}
+
+/**
+ * Delete an account — DELETE /api/v1/trade/accounts/{id} -> 204. A 409
+ * (code="account_in_use") means the account is referenced by sessions/orders and
+ * cannot be deleted; the caller surfaces that inline so the operator keeps it.
+ */
+export function useDeleteAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiDelete<void>(`trade/accounts/${id}`),
+    retry: false,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["trade", "accounts"] });
+    },
   });
 }
 

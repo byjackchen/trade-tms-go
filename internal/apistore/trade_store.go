@@ -241,18 +241,17 @@ func (s *TradeStore) LatestSignalsBySymbol(ctx context.Context, limit int) ([]ap
 // registry), ordered by env then id, for the UI account selector / per-account
 // filter. One account per node; the UI aggregates a multi-account view.
 func (s *TradeStore) ListAccounts(ctx context.Context) ([]api.TradeAccountInfo, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, venue, env, broker_acc_id, label
+	rows, err := s.pool.Query(ctx, `SELECT `+accountCols+`
 		  FROM tms.accounts
-		 ORDER BY env, id`)
+		 ORDER BY env, is_default DESC, id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []api.TradeAccountInfo
 	for rows.Next() {
-		var a api.TradeAccountInfo
-		if err := rows.Scan(&a.ID, &a.Venue, &a.Env, &a.BrokerAccID, &a.Label); err != nil {
+		a, err := scanAccount(rows)
+		if err != nil {
 			return nil, err
 		}
 		out = append(out, a)

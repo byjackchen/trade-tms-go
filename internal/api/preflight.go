@@ -33,7 +33,7 @@ type PreflightResult struct {
 type PreflightReport struct {
 	// ExecPolicy is the execution policy validated (signal|auto).
 	ExecPolicy string `json:"exec_policy"`
-	// Env is the bound account env validated (sim|simulate|real; empty when none).
+	// Env is the bound account env validated (simu|paper|real; empty when none).
 	Env string `json:"env"`
 	// RunWord is the derived convenience label (signal|paper|live), always
 	// derived from (exec_policy, env) — display-only, never an input.
@@ -50,7 +50,7 @@ type PreflightReport struct {
 type PreflightParams struct {
 	// ExecPolicy is "signal" | "auto".
 	ExecPolicy string
-	// Env is the bound account env ("sim" | "simulate" | "real"; "" when none).
+	// Env is the bound account env ("simu" | "paper" | "real"; "" when none).
 	Env                 string
 	Strategy            string
 	Tickers             []string
@@ -85,7 +85,7 @@ func (s *Server) handleTradePreflight(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_exec_policy", "exec_policy must be signal|auto")
 		return
 	}
-	// Env selects WHERE auto orders settle (a "go paper" = auto on a sim/simulate
+	// Env selects WHERE auto orders settle (a "go paper" = auto on a simu/paper
 	// account; "go live" = auto on a real account). Either pass env= directly or
 	// account_id= to resolve it from the accounts registry. Signal has no account.
 	env, ok := s.resolvePreflightEnv(w, r, q, execPolicy)
@@ -170,17 +170,17 @@ func (s *Server) resolvePreflightEnv(w http.ResponseWriter, r *http.Request, q u
 		env = found
 	}
 	switch env {
-	case "simulate", "real":
+	case "paper", "real":
 		return env, true
-	case "sim":
-		// A synthetic sim account auto-fills against no broker — treat as paper.
+	case "simu":
+		// A synthetic simu account auto-fills against no broker — treat as paper.
 		return env, true
 	case "":
 		writeError(w, http.StatusBadRequest, "missing_account",
-			"exec_policy=auto requires an account selector (account_id or env=simulate|real)")
+			"exec_policy=auto requires an account selector (account_id or env=paper|real)")
 		return "", false
 	default:
-		writeError(w, http.StatusBadRequest, "bad_env", "env must be sim|simulate|real")
+		writeError(w, http.StatusBadRequest, "bad_env", "env must be simu|paper|real")
 		return "", false
 	}
 }

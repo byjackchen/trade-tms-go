@@ -92,11 +92,13 @@ type LiveConfig struct {
 
 	// --- paper/live trading config (P6) ---
 
-	// PaperAccID is the moomoo SIMULATE account id (required for paper mode).
-	PaperAccID uint64
-	// LiveAccID is the moomoo REAL account id (required for live mode; never
-	// defaulted — there is no path to real money without an explicit acc id).
-	LiveAccID uint64
+	// BoundAccount is the broker account this run binds, RESOLVED FROM THE DB
+	// (tms.accounts) by the CLI — by --account id or the (venue, env) default — NOT
+	// from .env. It carries the real surrogate id + broker_acc_id + env. Zero-value
+	// in pure signal mode (no broker account; the session binds the synthetic simu
+	// account). paper/live require BrokerAccID != 0; live additionally re-asserts the
+	// 4-factor gate. The same bound account backs the broker-sync desk.
+	BoundAccount domain.Account
 	// UnlockPassword unlocks the REAL account (live mode only; from a secret env).
 	UnlockPassword string
 	// LiveConfirmationPhrase must equal moexec.LiveConfirmationPhrase to activate
@@ -202,15 +204,15 @@ func NewLive(pool *pgxpool.Pool, rdb *redis.Client, cfg LiveConfig, log zerolog.
 	switch mode {
 	case modeSignal:
 	case modePaper:
-		if cfg.PaperAccID == 0 {
-			return nil, fmt.Errorf("runner: paper mode requires a SIMULATE acc id (TMS_MOOMOO_PAPER_ACC_ID)")
+		if cfg.BoundAccount.BrokerAccID == 0 {
+			return nil, fmt.Errorf("runner: paper mode requires a bound paper account with a broker acc id (create one + set it default in the UI, or pass --account)")
 		}
 	case modeLive:
 		// SAFETY (decision 8): live mode needs the real acc id + the typed
 		// confirmation phrase configured up front. The MoomooExecutor re-asserts
 		// the full gate (phrase + acc id + UnlockTrade + trader-id) at activation.
-		if cfg.LiveAccID == 0 {
-			return nil, fmt.Errorf("runner: live mode requires a REAL acc id (TMS_MOOMOO_LIVE_ACC_ID) — refusing to activate")
+		if cfg.BoundAccount.BrokerAccID == 0 {
+			return nil, fmt.Errorf("runner: live mode requires a bound REAL account with a broker acc id — refusing to activate")
 		}
 		if cfg.LiveConfirmationPhrase != moexec.LiveConfirmationPhrase {
 			return nil, fmt.Errorf("runner: live mode requires the exact confirmation phrase (TMS_LIVE_CONFIRM) — refusing to activate")
@@ -301,12 +303,12 @@ func (l *Live) SetMode(_ context.Context, mode string) error {
 	switch mode {
 	case modeSignal:
 	case modePaper:
-		if l.cfg.PaperAccID == 0 {
-			return fmt.Errorf("cannot switch to paper: no SIMULATE acc id configured")
+		if l.cfg.BoundAccount.BrokerAccID == 0 {
+			return fmt.Errorf("cannot switch to paper: no broker account bound")
 		}
 	case modeLive:
-		if l.cfg.LiveAccID == 0 || l.cfg.LiveConfirmationPhrase != moexec.LiveConfirmationPhrase {
-			return fmt.Errorf("cannot switch to live: real acc id + confirmation phrase not configured (refusing real money)")
+		if l.cfg.BoundAccount.BrokerAccID == 0 || l.cfg.LiveConfirmationPhrase != moexec.LiveConfirmationPhrase {
+			return fmt.Errorf("cannot switch to live: bound real account + confirmation phrase not configured (refusing real money)")
 		}
 		if l.cfg.TraderID != moexec.LiveTraderID {
 			return fmt.Errorf("cannot switch to live: trader-id must be the %q namespace", moexec.LiveTraderID)
@@ -925,10 +927,11 @@ func execEnv(acct domain.Account) moomoo.TrdEnv {
 // downstream (executor TrdEnv, persistence account_id, reconciler) flows from it.
 func (l *Live) resolveAccount(mode string) domain.Account {
 	switch mode {
-	case modePaper:
-		return domain.NewBrokerAccount("moomoo", domain.EnvSimulate, l.cfg.PaperAccID, "")
-	case modeLive:
-		return domain.NewBrokerAccount("moomoo", domain.EnvReal, l.cfg.LiveAccID, "")
+	case modePaper, modeLive:
+		// The bound account was resolved from tms.accounts by the CLI (by --account
+		// id or the (venue, env) default) and carries its real surrogate id +
+		// broker_acc_id + env. Both the auto session and the broker-sync desk bind it.
+		return l.cfg.BoundAccount
 	default:
 		return domain.SimAccount("signal")
 	}

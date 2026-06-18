@@ -178,7 +178,7 @@ func newHarness(t *testing.T, strat engine.Strategy, gate *riskgate.Gate, navUSD
 	acct := accounting.NewAccount(domain.MustMoney(ftoa(navUSD)), nil)
 	account := livetrade.NewAccountAdapter(acct)
 	sink := &fillSink{}
-	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvSimulate, paperAcc, "paper")
+	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvPaper, paperAcc, "paper")
 	exec, err := moexec.New(ctx, moexec.Config{
 		Account:  paperAcct,
 		Client:   venue,
@@ -550,7 +550,7 @@ func TestCrashRecoveryResume(t *testing.T) {
 	acct := accounting.NewAccount(domain.MustMoney("100000.00"), nil)
 	account := livetrade.NewAccountAdapter(acct)
 	sink := &fillSink{}
-	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvSimulate, paperAcc, "paper")
+	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvPaper, paperAcc, "paper")
 	exec, err := moexec.New(context.Background(), moexec.Config{
 		Account: paperAcct, Client: venue,
 		TraderID: "PAPER-TEST-001", Sink: sink, Book: account,
@@ -595,7 +595,7 @@ func TestLiveActivationGateRejectsPaperMismatch(t *testing.T) {
 	venue := moexec.NewMockVenue(paperAcc)
 	acct := accounting.NewAccount(domain.MustMoney("100000.00"), nil)
 	account := livetrade.NewAccountAdapter(acct)
-	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvSimulate, paperAcc, "paper")
+	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvPaper, paperAcc, "paper")
 	realAcct := domain.NewBrokerAccount("moomoo", domain.EnvReal, paperAcc, "live")
 	paperExec, err := moexec.New(context.Background(), moexec.Config{
 		Account: paperAcct, Client: venue,

@@ -136,7 +136,7 @@ func TestFiveModesShareOneAssembly(t *testing.T) {
 	// on the session's execution policy (both are ExecAuto) — it moved to the
 	// broker Account bound to the injected executor (simulate => paper, real =>
 	// live). The accounts below model that distinction.
-	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvSimulate, 111111, "paper")
+	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvPaper, 111111, "paper")
 	liveAcct := domain.NewBrokerAccount("moomoo", domain.EnvReal, 222222, "live")
 
 	signalSess, err := livengine.NewSession(livengine.Config{

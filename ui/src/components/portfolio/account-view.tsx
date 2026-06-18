@@ -10,6 +10,7 @@ import { FillsList } from "./fills-list";
 import { ReconciliationPanel } from "./reconciliation-panel";
 import { SyncFromBroker } from "./sync-from-broker";
 import { BoundAccountSelector, useBoundAccount } from "./account-binding";
+import { AccountManager } from "./account-manager";
 import type { TradeEnv } from "./trade-env";
 
 /**
@@ -76,6 +77,12 @@ function AccountViewInner() {
           <FillsList accountId={accountId} />
           <ReconciliationPanel />
         </div>
+
+        {/* MANAGE ACCOUNTS — the registry CRUD surface. Separated from the bound
+            account's book above: this is where accounts are created/edited/
+            deleted and the default per (venue,env) is set. The selector above
+            reads the same registry, so changes here refresh it immediately. */}
+        <AccountManager />
       </main>
     </div>
   );

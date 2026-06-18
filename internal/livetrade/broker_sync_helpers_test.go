@@ -69,7 +69,7 @@ func newPaperSync(t *testing.T, navUSD float64) *syncHarness {
 	venue := moexec.NewMockVenue(syncPaperAcc)
 	acct := accounting.NewAccount(domain.MustMoney(ftoa(navUSD)), nil)
 	account := livetrade.NewAccountAdapter(acct)
-	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvSimulate, syncPaperAcc, "paper")
+	paperAcct := domain.NewBrokerAccount("moomoo", domain.EnvPaper, syncPaperAcc, "paper")
 	exec, err := moexec.New(ctx, moexec.Config{
 		Account:  paperAcct,
 		Client:   venue,

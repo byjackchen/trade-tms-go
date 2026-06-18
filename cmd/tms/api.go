@@ -15,10 +15,10 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
-	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/api"
 	"github.com/byjackchen/trade-tms-go/internal/apistore"
 	"github.com/byjackchen/trade-tms-go/internal/app"
+	"github.com/byjackchen/trade-tms-go/internal/broker/moomoo"
 	"github.com/byjackchen/trade-tms-go/internal/commands"
 	"github.com/byjackchen/trade-tms-go/internal/composition"
 	"github.com/byjackchen/trade-tms-go/internal/config"
@@ -152,6 +152,7 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 	}))
 
 	pgStore := apistore.NewPGStore(pool)
+	tradeStore := apistore.NewTradeStore(pool)
 	srv, err := api.NewServer(api.Deps{
 		Log:         log,
 		Token:       token,
@@ -169,11 +170,12 @@ func runAPI(ctx context.Context, env *runtimeEnv, addr string) error {
 		Compositions: composition.NewStore(pool),
 		// AuditLog appends tms.audit_log rows for the Composition mutation endpoints
 		// (the same PGStore that serves GET /api/v1/audit).
-		AuditLog:  pgStore,
-		Calendar:  cal,
-		PingPG:    pool.Ping,
-		PingRedis: func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },
-		Trade:     apistore.NewTradeStore(pool),
+		AuditLog:      pgStore,
+		Calendar:      cal,
+		PingPG:        pool.Ping,
+		PingRedis:     func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },
+		Trade:         tradeStore,
+		AccountWriter: tradeStore,
 		// SystemReader backs GET /api/v1/system (queue depth, active sessions,
 		// data freshness); the same PGStore satisfies it.
 		System: pgStore,
