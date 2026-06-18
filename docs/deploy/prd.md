@@ -66,14 +66,16 @@ TMS_MOOMOO_ADDR=host.docker.internal:11111
 # Live (real money) — the 4-factor gate; omit ALL of these for signal/paper-only:
 TMS_LIVE_EXEC_POLICY=auto
 TMS_LIVE_ENV=real
-TMS_MOOMOO_LIVE_ACC_ID=<real broker acc id>
 TMS_MOOMOO_UNLOCK_PASSWORD=<...>              # or GUI-unlocked OpenD
 TMS_LIVE_CONFIRM=<the exact go-live phrase>
 TMS_LIVE_TRADER_ID=TMS-LIVE-REAL-001
 ```
-> A real order requires ALL of: real acc id + `TMS_LIVE_CONFIRM` phrase +
-> successful OpenD UnlockTrade + the `TMS-LIVE-REAL-001` trader id. Without them
-> the node runs signal/paper only. Keep these out of git, the image, and any dump.
+> The real account is NOT an env var: create it in the UI (Accounts → `/account`)
+> and mark it default for `(moomoo, real)` — its number is stored in `tms.accounts`.
+> A real order then requires ALL of: a default real account + `TMS_LIVE_CONFIRM`
+> phrase + successful OpenD UnlockTrade + the `TMS-LIVE-REAL-001` trader id.
+> Without them the node runs signal/paper only. Keep the secrets out of git, the
+> image, and any dump.
 
 ### Host data directories — chown BEFORE the first `up`
 
@@ -169,8 +171,9 @@ docker compose run --rm tmsgo-live preflight --exec-policy auto --env real \
 docker compose --profile live up -d --wait tmsgo-live
 docker compose logs -f tmsgo-live
 ```
-For paper instead of real: set `TMS_LIVE_ENV=simulate` (exec auto on a paper
-account) or leave exec-policy=signal for emit-only.
+For paper instead of real: set `TMS_LIVE_ENV=paper` (exec auto on a paper
+account — create it in the UI and mark it default for `(moomoo, paper)`) or leave
+exec-policy=signal for emit-only.
 
 ## 7. Updates (redeploy a new version)
 

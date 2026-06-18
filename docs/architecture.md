@@ -421,14 +421,16 @@ The real-vs-mock switch is a single env var, `TMS_MOOMOO_ADDR`:
 `live` mode (REAL money) refuses to start unless all four are present
 (`internal/livetrade` enforces; signal/paper ignore them):
 
-1. A real broker account id — `TMS_MOOMOO_LIVE_ACC_ID`.
+1. A real broker account — created in the UI (Accounts → `/account`) and marked
+ default for `(moomoo, real)` in `tms.accounts`; this is NO LONGER an env var.
 2. The unlock password — `TMS_MOOMOO_UNLOCK_PASSWORD` (drives moomoo
  `UnlockTrade`).
 3. The typed confirmation phrase — `TMS_LIVE_CONFIRM`.
 4. The bound live trader id (`sessions.trader_id` / Redis namespace).
 
-All four are read from the gitignored secrets file `./secrets/moomoo.env` — never
-baked into the image, never logged. A live trade session additionally requires a
+The three secret factors (unlock password, confirmation phrase, trader id) are
+read from the gitignored secrets file `./secrets/moomoo.env` — never baked into
+the image, never logged; the account identity comes from `tms.accounts` (UI-managed). A live trade session additionally requires a
 live-bound executor (`TrdEnvReal`) that only exists after the gate is satisfied.
 Beyond activation, the pre-submit `GatedSubmitter` enforces the allocator budget
 + aggregate risk constraints + the daily-loss halt latch on every order; FLAT /

@@ -84,9 +84,14 @@ Copy `.env.example` to `.env` and fill in:
 - moomoo trading credentials and the live-activation material live ONLY in the
   gitignored file `./secrets/moomoo.env`, mounted at runtime via `env_file` and
   `/run/secrets/moomoo`. They are **never baked into the image and never logged**:
-  - `TMS_MOOMOO_PAPER_ACC_ID`, `TMS_MOOMOO_LIVE_ACC_ID`
   - `TMS_MOOMOO_UNLOCK_PASSWORD`
   - `TMS_LIVE_CONFIRM` (the typed confirmation phrase)
+- Trading **accounts** are NOT env vars: they live in `tms.accounts` and are
+  created/edited/deleted and set-default from the UI (Accounts → `/account` →
+  "Manage accounts") or via `POST/PATCH/DELETE /api/v1/trade/accounts`. A trade
+  run binds the broker account by `--account <id>`, else the default account
+  (`is_default=true`) for its `(moomoo, env)`. Only the account identity moved to
+  the UI/DB — the live-activation secrets above stay in `./secrets/moomoo.env`.
 - For market-data + signal mode on localhost OpenD, no credentials are required
   (`encrypt=off`); the secrets file is optional.
 

@@ -256,9 +256,11 @@ The standalone mock venue above is also the runnable backend for the operator
 **MANUAL** trade desk. Attach a paper desk to the live node and the
 place/cancel/close + sync lifecycle runs end-to-end with no OpenD and no real money:
 
+# First, in the UI (Accounts → /account → "Manage accounts") create a
+# (moomoo, paper) account with broker_acc_id=700001 (the id the mock venue
+# enables) and mark it default — the paper node binds it (NO acc-id env var).
 ```sh
 export TMS_MOOMOO_ADDR=127.0.0.1:11111
-export TMS_MOOMOO_PAPER_ACC_ID=700001
 export TMS_MOOMOO_TRADE_PASSWORD=paper-trade-password
 tms trade run --mode signal --trader-id MANUAL-DESK-001 \
   --manual-mode paper --manual-api-addr 127.0.0.1:18091 --skip-preflight
@@ -465,11 +467,13 @@ flatten) is proven against the mock venue in `internal/livetrade`:
 
 ## Paper-trade smoke (market hours, user-confirmed OpenD + paper acc id)
 
-1. Confirm OpenD is logged in and the moomoo **paper** account id is known. In
-   `secrets/moomoo.env` set `TMS_MOOMOO_PAPER_ACC_ID=<paper acc id>` and point
-   the node at OpenD (`TMS_MOOMOO_ADDR=127.0.0.1:11111`, or the mock address for
-   a dry run). Use a paper trader-id namespace (e.g. `PAPER-SMOKE-001`) —
-   distinct from the live namespace.
+1. Confirm OpenD is logged in and the moomoo **paper** account number is known.
+   In the UI (Accounts → `/account` → "Manage accounts") create a `(moomoo, paper)`
+   account with `broker_acc_id=<paper acc id>` and mark it default — the paper node
+   binds the default account (NO acc-id env var). Point the node at OpenD
+   (`TMS_MOOMOO_ADDR=127.0.0.1:11111`, or the mock address for a dry run). Use a
+   paper trader-id namespace (e.g. `PAPER-SMOKE-001`) — distinct from the live
+   namespace.
 
 2. Start the live node in `paper` mode for a tiny universe (1-2 liquid names,
    small share counts):
@@ -481,7 +485,7 @@ flatten) is proven against the mock venue in `internal/livetrade`:
    tms trade run --mode paper --trader-id PAPER-SMOKE-001 --strategy sector_rotation
    ```
 
-   Verify in the logs: the executor bound to `SIMULATE`, push subscriptions
+   Verify in the logs: the executor bound to the `paper` env, push subscriptions
    registered BEFORE the first order, crash-recovery restore + initial
    reconcile ran at startup.
 
@@ -509,14 +513,15 @@ flatten) is proven against the mock venue in `internal/livetrade`:
 ## Live-canary smoke (real money — EXTREME caution, user-driven only)
 
 > NEVER auto-activate. Live requires, ALL of: the typed confirmation phrase
-> `I CONFIRM LIVE REAL MONEY TRADING TMS-LIVE-REAL-001`, an explicitly-configured
-> real acc id that EXISTS under the REAL env, a successful `UnlockTrade`, and the
-> `TMS-LIVE-REAL-001` trader-id namespace. Any missing piece -> activation is
-> refused and NO executor exists (no real order is reachable).
+> `I CONFIRM LIVE REAL MONEY TRADING TMS-LIVE-REAL-001`, a default `(moomoo, real)`
+> account in `tms.accounts` whose number EXISTS under the REAL env, a successful
+> `UnlockTrade`, and the `TMS-LIVE-REAL-001` trader-id namespace. Any missing
+> piece -> activation is refused and NO executor exists (no real order is reachable).
 
-1. With OpenD logged into the REAL account, in `secrets/moomoo.env` set ALL of:
-   `TMS_MOOMOO_LIVE_ACC_ID=<real acc id>`, `TMS_MOOMOO_UNLOCK_PASSWORD=<pwd>`,
-   `TMS_LIVE_TRADER_ID=TMS-LIVE-REAL-001`, and
+1. With OpenD logged into the REAL account, in the UI (Accounts → `/account`)
+   create a `(moomoo, real)` account with `broker_acc_id=<real acc id>` and mark
+   it default, then in `secrets/moomoo.env` set ALL of the secrets:
+   `TMS_MOOMOO_UNLOCK_PASSWORD=<pwd>`, `TMS_LIVE_TRADER_ID=TMS-LIVE-REAL-001`, and
    `TMS_LIVE_CONFIRM=I CONFIRM LIVE REAL MONEY TRADING TMS-LIVE-REAL-001`.
    Activate `live` mode (`TMS_LIVE_MODE=live`) for a SINGLE liquid name, MINIMUM
    share count (1 share), during regular trading hours. The node REFUSES to
