@@ -66,14 +66,14 @@ function SessionViewInner() {
 
 const ENV_COPY: Record<TradeEnv, { title: string; subtitle: string }> = {
   paper: {
-    title: "Session",
+    title: "Sessions",
     subtitle:
-      "Runtime control — the session lifecycle, the Composition it runs, and the live tape. The session's bound account is shown read-only; manage accounts in the Account top-level.",
+      "Runtime control — the session lifecycle, the Composition it runs, and the live tape. The session's bound account is shown read-only; manage accounts in the Accounts top-level.",
   },
   live: {
-    title: "Session — LIVE",
+    title: "Sessions — LIVE",
     subtitle:
-      "Runtime control for a LIVE (real-money) session. Lifecycle + exec policy here; the account itself lives in the Account top-level.",
+      "Runtime control for a LIVE (real-money) session. Lifecycle + exec policy here; the account itself lives in the Accounts top-level.",
   },
 };
 

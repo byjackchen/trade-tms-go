@@ -90,12 +90,12 @@ function AccountViewInner() {
 
 const ENV_COPY: Record<TradeEnv, { title: string; subtitle: string }> = {
   paper: {
-    title: "Account",
+    title: "Accounts",
     subtitle:
       "The persistent book — pick an account above. Positions, cash/PnL, the synced EXTERNAL book, reconciliation, and Sync-from-broker. No session required.",
   },
   live: {
-    title: "Account — LIVE (REAL MONEY)",
+    title: "Accounts — LIVE (REAL MONEY)",
     subtitle:
       "A REAL-money account is selected. This is its persistent book: positions, cash/PnL, the EXTERNAL book, and reconciliation. Switch the account above to leave live.",
   },

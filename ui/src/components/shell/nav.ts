@@ -12,7 +12,7 @@ export type NavSection = {
 };
 
 // The five top-level sections, in pipeline order (docs/concept-alignment.md §3.4,
-// C7): Systems & Data → Strategies → Compositions → Session → Account. Backtest
+// C7): Systems & Data → Strategies → Compositions → Accounts → Sessions. Backtest
 // lives under Compositions (a backtest's object is always a Composition); Hyperopt
 // lives under Strategies (single-strategy tuning).
 //
@@ -28,9 +28,9 @@ export type NavSection = {
 export const NAV_SECTIONS: NavSection[] = [
   { href: "/systems", label: "Systems & Data", shortLabel: "Systems", icon: ServerCog, testid: "nav-systems", ready: true },
   { href: "/strategies", label: "Strategies", shortLabel: "Strategies", icon: Boxes, testid: "nav-strategies", ready: true },
-  { href: "/compositions", label: "Compositions", shortLabel: "Compose", icon: Layers, testid: "nav-compositions", ready: true },
-  { href: "/session", label: "Session", shortLabel: "Session", icon: Activity, testid: "nav-session", ready: true },
-  { href: "/account", label: "Account", shortLabel: "Account", icon: Wallet, testid: "nav-account", ready: true },
+  { href: "/compositions", label: "Compositions", shortLabel: "Compositions", icon: Layers, testid: "nav-compositions", ready: true },
+  { href: "/account", label: "Accounts", shortLabel: "Accounts", icon: Wallet, testid: "nav-account", ready: true },
+  { href: "/session", label: "Sessions", shortLabel: "Sessions", icon: Activity, testid: "nav-session", ready: true },
 ];
 
 /** True when `pathname` is within the section rooted at `href`. */
