@@ -1,6 +1,5 @@
 "use client";
 
-import { Suspense } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CircleDot } from "lucide-react";
@@ -9,7 +8,6 @@ import { activeSectionLabel } from "@/components/shell/nav";
 import { useNavItems, navLinkProps } from "@/components/shell/nav-item";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
 import { ModeToggle } from "@/components/shell/mode-toggle";
-import { AccountSelector } from "@/components/portfolio/account-selector";
 
 /**
  * <MobileShell> — the touch-first chrome that wraps the shared content area when
@@ -61,12 +59,9 @@ function MobileAppBar() {
         <h1 className="min-w-0 flex-1 truncate text-sm font-semibold" data-testid="mobile-title">
           {title}
         </h1>
-        {/* The account selector reads `?account=` via useSearchParams, so it must
-            sit behind a Suspense boundary for clean prerender. `compact` lets it
-            shrink + cap its width so the bar never overflows on a narrow phone. */}
-        <Suspense fallback={null}>
-          <AccountSelector compact />
-        </Suspense>
+        {/* Account selection is NOT global — it lives only inside /trade (bound to
+            the running session there). The app bar carries just the display-mode +
+            theme toggles. */}
         {/* `iconOnly` keeps the toggle compact even when a desktop is forced into
             the mobile shell (sm: would otherwise reveal labels). */}
         <ModeToggle iconOnly className="shrink-0" />

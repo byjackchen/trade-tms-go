@@ -36,16 +36,24 @@ func (s *TradeStore) LatestSession(ctx context.Context) (*api.TradeSession, erro
 		ended      *time.Time
 		cfgText    string
 		accountEnv *string
+		compID     *string
+		compName   *string
+		accountID  *string
 	)
 	// The 2D model (docs/concept-alignment.md §1.3): exec_policy on the session +
-	// the bound account's env (NULL when the session carries no account_id).
+	// the bound account's env (NULL when the session carries no account_id). The
+	// session is also the join to its Composition (its strategies/weights/risk)
+	// and bound Account — surfaced so the cockpit can render the
+	// Session -> Composition -> Account -> Positions hierarchy.
 	err := s.pool.QueryRow(ctx, `
-		SELECT s.id, s.trader_id, s.exec_policy, a.env, s.status, s.started_at, s.ended_at, s.config::text
+		SELECT s.id, s.trader_id, s.exec_policy, a.env, s.status, s.started_at, s.ended_at, s.config::text,
+		       s.composition_id, c.name, s.account_id
 		  FROM tms.sessions s
-		  LEFT JOIN tms.accounts a ON a.id = s.account_id
+		  LEFT JOIN tms.accounts a     ON a.id = s.account_id
+		  LEFT JOIN tms.compositions c ON c.id = s.composition_id
 		 ORDER BY s.started_at DESC, s.id DESC
 		 LIMIT 1`).Scan(&sess.ID, &sess.TraderID, &sess.ExecPolicy, &accountEnv, &sess.Status,
-		&sess.StartedAt, &ended, &cfgText)
+		&sess.StartedAt, &ended, &cfgText, &compID, &compName, &accountID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -56,6 +64,15 @@ func (s *TradeStore) LatestSession(ctx context.Context) (*api.TradeSession, erro
 	sess.Config = json.RawMessage(cfgText)
 	if accountEnv != nil {
 		sess.AccountEnv = *accountEnv
+	}
+	if compID != nil {
+		sess.CompositionID = *compID
+	}
+	if compName != nil {
+		sess.CompositionName = *compName
+	}
+	if accountID != nil {
+		sess.AccountID = *accountID
 	}
 
 	// Active halt (cleared_at IS NULL), most recent.

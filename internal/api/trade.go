@@ -79,7 +79,16 @@ type TradeSession struct {
 	ExecPolicy string `json:"exec_policy"`
 	// AccountEnv is the bound account's env: "sim" | "simulate" | "real" (empty
 	// when the session has no bound account).
-	AccountEnv string          `json:"account_env"`
+	AccountEnv string `json:"account_env"`
+	// CompositionID is the Composition this session runs (its strategies + weights
+	// + risk). CompositionName is the human label for it. Empty when the session
+	// carries no composition.
+	CompositionID   string `json:"composition_id"`
+	CompositionName string `json:"composition_name"`
+	// AccountID is the bound broker account id ("<venue>:<env>:<acc>"). Empty in
+	// signal mode (no account bound). The session is the join that ties a
+	// Composition to the Account it executes on.
+	AccountID  string          `json:"account_id"`
 	Status     string          `json:"status"`
 	StartedAt  time.Time       `json:"started_at"`
 	EndedAt    *time.Time      `json:"ended_at"`

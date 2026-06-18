@@ -7,7 +7,6 @@ import { PageHeader } from "@/components/shell/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useSelectedAccount } from "@/components/portfolio/account-selector";
 import { StrategyLiveCard } from "@/components/strategies/strategy-live-card";
 import { StrategyDetails } from "@/components/strategies/strategy-details";
 import {
@@ -86,11 +85,10 @@ export default function StrategiesPage() {
 }
 
 function StrategiesInner() {
-  const { accountId } = useSelectedAccount();
-  return <StrategiesBody accountId={accountId} />;
+  return <StrategiesBody />;
 }
 
-function StrategiesBody({ accountId }: { accountId: string | undefined }) {
+function StrategiesBody() {
   const router = useRouter();
   const [tabId, setTabId] = useState<string>(FIRST_TAB.id);
   const tab = TABS.find((t) => t.id === tabId) ?? FIRST_TAB;
@@ -199,10 +197,7 @@ function StrategiesBody({ accountId }: { accountId: string | undefined }) {
                 <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Watchlist
                 </h2>
-                <StrategyWatchlist
-                  strategy={tab.watchlist}
-                  accountId={accountId}
-                />
+                <StrategyWatchlist strategy={tab.watchlist} />
               </section>
             ) : null}
 

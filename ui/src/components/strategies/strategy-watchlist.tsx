@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { AccountSelector } from "@/components/portfolio/account-selector";
 import { SepaTable } from "./watchlist/sepa-table";
 import { SectorTable } from "./watchlist/sector-table";
 import { PairsTable } from "./watchlist/pairs-table";
@@ -14,19 +13,22 @@ export type WatchlistStrategy = "sepa" | "sector" | "pairs";
 /**
  * One strategy's WATCHLIST, rendered on its Strategies tab. The per-strategy
  * trade-plan table (SEPA breakouts / sector rotation / pairs z-score) over a
- * shared account selector + symbol search. Relocated from the old
- * `/trade/watchlist` tab switcher (docs/concept-alignment.md §3.4 ②): each tab
- * now owns exactly one table, so there is no inner tab strip.
+ * symbol search. Relocated from the old `/trade/watchlist` tab switcher
+ * (docs/concept-alignment.md §3.4 ②): each tab owns exactly one table, so there
+ * is no inner tab strip.
+ *
+ * Account-agnostic by design: watchlist signals are computed from market data +
+ * strategy logic, NOT per-account — so there is NO account selector here (account
+ * lives only in /trade). A "trade this" deep-link to /trade lets the operator
+ * pick the account there.
  *
  * Keeps the `live-watchlist` root + `watchlist-search` testid contract the e2e
  * suite depends on.
  */
 export function StrategyWatchlist({
   strategy,
-  accountId,
 }: {
   strategy: WatchlistStrategy;
-  accountId?: string;
 }) {
   const [query, setQuery] = useState("");
 
@@ -44,7 +46,6 @@ export function StrategyWatchlist({
           className="flex flex-wrap items-center gap-2"
           data-testid="watchlist-filters"
         >
-          <AccountSelector />
           <Input
             type="search"
             placeholder="Search symbol…"
@@ -58,11 +59,11 @@ export function StrategyWatchlist({
       </CardHeader>
       <CardContent>
         {strategy === "sepa" ? (
-          <SepaTable symbolFilter={query} accountId={accountId} />
+          <SepaTable symbolFilter={query} />
         ) : strategy === "sector" ? (
-          <SectorTable symbolFilter={query} accountId={accountId} />
+          <SectorTable symbolFilter={query} />
         ) : (
-          <PairsTable symbolFilter={query} accountId={accountId} />
+          <PairsTable symbolFilter={query} />
         )}
       </CardContent>
     </Card>

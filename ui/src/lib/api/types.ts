@@ -858,6 +858,16 @@ export type LiveSession = {
   exec_policy: ExecPolicy;
   /** Bound account's env: sim|simulate|real (empty when no account is bound). */
   account_env: string;
+  /**
+   * The Composition this session runs (its strategies + weights + risk) and its
+   * human label. Empty when the session carries no composition. The session is
+   * the join that ties a Composition to the Account it executes on, so the trade
+   * cockpit renders Session → Composition → Account → Positions from these.
+   */
+  composition_id: string;
+  composition_name: string;
+  /** Bound broker account id ("<venue>:<env>:<acc>"); empty in signal mode. */
+  account_id: string;
   status: LiveStatus;
   started_at: string;
   ended_at: string | null;

@@ -7,14 +7,13 @@ import { PageHeader } from "@/components/shell/page-header";
 import { cn } from "@/lib/utils";
 import { LiveIndicator } from "./live-indicator";
 import { ExecBanner } from "./exec-banner";
-import { SessionBar } from "./session-bar";
+import { SessionPanel } from "./session-panel";
 import { HealthStrip } from "./health-strip";
 import { AccountPanel } from "./account-panel";
 import { PositionsTable } from "./positions-table";
 import { Blotter } from "./blotter";
 import { FillsList } from "./fills-list";
 import { ReconciliationPanel } from "./reconciliation-panel";
-import { SessionControls } from "./session-controls";
 import { ManualDesk } from "./desk/manual-desk";
 import { BoundAccountSelector, useBoundAccount } from "./account-binding";
 import type { TradeEnv } from "./trade-env";
@@ -170,9 +169,13 @@ function ModuleTabs({ view }: { view: View }) {
 }
 
 /**
- * The Portfolio (runtime book) view: the selected account's ledger — account
- * panel + portfolio-health row, then the read-only open positions / blotter /
- * fills / reconciliation. NO order ENTRY here — acting happens on the Desk tab.
+ * The Portfolio view, ordered top-down by the concept hierarchy
+ * (Session → Composition → Account → Positions):
+ *   1. SESSION — the foregrounded control: status + the Composition it runs + the
+ *      Account it executes on + the lifecycle/exec controls (SessionPanel).
+ *   2. ACCOUNT — the bound account's summary + portfolio health.
+ *   3. POSITIONS — the account's book: open positions + blotter + fills +
+ *      reconciliation (read-only; order ENTRY is the Desk tab).
  */
 function PortfolioView({
   env,
@@ -191,31 +194,25 @@ function PortfolioView({
       data-testid="portfolio-view"
       data-env={env}
     >
-      {/* Loud exec + env banner (PAPER amber / LIVE-REAL destructive) — env now
-          comes from the selected account. */}
+      {/* Loud exec + env banner (PAPER amber / LIVE-REAL destructive). */}
       <ExecBanner env={env} />
-      <SessionBar />
 
-      {/* Account summary + portfolio health row (read-only overview). */}
+      {/* (1) SESSION — the apex control, foregrounded: session status + its
+          Composition + Account + lifecycle/exec controls. */}
+      <SessionPanel env={env} />
+
+      {/* (2) ACCOUNT — the bound account's summary + portfolio health. */}
       <div className="grid grid-cols-1 gap-4">
         <AccountPanel accountId={accountId} variant="portfolio" />
         <HealthStrip />
       </div>
 
-      {/* Read-only book: positions + recent orders/fills + reconciliation, with
-          session controls. On mobile this stacks into a single column (the
-          explicit mobile cookie collapses the desktop 3-col split regardless of
-          viewport width — LOCKED DECISION 4). */}
-      <div className={cn("grid grid-cols-1 gap-4 ui-desktop:lg:grid-cols-3")}>
-        <div className={cn("space-y-4 ui-desktop:lg:col-span-2")}>
-          <PositionsTable accountId={accountId} />
-          <Blotter accountId={accountId} />
-          <FillsList accountId={accountId} />
-          <ReconciliationPanel />
-        </div>
-        <div className="space-y-4">
-          <SessionControls env={env} />
-        </div>
+      {/* (3) POSITIONS — the account's read-only book. */}
+      <div className="space-y-4">
+        <PositionsTable accountId={accountId} />
+        <Blotter accountId={accountId} />
+        <FillsList accountId={accountId} />
+        <ReconciliationPanel />
       </div>
     </main>
   );
