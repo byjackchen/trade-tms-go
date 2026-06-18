@@ -479,7 +479,7 @@ func TestEnsureFreshIncrementalSF1Filter(t *testing.T) {
 	ms := newMemStore()
 	lastSyncAt(t, ms, DatasetSEP, 2026, time.June, 11)
 	lastSyncAt(t, ms, DatasetSF1, 2026, time.June, 11)
-	// EVENTS never synced -> full fetch (no lastupdated filter).
+	// EVENTS has no data frontier here -> full fetch (no incremental filter).
 	s := newTestSyncer(t, fc, ms)
 
 	_, err := s.EnsureFresh(context.Background())
@@ -497,7 +497,39 @@ func TestEnsureFreshIncrementalSF1Filter(t *testing.T) {
 	assert.Contains(t, sf1Filters, LastUpdatedGTEFilter("2026-06-11"),
 		"synced SF1 uses the lastupdated.gte watermark (spec §6.6 IMPROVE)")
 	for _, f := range eventsFilters {
-		assert.NotEqual(t, "lastupdated.gte", f.Key, "unsynced EVENTS falls back to full fetch")
+		assert.NotEqual(t, "lastupdated.gte", f.Key, "EVENTS never sends a lastupdated filter")
+		assert.NotEqual(t, "date.gte", f.Key, "EVENTS without a data frontier falls back to full fetch")
+	}
+}
+
+// TestEnsureFreshIncrementalEventsUsesDateFilter is the EVENTS-catchup
+// regression: SHARADAR/EVENTS rejects a lastupdated filter (HTTP 422 QESx08),
+// so synced EVENTS must narrow by event date from the data frontier
+// (date.gte = max(event_date)) and must NEVER emit a lastupdated.gte filter.
+func TestEnsureFreshIncrementalEventsUsesDateFilter(t *testing.T) {
+	fc := &fakeClient{responses: map[string]fakeResponse{
+		"SHARADAR/TICKERS": tickersUniverseResponse(),
+	}}
+	ms := newMemStore()
+	lastSyncAt(t, ms, DatasetSEP, 2026, time.June, 11) // drives the catchup window
+	ms.frontier[DatasetEvents] = calendar.NewDate(2026, time.June, 10)
+	s := newTestSyncer(t, fc, ms)
+
+	_, err := s.EnsureFresh(context.Background())
+	require.NoError(t, err)
+
+	var eventsFilters []Filter
+	for _, c := range fc.calls {
+		if c.dataset == "SHARADAR/EVENTS" {
+			eventsFilters = c.filters
+		}
+	}
+	require.NotEmpty(t, eventsFilters, "EVENTS must be pulled in catchup")
+	assert.Contains(t, eventsFilters, DateGTEFilter("2026-06-10"),
+		"synced EVENTS narrows by event date from the data frontier, not lastupdated")
+	for _, f := range eventsFilters {
+		assert.NotEqual(t, "lastupdated.gte", f.Key,
+			"EVENTS must never send a lastupdated filter (SHARADAR/EVENTS rejects it, HTTP 422)")
 	}
 }
 

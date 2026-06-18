@@ -88,6 +88,13 @@ func LastUpdatedGTEFilter(date string) Filter {
 	return Filter{Key: "lastupdated.gte", Value: date}
 }
 
+// DateGTEFilter narrows a pull by event/observation date. SHARADAR/EVENTS
+// rejects a lastupdated filter (HTTP 422 QESx08), so EVENTS catchup uses this
+// against the stored data frontier instead of LastUpdatedGTEFilter.
+func DateGTEFilter(date string) Filter {
+	return Filter{Key: "date.gte", Value: date}
+}
+
 // RowFunc receives one decoded API row. Returning an error aborts the call.
 type RowFunc func(Row) error
 

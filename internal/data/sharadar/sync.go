@@ -531,16 +531,33 @@ func (s *Syncer) syncPerTicker(ctx context.Context, dataset string, tickers []st
 
 	var baseFilters []Filter
 	if incremental {
-		last, _, synced, err := s.store.Watermark(ctx, dataset)
-		if err != nil {
-			return 0, fmt.Errorf("reading %s watermark: %w", dataset, err)
-		}
-		if synced {
-			// Overlap by one day (NY date of the previous sync) — Sharadar
-			// stamps lastupdated by date, and the idempotent merge makes
-			// the repull safe.
-			since := calendar.DateOf(last, s.cal.Location())
-			baseFilters = append(baseFilters, LastUpdatedGTEFilter(since.String()))
+		if dataset == DatasetEvents {
+			// SHARADAR/EVENTS rejects a lastupdated filter (HTTP 422 QESx08), so
+			// it can't use the SF1-style lastupdated.gte watermark. Narrow it by
+			// event date from the stored data frontier (max(event_date)); the
+			// one-day-overlapping idempotent merge keeps same-day arrivals safe.
+			// Trade-off: date.gte cannot catch revisions to older-dated events
+			// re-published later (lastupdated would) — not available on EVENTS;
+			// a periodic WithFullRefetch pull is the mitigation.
+			frontier, ok, err := s.store.DataFrontier(ctx, dataset)
+			if err != nil {
+				return 0, fmt.Errorf("reading %s data frontier: %w", dataset, err)
+			}
+			if ok {
+				baseFilters = append(baseFilters, DateGTEFilter(frontier.String()))
+			}
+		} else {
+			last, _, synced, err := s.store.Watermark(ctx, dataset)
+			if err != nil {
+				return 0, fmt.Errorf("reading %s watermark: %w", dataset, err)
+			}
+			if synced {
+				// Overlap by one day (NY date of the previous sync) — Sharadar
+				// stamps lastupdated by date, and the idempotent merge makes
+				// the repull safe.
+				since := calendar.DateOf(last, s.cal.Location())
+				baseFilters = append(baseFilters, LastUpdatedGTEFilter(since.String()))
+			}
 		}
 	}
 
