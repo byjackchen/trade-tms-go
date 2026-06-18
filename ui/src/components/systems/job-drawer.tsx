@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { X, Ban, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { JobStatusBadge } from "@/components/systems/status-badge";
 import { ErrorState, LoadingRows } from "@/components/shell/states";
@@ -66,7 +68,8 @@ function JsonBlock({
 /**
  * Side drawer with the full detail of one job: status, progress, timing,
  * claimer, payload/result/error, plus cancel (queued/running) and retry
- * (failed/canceled) actions. The detail self-refreshes while the job is active.
+ * (failed/canceled) actions — each guarded behind a confirmation pop-up. The
+ * detail self-refreshes while the job is active.
  *
  * `seed` is the row the user clicked (so the drawer paints instantly); the live
  * GET /api/v1/jobs/{id} reconciles on top.
@@ -85,6 +88,16 @@ export function JobDrawer({
   const retry = useRetryJob();
   const { mode } = useUiMode();
   const bottom = mode === "mobile";
+
+  // Cancel/Retry are guarded behind a confirmation pop-up — the footer button
+  // only arms the dialog; the actual mutation fires from `runConfirm`.
+  const [confirm, setConfirm] = useState<null | "cancel" | "retry">(null);
+  const pending = cancel.isPending || retry.isPending;
+  const runConfirm = () => {
+    const onSettled = () => setConfirm(null);
+    if (confirm === "cancel") cancel.mutate({ id: jobId, actor: "ui" }, { onSettled });
+    else if (confirm === "retry") retry.mutate({ id: jobId, actor: "ui" }, { onSettled });
+  };
 
   const job = detail.data?.job ?? seed;
   const pct = job ? jobPct(job) : null;
@@ -286,8 +299,8 @@ export function JobDrawer({
               <Button
                 variant="destructive"
                 size="sm"
-                disabled={cancel.isPending}
-                onClick={() => cancel.mutate({ id: jobId, actor: "ui" })}
+                disabled={pending}
+                onClick={() => setConfirm("cancel")}
                 data-testid="job-drawer-cancel"
               >
                 <Ban />
@@ -298,8 +311,8 @@ export function JobDrawer({
               <Button
                 variant="outline"
                 size="sm"
-                disabled={retry.isPending}
-                onClick={() => retry.mutate({ id: jobId, actor: "ui" })}
+                disabled={pending}
+                onClick={() => setConfirm("retry")}
                 data-testid="job-drawer-retry"
               >
                 <RotateCw />
@@ -309,6 +322,55 @@ export function JobDrawer({
           </footer>
         ) : null}
       </aside>
+
+      {/* Confirmation pop-up for the cancel/retry actions (native <dialog>, so it
+          top-layers above the drawer). The mutation only fires on confirm. */}
+      <Dialog
+        open={confirm !== null}
+        onClose={() => {
+          if (!pending) setConfirm(null);
+        }}
+        title={confirm === "cancel" ? `Cancel job #${jobId}?` : `Retry job #${jobId}?`}
+        description={
+          confirm === "cancel"
+            ? "The worker is asked to stop; in-progress work is discarded."
+            : "A fresh attempt is re-queued from this job."
+        }
+        data-testid="job-confirm-dialog"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirm(null)}
+              disabled={pending}
+              data-testid="job-confirm-back"
+            >
+              Back
+            </Button>
+            <Button
+              variant={confirm === "cancel" ? "destructive" : "default"}
+              size="sm"
+              onClick={runConfirm}
+              disabled={pending}
+              data-testid="job-confirm-ok"
+            >
+              {confirm === "cancel" ? <Ban /> : <RotateCw />}
+              {confirm === "cancel"
+                ? cancel.isPending
+                  ? "Canceling…"
+                  : "Cancel job"
+                : retry.isPending
+                  ? "Retrying…"
+                  : "Retry job"}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">
+          <span className="font-mono">{job?.kind}</span>
+        </p>
+      </Dialog>
     </>
   );
 }
