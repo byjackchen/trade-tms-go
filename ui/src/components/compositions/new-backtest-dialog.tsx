@@ -125,9 +125,16 @@ export function NewBacktestDialog({
   }, [prefillCompositionId, prefillStrategy]);
 
   const [compositionId, setCompositionId] = useState<string>(initialCompositionId);
-  const [tickers, setTickers] = useState("AAPL");
+  // The universe is the FULL survivor-bias-free SF1 set by default — a SEPA
+  // backtest scans thousands of names to find the few that break out, so a single
+  // hand-picked ticker is a degenerate run. An explicit ticker list is OPTIONAL
+  // (blank by default); scripted runs still default to explicit (they need their
+  // own intents).
+  const [tickers, setTickers] = useState("");
   const [orbSymbol, setOrbSymbol] = useState("SPY");
-  const [intentSource, setIntentSource] = useState<IntentSource>("explicit");
+  const [intentSource, setIntentSource] = useState<IntentSource>(
+    initialCompositionId === SCRIPTED ? "explicit" : "universe",
+  );
   const [universeTable, setUniverseTable] = useState("SF1");
   const [start, setStart] = useState("2024-01-02");
   const [end, setEnd] = useState("2024-12-31");
@@ -508,9 +515,9 @@ export function NewBacktestDialog({
                 </Select>
                 {!isScripted ? (
                   <p className="text-xs text-muted-foreground">
-                    Optional: the SEPA member generates its own signals over this
-                    stock universe. Leave the ticker field empty to let the engine
-                    resolve a point-in-time universe.
+                    {intentSource === "universe"
+                      ? "Default: SEPA scans the FULL survivor-bias-free SF1 universe over the window — the few names that break out become trades. This is the representative SEPA backtest."
+                      : "Optional: restrict SEPA to a hand-picked ticker list. A single name is usually too narrow — SEPA finds setups by scanning the whole universe, so explicit tickers are for targeted studies only."}
                   </p>
                 ) : null}
               </div>

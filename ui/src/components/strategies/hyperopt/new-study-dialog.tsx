@@ -86,9 +86,12 @@ export function NewStudyDialog({
   const [walkForward, setWalkForward] = useState(true);
   const [folds, setFolds] = useState("5");
   const [embargoDays, setEmbargoDays] = useState("5");
-  const [tickers, setTickers] = useState("AAPL MSFT");
+  // Default to the FULL survivor-bias-free SF1 universe window: tuning SEPA's
+  // signal params against a couple of hand-picked names overfits to those names
+  // and is not representative. An explicit ticker list is OPTIONAL (blank).
+  const [tickers, setTickers] = useState("");
   const [universeMode, setUniverseMode] = useState<"tickers" | "window">(
-    "tickers",
+    "window",
   );
   const [universeTable, setUniverseTable] = useState("SF1");
   const [balance, setBalance] = useState("100000");
@@ -523,9 +526,14 @@ export function NewStudyDialog({
                 }
                 data-testid="study-universe-mode"
               >
-                <option value="tickers">Explicit tickers</option>
                 <option value="window">Point-in-time universe window</option>
+                <option value="tickers">Explicit tickers</option>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                {universeMode === "window"
+                  ? "Default: tune over the FULL survivor-bias-free SF1 universe — representative of how SEPA actually trades."
+                  : "Optional: a hand-picked ticker list overfits the params to those names; use only for targeted studies."}
+              </p>
               {universeMode === "tickers" ? (
                 <>
                   <Input
