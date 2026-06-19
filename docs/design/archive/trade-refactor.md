@@ -1,5 +1,10 @@
 # `live` → `trade` refactor + 2D (execution × account) separation
 
+> **ARCHIVED — COMPLETE.** Phases 1–6 are finished and the code reflects this
+> design; this file is kept only as a historical record of the decisions. For
+> current behavior read the source and `spec/`. See git history for the
+> implementation commits.
+
 Status: phases 1-6 complete. Locked decisions (operator, 2026-06-16):
 
 - **Full first-class account model** — a `tms.accounts` registry + `account_id` FK

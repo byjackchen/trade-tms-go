@@ -7,7 +7,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// Error codes used in the error envelope (documented in docs/api.md).
+// Error codes used in the error envelope (documented in docs/reference/api.md).
 const (
 	CodeUnauthorized = "unauthorized"
 	CodeValidation   = "validation"

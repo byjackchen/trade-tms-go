@@ -2,7 +2,7 @@ package api
 
 // ws.go implements GET /api/v1/ws: a fan-out hub that pushes job-queue and
 // dataset-sync events (bridged from Redis pub/sub) to every connected
-// client. Frame envelope (docs/api.md §WebSocket):
+// client. Frame envelope (docs/reference/api.md §WebSocket):
 //
 //	{"type": "hello"|"job"|"sync", "ts": "<RFC3339 UTC>", "payload": {...}}
 //

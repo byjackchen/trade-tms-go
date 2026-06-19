@@ -4,7 +4,7 @@ package nsga2
 // measures (1) the NSGA-II optimizer's pure trials/sec (the optimizer's own
 // ask/tell + non-dominated-sort + crowding overhead, with a near-zero
 // evaluator) and (2) parallel scaling under a fixed, CPU-bound per-trial cost
-// that approximates a backtest evaluation. Deliverable for docs/benchmarks.md
+// that approximates a backtest evaluation. Deliverable for docs/reference/benchmarks.md
 // (b): trials/sec + parallel scaling.
 
 import (
@@ -93,7 +93,7 @@ func BenchmarkOptimizerTrialsPerSec(b *testing.B) {
 }
 
 // benchScaling runs a fixed-cost-per-trial study at the given parallelism and
-// reports trials/sec, so docs/benchmarks.md can tabulate the scaling curve.
+// reports trials/sec, so docs/reference/benchmarks.md can tabulate the scaling curve.
 func benchScaling(b *testing.B, parallelism, busyIters int) {
 	sp := benchSpace(b)
 	const gens = 8 // 8 * 50 = 400 trials per op

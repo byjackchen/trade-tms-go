@@ -8,7 +8,7 @@
 // batch consumer (internal/engine), the streaming consumer
 // (internal/livengine), and the shared assembler (strategyassembly) without
 // creating an import cycle in any of them. The companion narrative lives in
-// docs/architecture.md (the "five modes, one engine" table); this package keeps
+// docs/reference/architecture.md (the "five modes, one engine" table); this package keeps
 // that document HONEST by failing the build if the shared-assembly invariant
 // ever regresses.
 package unified

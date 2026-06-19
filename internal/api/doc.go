@@ -2,7 +2,7 @@
 // coder/websocket) serving the UI: data coverage and freshness, ticker
 // search, dataset-sync history, job submission/inspection/cancellation,
 // universe snapshots, and a WebSocket fan-out of job/sync events bridged
-// from Redis pub/sub. The wire contract is docs/api.md.
+// from Redis pub/sub. The wire contract is docs/reference/api.md.
 //
 // The live-cockpit endpoints (backtest dumps, Redis stream reads, broker
 // proxy — docs/spec/api-ws-redis.md) mount here in a later build phase.

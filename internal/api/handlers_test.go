@@ -3,7 +3,7 @@ package api
 // handlers_test.go is the REST contract suite: every endpoint is exercised
 // for auth (401), input validation (400 / 404), and a happy path against the
 // in-memory stubs from stub_test.go. It is the executable companion to
-// docs/api.md.
+// docs/reference/api.md.
 
 import (
 	"context"

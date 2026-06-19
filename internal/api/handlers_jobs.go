@@ -19,7 +19,7 @@ const (
 	maxJobsLimit     = 500
 )
 
-// jobJSON is the wire shape of one job (docs/api.md).
+// jobJSON is the wire shape of one job (docs/reference/api.md).
 type jobJSON struct {
 	ID              int64           `json:"id"`
 	Kind            string          `json:"kind"`

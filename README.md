@@ -114,13 +114,15 @@ make lint       # vocabulary + import gates (parity-guard)
 
 ## Documentation
 
-| Doc | What |
+See [docs/README.md](docs/README.md) for the full index. Top-level map:
+
+| Folder | What |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | Hexagonal design, five-modes-one-engine, deterministic event loop, sync-core/async-edge, DB-as-truth, Redis-as-transport, native moomoo client, 4-factor live gate |
-| [docs/deployment.md](docs/deployment.md) | Compose profiles (app/live), env + secrets, host-OpenD (`host.docker.internal:11111`), first-boot migrate, Postgres backup/restore, scaling the worker |
-| [docs/api.md](docs/api.md) | REST + WebSocket API contract |
-| [docs/runbooks/](docs/runbooks/) | Operational runbooks (e.g. the deferred live OpenD smoke) |
-| [docs/spec/](docs/spec/) | Per-component specifications |
+| [docs/reference/](docs/reference/) | Living reference: [architecture](docs/reference/architecture.md), [API contract](docs/reference/api.md), [benchmarks](docs/reference/benchmarks.md), [strategy-research constraints](docs/reference/strategies-constraints.md) |
+| [docs/spec/](docs/spec/) | Per-component specifications (data, engine, risk, strategies, UI/CLI) |
+| [docs/design/](docs/design/) | Active design proposals (and `archive/` for completed refactors) |
+| [docs/deploy/](docs/deploy/) | [First-deploy](docs/deploy/first-deploy-playbook.md) and [redeploy](docs/deploy/redeploy-playbook.md) playbooks |
+| [docs/runbooks/](docs/runbooks/) | Operational runbooks (e.g. the live OpenD smoke) |
 
 ---
 

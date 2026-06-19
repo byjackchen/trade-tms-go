@@ -130,7 +130,7 @@ the API — no fabricated values. The four canonical strategy ids come from
 
 The Hyperopt studio ships after the P1 Data + P2 Backtests + P3 Strategies
 workspaces. Specs 13-17 are **permanent** and assert the documented contract
-(`docs/api.md` Hyperopt; conventional `data-testid`s: list root `hyperopt-page`
+(`docs/reference/api.md` Hyperopt; conventional `data-testid`s: list root `hyperopt-page`
 with `hyperopt-study-row-<ts>`; launch `hyperopt-launch` / `open-hyperopt-dialog`
 -> `hyperopt-dialog` / `hyperopt-form` with `hyperopt-{strategy,start,end,
 population,generations,folds,tickers}` + `hyperopt-submit`; the shared
@@ -153,7 +153,7 @@ source_id) — no fabricated values.
 
 The /trade cockpit ships in P5, after the P1 Data + P2 Backtests + P3
 Strategies/Hyperopt workspaces. Specs 18-23 are **permanent** and assert the
-documented contract (`docs/api.md` "Trade (P5)"; `docs/spec/portfolio-risk.md`,
+documented contract (`docs/reference/api.md` "Trade (P5)"; `docs/spec/portfolio-risk.md`,
 `docs/spec/ui-runner-modes-eod.md`). The gate runs `tms trade run --mode signal`
 against the in-repo **mock OpenD** (`TMS_MOOMOO_ADDR` → mock), which replays a
 day of bars out of Postgres, so a signal session emits intents into
@@ -203,7 +203,7 @@ the `MoomooExecutor` (decision 2) and the order-state machine (decision 3) into
 system-of-record). The real paper/live-account smoke is **deferred** to market
 hours (`docs/runbooks/trade-smoke.md`).
 
-Contract these specs assert (`docs/api.md` "Trade trading (P6, paper/live)";
+Contract these specs assert (`docs/reference/api.md` "Trade trading (P6, paper/live)";
 `docs/spec/portfolio-risk.md`). API reads: `GET /trade/{orders,fills,positions,
 account,reconciliation}` (503 when no trading reader — gated via
 `liveTradingAvailable()`). Commands: `flatten` / `emergency_kill` / `set_mode`
@@ -245,7 +245,7 @@ so the gate stays green; once wired the assertions bind and never weaken.
 ### Manual trading desk specs and build order (P6)
 
 Specs 32-38 cover the **operator-driven MANUAL trading desk** — the ONLY
-broker-mutation surface in the HTTP API (`docs/api.md` "Manual trading desk"). The
+broker-mutation surface in the HTTP API (`docs/reference/api.md` "Manual trading desk"). The
 desk lets the operator place / cancel / close orders **by hand** against a paper
 or live account, in ANY strategy mode (signal: the operator IS the executor;
 paper/live: an override alongside the auto book), attributed to the `MANUAL`
@@ -325,7 +325,7 @@ MANUAL-scoped `strategy_id = 'MANUAL'`) — no fabricated values.
 
 The Backtests workspace ships after the P1 Data workspace. Specs 07-09 (and the
 new detail console-errors case) are **permanent** and assert the documented
-contract (`docs/api.md` Backtests, conventional `data-testid`s mirroring the
+contract (`docs/reference/api.md` Backtests, conventional `data-testid`s mirroring the
 Data workspace: `open-backtest-dialog` / `backtest-form` / `backtest-submit`,
 the shared `job-progress` panel, `/backtests/{id}` `backtest-detail` with
 `metric-*` cards, `equity-chart`, `trades-table`, `orders-table`). While the UI

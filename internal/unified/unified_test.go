@@ -1,7 +1,7 @@
 package unified
 
 // unified_test.go is the executable unification proof. It asserts the thesis
-// stated in docs/architecture.md:
+// stated in docs/reference/architecture.md:
 //
 //	The five modes (backtest, hyperopt, signal, paper, live) run on ONE engine
 //	assembly. The strategy / portfolio / context set is IDENTICAL across modes;

@@ -34,7 +34,7 @@ import (
 )
 
 // newAPICmd implements `tms api`: the HTTP/WebSocket API for the UI
-// (contract: docs/api.md). Container-internal port 8080 (TMS_API_ADDR),
+// (contract: docs/reference/api.md). Container-internal port 8080 (TMS_API_ADDR),
 // host port 18080 via compose.
 //
 // Health model (same pattern as `tms worker`): the runtime image is
@@ -48,7 +48,7 @@ func newAPICmd(env *runtimeEnv) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "api",
 		Short: "Serve the HTTP/WebSocket API for the UI",
-		Long: "Serves the UI-facing REST + WebSocket API (contract: docs/api.md):\n" +
+		Long: "Serves the UI-facing REST + WebSocket API (contract: docs/reference/api.md):\n" +
 			"data coverage/freshness/gaps, ticker search, dataset-sync history,\n" +
 			"job enqueue/inspect/cancel, universe snapshots, and a WebSocket\n" +
 			"fan-out of job/sync events bridged from Redis pub/sub.\n\n" +

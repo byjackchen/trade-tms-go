@@ -77,7 +77,7 @@ type Deps struct {
 	Now func() time.Time
 }
 
-// Server is the HTTP/WebSocket API for the UI (contract: docs/api.md).
+// Server is the HTTP/WebSocket API for the UI (contract: docs/reference/api.md).
 type Server struct {
 	log           zerolog.Logger
 	token         string

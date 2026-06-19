@@ -17,7 +17,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/jobs/handlers"
 )
 
-// Limits and defaults for the data endpoints (documented in docs/api.md).
+// Limits and defaults for the data endpoints (documented in docs/reference/api.md).
 const (
 	// maxMissingDates caps the per-ticker gap drill-down list.
 	maxMissingDates = 1000

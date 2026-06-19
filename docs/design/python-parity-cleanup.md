@@ -96,7 +96,7 @@
 - **C3 文档**（彻底删，原则①，不归档）：
   - `docs/parity.md`、`docs/concept-alignment.md`：**直接删除**（已无参照对象，
     git 历史留存即可，不进 `docs/archive/`）。
-  - `docs/spec/*.md`、`docs/architecture.md` 等：删 `[MUST-MATCH]`/Python 引用段，
+  - `docs/spec/*.md`、`docs/reference/architecture.md` 等：删 `[MUST-MATCH]`/Python 引用段，
     spec 重述为"本库定义"。
 
 ## 5. 实施阶段（PR 切分，全部承诺执行）

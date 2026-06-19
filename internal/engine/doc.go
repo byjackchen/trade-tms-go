@@ -24,7 +24,7 @@
 // NOT merged into one hot-swappable engine: batch fill-timing and the live order
 // lifecycle are different loop drivers, and collapsing them would entangle the
 // deterministic fill simulation with the live submission path. (See
-// docs/architecture.md.)
+// docs/reference/architecture.md.)
 //
 // Rules:
 //   - Single-writer event loop; concurrency at the edges (feeds, exec).

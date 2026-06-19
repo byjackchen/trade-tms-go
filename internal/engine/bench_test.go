@@ -8,7 +8,7 @@ package engine
 //
 // The benchmark is hermetic: it builds its own in-memory SliceFeed and runs the
 // SAME engine.New/Run path as a real backtest. The custom `bars/sec` metric is
-// the deliverable for docs/benchmarks.md (a).
+// the deliverable for docs/reference/benchmarks.md (a).
 
 import (
 	"context"
@@ -134,7 +134,7 @@ func reportBarsPerSec(b *testing.B, bars int) {
 
 // BenchmarkEngineThroughput_5y_5sym is the headline backtest-engine throughput
 // number: 5 years x 5 instruments x 5 scripted strategies (~6300 bars). The
-// custom `bars/sec` metric is the deliverable for docs/benchmarks.md (a).
+// custom `bars/sec` metric is the deliverable for docs/reference/benchmarks.md (a).
 func BenchmarkEngineThroughput_5y_5sym(b *testing.B) {
 	cfg, feed, _ := benchEngineConfig(5, 5)
 	b.ReportAllocs()

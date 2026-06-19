@@ -12,7 +12,7 @@ import (
 	"github.com/byjackchen/trade-tms-go/internal/jobs/handlers"
 )
 
-// snapshotJSON is the wire shape of one universe snapshot (docs/api.md).
+// snapshotJSON is the wire shape of one universe snapshot (docs/reference/api.md).
 type snapshotJSON struct {
 	ID          int64             `json:"id"`
 	AsOf        string            `json:"as_of"`
