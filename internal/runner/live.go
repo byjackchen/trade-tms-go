@@ -491,7 +491,7 @@ func (l *Live) Run(ctx context.Context) error {
 				case <-ctx.Done():
 					return
 				case b := <-tape:
-					if err := l.publisher.PublishBar(ctx, b); err != nil {
+					if err := l.publisher.PublishBar(ctx, b, l.cfg.BarSeconds); err != nil {
 						l.log.Debug().Err(err).Msg("tape: publish bar failed (best-effort)")
 					}
 				}

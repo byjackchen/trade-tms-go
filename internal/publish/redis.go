@@ -162,7 +162,14 @@ type BarEnvelope struct {
 	Low     domain.Price `json:"low"`
 	Close   domain.Price `json:"close"`
 	Volume  int64        `json:"volume"`
-	TSInit  int64        `json:"ts_init"`
+	// IntervalSeconds is the K-line width (86400 daily; 60/300/900/... intraday).
+	// A DAILY bar is a trading DAY, not a moment — the UI formats it by its
+	// exchange-local trading DATE, and an intraday bar by local time-of-day.
+	IntervalSeconds int `json:"interval_seconds"`
+	// TradingDate is the exchange-local (America/New_York) calendar date the bar
+	// belongs to, "YYYY-MM-DD" — authoritative, so the UI needs no timezone math.
+	TradingDate string `json:"trading_date"`
+	TSInit      int64  `json:"ts_init"`
 }
 
 // StrategyStateEnvelope is the StrategyStateUpdate wire shape (§5.8):
@@ -227,21 +234,36 @@ func (p *Publisher) PublishSignal(ctx context.Context, n NormalizedSignal, tsEve
 	})
 }
 
+// tapeNYLoc is the exchange timezone used to stamp a bar's trading DATE on the
+// live tape. Best-effort: if tzdata is missing we fall back to UTC (the tape is
+// transport-only and must never panic the node over a display detail).
+var tapeNYLoc = func() *time.Location {
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		return time.UTC
+	}
+	return loc
+}()
+
 // PublishBar publishes one closed bar onto the live BAR tape (TopicBar). Pure
-// transport: best-effort, never persisted. Safe on a nil publisher.
-func (p *Publisher) PublishBar(ctx context.Context, b domain.Bar) error {
+// transport: best-effort, never persisted. Safe on a nil publisher. intervalSeconds
+// is the K-line width so the UI can format a daily bar by its trading DATE and an
+// intraday bar by time-of-day.
+func (p *Publisher) PublishBar(ctx context.Context, b domain.Bar, intervalSeconds int) error {
 	if p == nil {
 		return nil
 	}
 	return p.publish(ctx, TopicBar, BarEnvelope{
-		Symbol:  b.Symbol,
-		TSEvent: b.TS.UTC().UnixNano(),
-		Open:    b.Open,
-		High:    b.High,
-		Low:     b.Low,
-		Close:   b.Close,
-		Volume:  b.Volume,
-		TSInit:  p.nowNS(),
+		Symbol:          b.Symbol,
+		TSEvent:         b.TS.UTC().UnixNano(),
+		Open:            b.Open,
+		High:            b.High,
+		Low:             b.Low,
+		Close:           b.Close,
+		Volume:          b.Volume,
+		IntervalSeconds: intervalSeconds,
+		TradingDate:     b.TS.In(tapeNYLoc).Format("2006-01-02"),
+		TSInit:          p.nowNS(),
 	})
 }
 

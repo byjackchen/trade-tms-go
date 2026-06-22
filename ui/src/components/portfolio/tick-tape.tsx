@@ -89,7 +89,7 @@ export function TickTape() {
                   {fmtPrice(r.close)}
                 </span>
                 <span className="shrink-0 text-muted-foreground">
-                  {fmtTime(r.ts_event)}
+                  {fmtBarTime(r)}
                 </span>
               </li>
             );
@@ -105,8 +105,27 @@ function fmtPrice(n: number): string {
   return Number.isFinite(n) ? n.toFixed(2) : "—";
 }
 
-/** HH:MM:SS (24h) from an epoch-ns bar instant. */
-function fmtTime(ns: number): string {
-  if (!Number.isFinite(ns) || ns <= 0) return "—";
-  return new Date(ns / 1e6).toLocaleTimeString(undefined, { hour12: false });
+/**
+ * A DAILY bar is a trading DAY, not a moment, so show its exchange-local trading
+ * DATE (e.g. "Jun 22") — NOT the midnight-ET instant rendered in the viewer's
+ * timezone (which misleadingly reads as the previous evening). An intraday bar's
+ * instant IS meaningful, so show local time-of-day.
+ */
+function fmtBarTime(r: TapeRow): string {
+  if (r.interval_seconds >= 86400 && r.trading_date) {
+    // trading_date is an authoritative NY date "YYYY-MM-DD"; parse it as UTC
+    // midnight and render in UTC so the calendar date never shifts.
+    const d = new Date(`${r.trading_date}T00:00:00Z`);
+    return Number.isNaN(d.getTime())
+      ? r.trading_date
+      : d.toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+          timeZone: "UTC",
+        });
+  }
+  if (!Number.isFinite(r.ts_event) || r.ts_event <= 0) return "—";
+  return new Date(r.ts_event / 1e6).toLocaleTimeString(undefined, {
+    hour12: false,
+  });
 }

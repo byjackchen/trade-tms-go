@@ -1047,6 +1047,10 @@ export type WsBar = {
   low: number;
   close: number;
   volume: number;
+  /** K-line width in seconds (86400 daily; 60/300/900/… intraday). */
+  interval_seconds: number;
+  /** Exchange-local (America/New_York) trading date "YYYY-MM-DD" the bar belongs to. */
+  trading_date: string;
   ts_init: number;
 };
 
